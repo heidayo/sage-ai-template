@@ -24,43 +24,46 @@ SAGEは「AIにうまくコードを書かせるテクニック集」ではな�
 
 ```mermaid
 graph TB
-    subgraph L1["🟢 L1: Foundation — 常時ロード"]
-        CM[CLAUDE.md<br/>最小ブートストラップ]
-        AM[AGENTS.md<br/>Codex用ルール]
+    subgraph L1["🟢 L1: Foundation"]
+        CM["CLAUDE.md"]
+        AM["AGENTS.md"]
     end
 
-    subgraph L2["🟡 L2: Context-Aware — パス別自動ロード"]
-        R1[specs-rules.md]
-        R2[plans-rules.md]
-        R3[tasks-rules.md]
-        R4[src-rules.md]
-        R5[governance-rules.md]
+    subgraph L2["🟡 L2: Context-Aware"]
+        R1["specs-rules.md"]
+        R2["plans-rules.md"]
+        R3["tasks-rules.md"]
+        R4["src-rules.md"]
+        R5["governance-rules.md"]
     end
 
-    subgraph L3["🔵 L3: On-Demand — スキル呼び出し"]
-        S1[/sage-spec]
-        S2[/sage-plan]
-        S3[/sage-review]
-        S4[/sage-evaluate]
+    subgraph L3["🔵 L3: On-Demand"]
+        S1["sage-spec"]
+        S2["sage-plan"]
+        S3["sage-review"]
+        S4["sage-evaluate"]
     end
 
-    subgraph L4["🔴 L4: Enforcement — 機械強制"]
-        H1[commit-msg hook<br/>TASK-ID必須]
-        H2[CI Gate<br/>SPEC-ID必須]
-        H3[Quality Gates<br/>5段階チェック]
+    subgraph L4["🔴 L4: Enforcement"]
+        H1["commit-msg hook"]
+        H2["CI Gate"]
+        H3["Quality Gates"]
     end
 
-    CM --> R1 & R2 & R3 & R4 & R5
-    R1 & R2 & R3 --> S1 & S2
+    CM --> R1
+    CM --> R2
+    CM --> R3
+    CM --> R4
+    CM --> R5
+    R1 --> S1
+    R2 --> S2
+    R3 --> S1
     R4 --> S3
-    S1 & S2 --> S4
-    S4 -->|100点| H1
-    H1 --> H2 --> H3
-
-    style L1 fill:#d4edda,stroke:#28a745,color:#000
-    style L2 fill:#fff3cd,stroke:#ffc107,color:#000
-    style L3 fill:#cce5ff,stroke:#007bff,color:#000
-    style L4 fill:#f8d7da,stroke:#dc3545,color:#000
+    S1 --> S4
+    S2 --> S4
+    S4 -->|"100点"| H1
+    H1 --> H2
+    H2 --> H3
 ```
 
 ### 4層ガードレール構造
