@@ -1,0 +1,78 @@
+name: "SAGE Gate 5: Release"
+
+on:
+  pull_request:
+    branches: [main, production]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Release readiness check
+        id: release
+        run: |
+          set -euo pipefail
+          ERRORS=0
+
+          # Check SAGE structure
+          if bash scripts/sage-validate.sh; then
+            echo "OK: SAGE structure valid"
+          else
+            echo "FAIL: SAGE structure invalid"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+
+      - name: Comment result on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const marker = '<!-- sage-release-gate -->';
+            const errors = Number('${{ steps.release.outputs.errors }}' || '0');
+            const icon = errors === 0 ? '✅' : '❌';
+            const status = errors === 0 ? 'PASS' : 'FAIL';
+
+            const body = [
+              marker,
+              `## ${icon} SAGE Gate 5 (Release): ${status}`,
+              '',
+              `- Issues: **${errors}**`,
+              `- Commit: \`${context.sha.slice(0, 7)}\``,
+              `- Updated: ${new Date().toISOString()}`,
+              '',
+              '### Release Checklist',
+              '- [ ] All Gates (1-4) passed',
+              '- [ ] Migration safety verified',
+              '- [ ] Rollback plan exists',
+              '- [ ] Monitoring configured',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(c => (c.body || '').includes(marker));
+            const params = { owner: context.repo.owner, repo: context.repo.repo, body };
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+            } else {
+              await github.rest.issues.createComment({ ...params, issue_number: context.payload.pull_request.number });
+            }

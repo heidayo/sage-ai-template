@@ -1,0 +1,100 @@
+name: "SAGE Gate 2: Functional"
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/sage-functional-gate.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  functional:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- Tests ---
+      # Uncomment and configure for your language:
+      #
+      # Go:
+      # - name: Setup Go
+      #   uses: actions/setup-go@v5
+      #   with:
+      #     go-version-file: go.mod
+      # - name: Run tests
+      #   run: make test
+      #
+      # Node.js:
+      # - name: Setup Node
+      #   uses: actions/setup-node@v4
+      #   with:
+      #     node-version-file: '.node-version'
+      # - name: Install dependencies
+      #   run: npm ci
+      # - name: Run tests
+      #   run: npm test -- --coverage
+      #
+      # Python:
+      # - name: Setup Python
+      #   uses: actions/setup-python@v5
+      # - name: Run tests
+      #   run: |
+      #     pip install pytest pytest-cov
+      #     pytest --cov=src --cov-report=term-missing
+
+      - name: Placeholder (configure tests for your project)
+        run: |
+          echo "SAGE Gate 2: Functional tests"
+          echo "Configure test commands in this workflow for your project."
+          echo "See comments in this file for language-specific examples."
+
+      - name: Comment result on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const marker = '<!-- sage-functional-gate -->';
+            const status = '${{ job.status }}';
+            const title = status === 'success'
+              ? '✅ SAGE Gate 2 (Functional): PASS'
+              : '❌ SAGE Gate 2 (Functional): FAIL';
+
+            const body = [
+              marker,
+              `## ${title}`,
+              '',
+              `- Status: **${status}**`,
+              `- Commit: \`${context.sha.slice(0, 7)}\``,
+              `- Updated: ${new Date().toISOString()}`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(c => (c.body || '').includes(marker));
+            const params = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            };
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+            } else {
+              await github.rest.issues.createComment({ ...params, issue_number: context.payload.pull_request.number });
+            }

@@ -1,0 +1,77 @@
+# SAGE Runtime Configuration v0.1
+# This file defines quality gate thresholds, metrics schemas, and runtime settings.
+
+# --- Quality Gates ---
+quality_gates:
+  structural:
+    lint: required
+    format: required
+    type_check: required
+  functional:
+    unit_test_coverage: 0.80  # 80% minimum
+    integration_test: required
+  security:
+    secret_scan: required
+    dependency_vuln: required
+    sast: required
+  architecture:
+    layer_boundary: required
+    traceability: required
+  release:
+    migration_safety: required
+    rollback_plan: required
+    monitoring_ready: required
+
+# --- Metrics ---
+metrics:
+  cycle_time:
+    measure: "SPEC作成からPRマージまでの時間（時間単位）"
+    source: "GitHub API: issue created_at → PR merged_at"
+    target_p50: "24h"
+  gate_pass_rate:
+    measure: "CIゲート初回通過率"
+    source: "GitHub Actions: jobs結果"
+    target: ">= 0.8"
+  rework_rate:
+    measure: "同一TASK-IDに対する再コミット率"
+    source: "git log --grep=TASK-ID"
+    target: "<= 0.2"
+
+# --- Run Log Schema ---
+run_log_schema:
+  format: "yaml"
+  location: ".sage/runs/{RUN-ID}.yaml"
+  fields:
+    run_id: "RUN-XXXX"
+    task_id: "TASK-XXXX"
+    agent_id: "spec | planning | implementation | review | test | security | operations"
+    started_at: "ISO 8601"
+    completed_at: "ISO 8601"
+    status: "pass | fail | skipped"
+    files_changed: []
+    gate_results:
+      structural: "pass | fail"
+      functional: "pass | fail | skipped"
+      security: "pass | fail"
+    error_log: ""
+
+# --- ID Schema ---
+id_schema:
+  spec: "SPEC-{4-digit sequential}"
+  plan: "PLAN-{4-digit sequential}"
+  task: "TASK-{4-digit sequential}"
+  run: "RUN-{4-digit sequential}"
+  fail: "FAIL-{4-digit sequential}"
+  merge: "PR number from GitHub"
+
+# --- Anti-Pattern Detection Thresholds ---
+anti_pattern_detection:
+  big_bang_prompt:
+    signal: "Single commit touching >20 files without TASK-ID"
+    max_files_per_commit: 20
+  vibe_merge:
+    signal: "PR merged without any quality gate passing"
+  silent_scope_expansion:
+    signal: "Changes to files outside TASK File Scope"
+  invisible_development:
+    signal: "Commits without TASK-ID in message"

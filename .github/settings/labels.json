@@ -1,0 +1,62 @@
+[
+  {
+    "name": "sage:spec",
+    "color": "0052CC",
+    "description": "SAGE specification (SPEC-XXXX)"
+  },
+  {
+    "name": "sage:plan",
+    "color": "006B75",
+    "description": "SAGE implementation plan (PLAN-XXXX)"
+  },
+  {
+    "name": "sage:task",
+    "color": "1D76DB",
+    "description": "SAGE task (TASK-XXXX)"
+  },
+  {
+    "name": "sage:gate-pass",
+    "color": "0E8A16",
+    "description": "All quality gates passed"
+  },
+  {
+    "name": "sage:gate-fail",
+    "color": "D93F0B",
+    "description": "Quality gate failure"
+  },
+  {
+    "name": "sage:anti-pattern",
+    "color": "B60205",
+    "description": "Anti-pattern detected"
+  },
+  {
+    "name": "sage:review-needed",
+    "color": "FBCA04",
+    "description": "Awaiting SAGE review"
+  },
+  {
+    "name": "sage:phase-a",
+    "color": "C2E0C6",
+    "description": "Phase A: Foundation"
+  },
+  {
+    "name": "sage:phase-b",
+    "color": "BFD4F2",
+    "description": "Phase B: Guardrails"
+  },
+  {
+    "name": "sage:phase-c",
+    "color": "D4C5F9",
+    "description": "Phase C: Multi-Agent"
+  },
+  {
+    "name": "sage:phase-d",
+    "color": "F9D0C4",
+    "description": "Phase D: Learning System"
+  },
+  {
+    "name": "bug",
+    "color": "D73A49",
+    "description": "Bug report"
+  }
+]

@@ -1,0 +1,96 @@
+name: "SAGE Gate 4: Architecture"
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - '.github/workflows/sage-architecture-gate.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Traceability check
+        id: trace
+        run: |
+          set -euo pipefail
+          ERRORS=0
+
+          # Check PR body for SPEC-ID
+          PR_BODY="${{ github.event.pull_request.body }}"
+          if echo "$PR_BODY" | grep -qE 'SPEC-[0-9]{4}'; then
+            echo "OK: SPEC-ID found in PR body"
+          else
+            echo "WARNING: SPEC-ID not found in PR body"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          # Check recent commits for TASK-ID
+          COMMITS_WITHOUT_TASK=$(git log --oneline origin/${{ github.base_ref }}..HEAD | grep -cvE 'TASK-[0-9]{4}|^[a-f0-9]+ (Merge|initial)' || true)
+          if [ "$COMMITS_WITHOUT_TASK" -gt 0 ]; then
+            echo "WARNING: $COMMITS_WITHOUT_TASK commit(s) without TASK-ID"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "OK: All commits have TASK-ID"
+          fi
+
+          # Check for Big Bang Prompt (>20 files in single commit)
+          while IFS= read -r hash; do
+            FILES=$(git diff-tree --no-commit-id --name-only -r "$hash" | wc -l)
+            if [ "$FILES" -gt 20 ]; then
+              echo "WARNING: Big Bang Prompt detected in $hash ($FILES files)"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done < <(git log --format='%H' origin/${{ github.base_ref }}..HEAD)
+
+          echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+
+      - name: Comment result on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const marker = '<!-- sage-architecture-gate -->';
+            const errors = Number('${{ steps.trace.outputs.errors }}' || '0');
+            const status = errors === 0 ? 'PASS' : 'WARN';
+            const icon = errors === 0 ? '✅' : '⚠️';
+            const title = `${icon} SAGE Gate 4 (Architecture): ${status}`;
+
+            const body = [
+              marker,
+              `## ${title}`,
+              '',
+              `- Traceability issues: **${errors}**`,
+              `- Commit: \`${context.sha.slice(0, 7)}\``,
+              `- Updated: ${new Date().toISOString()}`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(c => (c.body || '').includes(marker));
+            const params = { owner: context.repo.owner, repo: context.repo.repo, body };
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+            } else {
+              await github.rest.issues.createComment({ ...params, issue_number: context.payload.pull_request.number });
+            }

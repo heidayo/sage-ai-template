@@ -1,0 +1,51 @@
+name: "SAGE Claude Code Review"
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-review') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            You are the SAGE Review Agent. Review this PR against SAGE principles.
+
+            Check the following in order:
+
+            1. **Spec Alignment**: Does this PR reference a SPEC-ID? Do changes match the spec?
+            2. **Responsibility Alignment**: Are changes within the assigned layer's responsibility?
+            3. **File Scope**: Are all changed files within the TASK's permitted scope?
+            4. **Complexity**: Any unnecessary abstractions or over-engineering?
+            5. **Test Adequacy**: Are normal, boundary, and error cases covered?
+            6. **Safety**: Any security concerns (secrets, injection, auth)?
+            7. **Anti-Patterns**: Check against SAGE anti-patterns:
+               - Vibe Merge (no quality gate pass)
+               - Big Bang Prompt (>20 files without TASK-ID)
+               - Silent Scope Expansion (changes outside scope)
+               - AI Monolith (all roles in one agent)
+               - Invisible Development (no traceability)
+
+            Reference: CLAUDE.md, sage/governance.md, sage/anti-patterns.md
+
+            Provide feedback in Japanese.
+          timeout_minutes: 10

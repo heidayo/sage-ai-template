@@ -1,1 +1,37 @@
+# SAGE Runtime (not version controlled)
+.sage/runs/
+.sage/metrics/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Dependencies (language-specific, add as needed)
+node_modules/
+vendor/
+__pycache__/
+*.pyc
+
+# Build artifacts
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*

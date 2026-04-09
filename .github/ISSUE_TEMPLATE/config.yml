@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: SAGE Documentation
+    url: https://github.com/your-org/sage-ai-template
+    about: SAGE Development System のドキュメントはこちら
