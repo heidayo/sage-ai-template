@@ -26,4 +26,12 @@
 
 ## 記録
 
-（ここに実際の失敗を追記する）
+### FAIL-0001
+- **発生日**: 2026-04
+- **TASK-ID**: SAGE-QUALITY-001
+- **該当アンチパターン**: なし（新規パターン）
+- **症状**: PRレビューでtrailing whitespace / 既存パターンと異なる記法 / 目的不明なコードが繰り返し指摘される
+- **根本原因**: AIが「動くコード」優先で既存ファイルの書式・パターンを確認せず、可読性・保守性の観点が欠落していた
+- **修正**: src-rules に Code readability セクション追加、sage-review に Code Quality 観点追加、sage-validate.sh にノイズ差分検出追加
+- **防止策**: セルフレビュー（src-rules）+ レビュー（sage-review）+ CI（sage-validate.sh Check 6）の3層で担保
+- **昇格済み**: No

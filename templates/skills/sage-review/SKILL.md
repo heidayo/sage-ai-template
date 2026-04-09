@@ -35,6 +35,13 @@ After implementation. Must be in a SEPARATE session from implementation.
 - Input validation at system boundaries
 - Dependencies up to date and secure
 
+### 7. Code Quality
+コードが「動く」だけでなく「読みやすく保守しやすい」かを確認:
+- **変更の意図性**: 各変更ブロックにTASK目的との対応があるか。目的を説明できない追加・変更がないか
+- **既存コードとの一貫性**: 同ファイル内の既存パターンと異なる記法・命名がある場合、改善の理由が説明できるか
+- **インターフェース設計**: 関数の引数設計に一貫性があるか（同種の値が引数と外部依存に分散していないか）
+- **セルフレビュー遵守**: src-rules の「Code readability and maintainability」が実際に守られているか
+
 ## Quality gates to verify
 | Gate | Checks |
 |------|--------|
@@ -56,6 +63,9 @@ Reference: `sage/anti-patterns.md`
 - Never approve changes that fail quality gates
 - Never approve changes outside TASK's File Scope
 - Flag new anti-patterns for `sage/anti-patterns.md`
+
+## After review
+レビューで新しい品質問題パターンを発見した場合、`sage/failures.md` に症状/原因/対策/検出層の4項目で追記すること。
 
 ## File scope for this skill
 - Read: all files

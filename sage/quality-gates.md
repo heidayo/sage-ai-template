@@ -17,8 +17,12 @@ SAGEでは5段階の品質ゲートを定義する。すべてのゲートはCI�
 | Type check | go vet / tsc / mypy | Yes |
 | Schema validation | oapi-codegen check / sqlc check | 条件付き |
 | SAGE structure | sage-validate.sh | Yes |
+| Noise diff check | git diff --check | Yes |
 
 **閾値**: エラー0件で通過。Warning は許容するがログに記録。
+ノイズ差分（trailing whitespace、行末改行変更など変更意図のない差分）: 0件。
+
+**注**: `git diff --check` はwhitespace系の差分のみ検出。変更意図のないリフォーマット、既存パターンとの不整合、投機的コードの混入はセルフレビュー（src-rules）およびレビュー（sage-review）で担保する。
 
 ---
 

@@ -9,7 +9,7 @@ echo "=== SAGE Validation ==="
 echo ""
 
 # --- CLAUDE.md Section Check ---
-echo "[1/5] CLAUDE.md 必須セクション検証..."
+echo "[1/6] CLAUDE.md 必須セクション検証..."
 REQUIRED_SECTIONS=(
   "Project Overview"
   "Instruction Priority"
@@ -39,7 +39,7 @@ fi
 echo ""
 
 # --- specs/_template.md Field Check ---
-echo "[2/5] テンプレート必須フィールド検証..."
+echo "[2/6] テンプレート必須フィールド検証..."
 
 if [ -f specs/_template.md ]; then
   REQUIRED_SPEC_FIELDS=("スコープ外" "受け入れ条件" "異常系" "契約" "リスク" "PLAN-ID")
@@ -85,7 +85,7 @@ fi
 echo ""
 
 # --- Directory Structure Check ---
-echo "[3/5] ディレクトリ構造検証..."
+echo "[3/6] ディレクトリ構造検証..."
 REQUIRED_DIRS=("specs" "plans" "tasks" "sage" ".sage" "docs" "scripts")
 for dir in "${REQUIRED_DIRS[@]}"; do
   if [ -d "$dir" ]; then
@@ -98,7 +98,7 @@ done
 echo ""
 
 # --- Document Integrity Check ---
-echo "[4/5] ドキュメント整合性チェック..."
+echo "[4/6] ドキュメント整合性チェック..."
 
 # SPEC-0002: Error Context Template
 if grep -q "Error Context Template" CLAUDE.md 2>/dev/null; then
@@ -134,13 +134,32 @@ fi
 echo ""
 
 # --- Vibe Branch Check ---
-echo "[5/5] ブランチ規約チェック..."
+echo "[5/6] ブランチ規約チェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
 if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
   echo "  ERROR: vibe/* ブランチから直接マージ禁止。staging経由 + SPEC作成後にmainへ"
   ERRORS=$((ERRORS + 1))
 else
   echo "  OK: ブランチ規約準拠 (${CURRENT_BRANCH:-unknown})"
+fi
+echo ""
+
+# --- Check 6: Noise Diff Check ---
+echo "[6/6] ノイズ差分チェック..."
+# CI環境では HEAD~1 比較、ローカルではステージング済みファイル比較
+if [ -n "${CI:-}" ]; then
+  DIFF_CMD="git diff HEAD~1 --check"
+else
+  DIFF_CMD="git diff --cached --check"
+fi
+NOISE=$($DIFF_CMD 2>/dev/null | grep -E "trailing whitespace|space before tab|new blank line at EOF" || true)
+if [ -n "$NOISE" ]; then
+  NOISE_COUNT=$(echo "$NOISE" | wc -l | tr -d ' ')
+  echo "  FAIL: $NOISE_COUNT noise diff(s) detected"
+  echo "  Fix: Remove trailing whitespace and unnecessary blank lines"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "  OK: ノイズ差分なし"
 fi
 echo ""
 

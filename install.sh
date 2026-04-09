@@ -275,9 +275,9 @@ SAGEは次を保証するために存在する。
 - なぜ落ちたかが分かる
 - どう直すかが再現できる
 
-## 9. 設計根拠 — 5つのソースとその思想
+## 9. 設計根拠 — 5つのソースから得た思想
 
-SAGEは5つのソースの思想を統合して生まれた。各ソースが担う核心思想を以下に明記する。
+SAGEは5つのソースの**思想・設計哲学**を統合して生まれた。ソースコードの統合ではない。各ソースから何を学び、SAGEのどの層に反映したかを以下に明記する。
 
 ### 9.1 go-boilerplate —「構造で守る」
 - AIが触っても壊れにくいコードベースを**先に設計する**思想
@@ -578,7 +578,15 @@ read -r -d '' TMPL_FAILURES <<'__EOF_TMPL_FAILURES__' || true
 
 ## 記録
 
-（ここに実際の失敗を追記する）
+### FAIL-0001
+- **発生日**: 2026-04
+- **TASK-ID**: SAGE-QUALITY-001
+- **該当アンチパターン**: なし（新規パターン）
+- **症状**: PRレビューでtrailing whitespace / 既存パターンと異なる記法 / 目的不明なコードが繰り返し指摘される
+- **根本原因**: AIが「動くコード」優先で既存ファイルの書式・パターンを確認せず、可読性・保守性の観点が欠落していた
+- **修正**: src-rules に Code readability セクション追加、sage-review に Code Quality 観点追加、sage-validate.sh にノイズ差分検出追加
+- **防止策**: セルフレビュー（src-rules）+ レビュー（sage-review）+ CI（sage-validate.sh Check 6）の3層で担保
+- **昇格済み**: No
 
 __EOF_TMPL_FAILURES__
 
@@ -728,8 +736,12 @@ SAGEでは5段階の品質ゲートを定義する。すべてのゲートはCI�
 | Type check | go vet / tsc / mypy | Yes |
 | Schema validation | oapi-codegen check / sqlc check | 条件付き |
 | SAGE structure | sage-validate.sh | Yes |
+| Noise diff check | git diff --check | Yes |
 
 **閾値**: エラー0件で通過。Warning は許容するがログに記録。
+ノイズ差分（trailing whitespace、行末改行変更など変更意図のない差分）: 0件。
+
+**注**: `git diff --check` はwhitespace系の差分のみ検出。変更意図のないリフォーマット、既存パターンとの不整合、投機的コードの混入はセルフレビュー（src-rules）およびレビュー（sage-review）で担保する。
 
 ---
 
@@ -1316,6 +1328,29 @@ When writing or modifying source code:
 - Changes outside assigned File Scope
 - Silent scope expansion (adding unspecified changes)
 
+## Before starting
+実装開始前に `sage/failures.md` を確認し、過去に同様のパターンで失敗していないか確認すること。
+
+## Code readability and maintainability
+
+コードは正しく動くだけでなく、他の開発者（人間・AI問わず）が読んで理解・保守できることを重視する。コミット前に以下を確認すること:
+
+### Intentional changes only
+- 変更ブロックごとにTASK目的との対応を説明できるか。説明できない追加・変更は削除する
+- 変更対象外の行に差分が出ていないか（trailing whitespace、行末改行の変更等）
+
+### Consistency with existing code
+- 同ファイル・同モジュール内に同等の処理パターンがある場合、既存のパターン・命名・記法に合わせる
+- 既存パターンと異なる書き方をする場合は、改善の理由を説明できること（既存が悪い場合は改善してよい）
+
+### Readable intent
+- 非自明な制御フロー（early return、条件分岐、例外処理）の意図がコードだけで伝わらない場合、コメントで補足する
+- 関数のインターフェース設計に一貫性を持たせる（条件分岐に使う値の一部だけを引数にして残りを外部依存にしない）
+
+### No speculative code
+- 「念のため」や「将来使うかもしれない」コードを追加しない
+- 追加するコードは全て、現在のTASKの完了に必要な理由を説明できること
+
 ## Error resolution protocol
 When an error occurs:
 1. Record the error with TASK-ID in the run log
@@ -1541,6 +1576,13 @@ After implementation. Must be in a SEPARATE session from implementation.
 - Input validation at system boundaries
 - Dependencies up to date and secure
 
+### 7. Code Quality
+コードが「動く」だけでなく「読みやすく保守しやすい」かを確認:
+- **変更の意図性**: 各変更ブロックにTASK目的との対応があるか。目的を説明できない追加・変更がないか
+- **既存コードとの一貫性**: 同ファイル内の既存パターンと異なる記法・命名がある場合、改善の理由が説明できるか
+- **インターフェース設計**: 関数の引数設計に一貫性があるか（同種の値が引数と外部依存に分散していないか）
+- **セルフレビュー遵守**: src-rules の「Code readability and maintainability」が実際に守られているか
+
 ## Quality gates to verify
 | Gate | Checks |
 |------|--------|
@@ -1562,6 +1604,9 @@ Reference: `sage/anti-patterns.md`
 - Never approve changes that fail quality gates
 - Never approve changes outside TASK's File Scope
 - Flag new anti-patterns for `sage/anti-patterns.md`
+
+## After review
+レビューで新しい品質問題パターンを発見した場合、`sage/failures.md` に症状/原因/対策/検出層の4項目で追記すること。
 
 ## File scope for this skill
 - Read: all files
@@ -2027,7 +2072,7 @@ echo "=== SAGE Validation ==="
 echo ""
 
 # --- CLAUDE.md Section Check ---
-echo "[1/5] CLAUDE.md 必須セクション検証..."
+echo "[1/6] CLAUDE.md 必須セクション検証..."
 REQUIRED_SECTIONS=(
   "Project Overview"
   "Instruction Priority"
@@ -2057,7 +2102,7 @@ fi
 echo ""
 
 # --- specs/_template.md Field Check ---
-echo "[2/5] テンプレート必須フィールド検証..."
+echo "[2/6] テンプレート必須フィールド検証..."
 
 if [ -f specs/_template.md ]; then
   REQUIRED_SPEC_FIELDS=("スコープ外" "受け入れ条件" "異常系" "契約" "リスク" "PLAN-ID")
@@ -2103,7 +2148,7 @@ fi
 echo ""
 
 # --- Directory Structure Check ---
-echo "[3/5] ディレクトリ構造検証..."
+echo "[3/6] ディレクトリ構造検証..."
 REQUIRED_DIRS=("specs" "plans" "tasks" "sage" ".sage" "docs" "scripts")
 for dir in "${REQUIRED_DIRS[@]}"; do
   if [ -d "$dir" ]; then
@@ -2116,7 +2161,7 @@ done
 echo ""
 
 # --- Document Integrity Check ---
-echo "[4/5] ドキュメント整合性チェック..."
+echo "[4/6] ドキュメント整合性チェック..."
 
 # SPEC-0002: Error Context Template
 if grep -q "Error Context Template" CLAUDE.md 2>/dev/null; then
@@ -2152,13 +2197,32 @@ fi
 echo ""
 
 # --- Vibe Branch Check ---
-echo "[5/5] ブランチ規約チェック..."
+echo "[5/6] ブランチ規約チェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
 if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
   echo "  ERROR: vibe/* ブランチから直接マージ禁止。staging経由 + SPEC作成後にmainへ"
   ERRORS=$((ERRORS + 1))
 else
   echo "  OK: ブランチ規約準拠 (${CURRENT_BRANCH:-unknown})"
+fi
+echo ""
+
+# --- Check 6: Noise Diff Check ---
+echo "[6/6] ノイズ差分チェック..."
+# CI環境では HEAD~1 比較、ローカルではステージング済みファイル比較
+if [ -n "${CI:-}" ]; then
+  DIFF_CMD="git diff HEAD~1 --check"
+else
+  DIFF_CMD="git diff --cached --check"
+fi
+NOISE=$($DIFF_CMD 2>/dev/null | grep -E "trailing whitespace|space before tab|new blank line at EOF" || true)
+if [ -n "$NOISE" ]; then
+  NOISE_COUNT=$(echo "$NOISE" | wc -l | tr -d ' ')
+  echo "  FAIL: $NOISE_COUNT noise diff(s) detected"
+  echo "  Fix: Remove trailing whitespace and unnecessary blank lines"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "  OK: ノイズ差分なし"
 fi
 echo ""
 
