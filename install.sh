@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="0.1.0"
+SAGE_VERSION="0.2.0"
 
 # === Embedded templates ===
 

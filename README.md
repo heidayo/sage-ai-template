@@ -238,9 +238,46 @@ SAGEは段階的に導入します。`install.sh` はPhase Aを自動セット�
 
 詳細は [sage/adoption-phases.md](sage/adoption-phases.md) を参照。
 
-## テンプレートの更新（管理者向け）
+## Gist の設定（管理者向け）
 
-sage-ai-templateを更新した場合：
+### 初回：Gist を作成する
+
+```bash
+# 1. install.sh を生成
+bash scripts/generate-installer.sh > install.sh
+
+# 2. GitHub CLI で secret Gist を作成
+gh gist create install.sh --desc "SAGE Development System Installer"
+# → https://gist.github.com/YOUR_USER/GIST_ID が表示される
+```
+
+表示されたURLを控えてください。raw URLは以下の形式になります：
+```
+https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh
+```
+
+### 導入先プロジェクトでの設定
+
+`install.sh` を実行した後、`.sage/config.yaml` の `installer_url` を設定します：
+
+```yaml
+# .sage/config.yaml
+auto_update:
+  installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
+```
+
+これにより、各プロジェクトで日次の自動更新チェックが有効になります。
+
+### 更新：Gist を更新する
+
+sage-ai-template を更新した場合：
+
+```bash
+# ワンコマンドで更新（バージョン・再生成・Gist更新を一括実行）
+bash scripts/sage-publish.sh 0.2.0
+```
+
+または手動で：
 
 ```bash
 # 1. バージョンを上げる
@@ -249,7 +286,29 @@ echo "0.2.0" > .sage-version
 # 2. install.sh を再生成する
 bash scripts/generate-installer.sh > install.sh
 
-# 3. install.sh を配布する（Gist、Slack、社内URLなど）
+# 3. Gist を更新する
+gh gist edit GIST_ID install.sh
+
+# 4. 各プロジェクトは次回セッション開始時に自動更新される
+```
+
+> **Note**: `sage-publish.sh` を使う場合は、初回に `.sage/gist-id` ファイルにGist IDを保存してください。
+> ```bash
+> echo "YOUR_GIST_ID" > .sage/gist-id
+> ```
+
+## テンプレートの更新（手動配布の場合）
+
+Gistを使わず手動で配布する場合：
+
+```bash
+# 1. バージョンを上げる
+echo "0.2.0" > .sage-version
+
+# 2. install.sh を再生成する
+bash scripts/generate-installer.sh > install.sh
+
+# 3. install.sh を配布する（Slack、社内URLなど）
 
 # 4. 各プロジェクトで再実行してもらう
 bash install.sh

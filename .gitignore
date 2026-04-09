@@ -1,6 +1,7 @@
 # SAGE Runtime (not version controlled)
 .sage/runs/
 .sage/metrics/
+.sage/gist-id
 
 # OS
 .DS_Store
