@@ -75,3 +75,8 @@ anti_pattern_detection:
     signal: "Changes to files outside TASK File Scope"
   invisible_development:
     signal: "Commits without TASK-ID in message"
+
+# --- Auto Update ---
+auto_update:
+  installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
+  check_interval: "daily"

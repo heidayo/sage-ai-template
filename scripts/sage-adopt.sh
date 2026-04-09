@@ -18,15 +18,15 @@ echo ""
 # -----------------------------------------------
 # 1. ディレクトリ作成
 # -----------------------------------------------
-echo "[1/6] ディレクトリ作成..."
-mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts
-echo "  OK: specs/ plans/ tasks/ sage/ .sage/ docs/ scripts/"
+echo "[1/8] ディレクトリ作成..."
+mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-evaluate/references
+echo "  OK: specs/ plans/ tasks/ sage/ .sage/ docs/ scripts/ .claude/rules/ .claude/skills/"
 
 # -----------------------------------------------
 # 2. テンプレートコピー（存在しない場合のみ）
 # -----------------------------------------------
 echo ""
-echo "[2/6] テンプレートコピー..."
+echo "[2/8] テンプレートコピー..."
 for f in specs/_template.md plans/_template.md tasks/_template.md; do
   if [ -f "$f" ]; then
     echo "  SKIP: $f (already exists)"
@@ -59,7 +59,7 @@ elif [ -f "$TEMPLATE_DIR/.sage/config.yaml" ]; then
 fi
 
 # scripts コピー
-for f in scripts/sage-validate.sh scripts/sage-id-gen.sh scripts/sage-trace-check.sh; do
+for f in scripts/sage-validate.sh scripts/sage-id-gen.sh scripts/sage-trace-check.sh scripts/sage-update-check.sh; do
   if [ -f "$f" ]; then
     echo "  SKIP: $f (already exists)"
   elif [ -f "$TEMPLATE_DIR/$f" ]; then
@@ -72,16 +72,122 @@ for f in scripts/sage-validate.sh scripts/sage-id-gen.sh scripts/sage-trace-chec
 done
 
 # -----------------------------------------------
-# 3. CLAUDE.md — SAGEルール自動追記
+# 3. .claude/rules/ コピー
 # -----------------------------------------------
 echo ""
-echo "[3/6] CLAUDE.md 設定..."
+echo "[3/8] .claude/rules/ コピー..."
+for f in templates/rules/specs-rules.md templates/rules/plans-rules.md templates/rules/tasks-rules.md templates/rules/src-rules.md templates/rules/sage-governance-rules.md; do
+  target=".claude/rules/$(basename "$f")"
+  if [ -f "$target" ]; then
+    echo "  SKIP: $target (already exists)"
+  elif [ -f "$TEMPLATE_DIR/$f" ]; then
+    cp "$TEMPLATE_DIR/$f" "$target"
+    echo "  COPY: $target"
+  else
+    echo "  SKIP: $target (source not found)"
+  fi
+done
+
+# -----------------------------------------------
+# 4. .claude/skills/ コピー
+# -----------------------------------------------
+echo ""
+echo "[4/8] .claude/skills/ コピー..."
+for skill in sage-spec sage-plan sage-review; do
+  target=".claude/skills/$skill/SKILL.md"
+  source="$TEMPLATE_DIR/templates/skills/$skill/SKILL.md"
+  if [ -f "$target" ]; then
+    echo "  SKIP: $target (already exists)"
+  elif [ -f "$source" ]; then
+    cp "$source" "$target"
+    echo "  COPY: $target"
+  else
+    echo "  SKIP: $target (source not found)"
+  fi
+done
+
+# sage-evaluate（SKILL.md + references/）
+for f in SKILL.md references/scoring-rubric.md references/knowledge-base.md; do
+  target=".claude/skills/sage-evaluate/$f"
+  source="$TEMPLATE_DIR/templates/skills/sage-evaluate/$f"
+  if [ -f "$target" ]; then
+    echo "  SKIP: $target (already exists)"
+  elif [ -f "$source" ]; then
+    cp "$source" "$target"
+    echo "  COPY: $target"
+  else
+    echo "  SKIP: $target (source not found)"
+  fi
+done
+
+# -----------------------------------------------
+# Audit function for existing CLAUDE.md
+# -----------------------------------------------
+audit_existing_claude_md() {
+  local file="$1"
+  local report=".sage/adoption-audit.md"
+
+  echo "# SAGE Adoption Audit" > "$report"
+  echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$report"
+  echo "" >> "$report"
+
+  local rules=$(grep -E "^[\t ]*[-*]" "$file" | grep -v "^#" | grep -v '^\s*$')
+
+  echo "## Analysis" >> "$report"
+  echo "" >> "$report"
+
+  echo "### SAFE_AUTO_APPLY" >> "$report"
+  echo "These rules do not conflict with SAGE. No action needed." >> "$report"
+  echo "$rules" | while IFS= read -r line; do
+    if [ -n "$line" ] && ! echo "$line" | grep -qiE "commit|task|spec|todo|fixme|test|scope|review"; then
+      echo "- $line" >> "$report"
+    fi
+  done
+  echo "" >> "$report"
+
+  echo "### NEEDS_REVIEW" >> "$report"
+  echo "These rules may overlap with SAGE. Review recommended." >> "$report"
+  echo "$rules" | while IFS= read -r line; do
+    if [ -n "$line" ] && echo "$line" | grep -qiE "spec|scope|review|test|coverage"; then
+      if ! echo "$line" | grep -qiE "commit.*id|task.*id|no commit|skip test"; then
+        echo "- $line" >> "$report"
+      fi
+    fi
+  done
+  echo "" >> "$report"
+
+  echo "### CONFLICT" >> "$report"
+  echo "These rules may conflict with SAGE. Do NOT auto-merge." >> "$report"
+  echo "$rules" | while IFS= read -r line; do
+    if [ -n "$line" ] && echo "$line" | grep -qiE "commit.*message|commit.*format|task.*id|ticket.*id|todo.*ok|fixme.*allow|skip.*test"; then
+      echo "- $line (conflicts with SAGE commit/test rules)" >> "$report"
+    fi
+  done
+  echo "" >> "$report"
+
+  echo "## Recommendation" >> "$report"
+  echo "- SAFE_AUTO_APPLY items: no action needed" >> "$report"
+  echo "- NEEDS_REVIEW items: check if your project rules and SAGE rules overlap. Remove duplicates." >> "$report"
+  echo "- CONFLICT items: resolve manually before relying on SAGE enforcement." >> "$report"
+
+  echo "  AUDIT: Report written to $report"
+}
+
+# -----------------------------------------------
+# 5. CLAUDE.md — SAGEルール自動追記
+# -----------------------------------------------
+echo ""
+echo "[5/8] CLAUDE.md 設定..."
 SAGE_MARKER="<!-- === SAGE Development System (auto-injected) === -->"
 
 if [ -f CLAUDE.md ]; then
   if grep -qF "$SAGE_MARKER" CLAUDE.md; then
     echo "  SKIP: CLAUDE.md (SAGE section already present)"
   else
+    # Existing CLAUDE.md without SAGE — run audit first
+    if [ -s CLAUDE.md ]; then
+      audit_existing_claude_md CLAUDE.md
+    fi
     echo "" >> CLAUDE.md
     cat "$TEMPLATE_DIR/templates/claude-md-snippet.md" >> CLAUDE.md
     echo "  APPEND: CLAUDE.md (SAGE workflow rules added)"
@@ -102,10 +208,10 @@ HEADER
 fi
 
 # -----------------------------------------------
-# 4. AGENTS.md — Codex 対応
+# 6. AGENTS.md — Codex 対応
 # -----------------------------------------------
 echo ""
-echo "[4/6] AGENTS.md 設定 (Codex対応)..."
+echo "[6/8] AGENTS.md 設定 (Codex対応)..."
 
 if [ -f AGENTS.md ]; then
   if grep -qF "$SAGE_MARKER" AGENTS.md; then
@@ -121,10 +227,10 @@ else
 fi
 
 # -----------------------------------------------
-# 5. Pre-commit hook（TASK-ID 必須チェック）
+# 7. Pre-commit hook（TASK-ID 必須チェック）
 # -----------------------------------------------
 echo ""
-echo "[5/6] Pre-commit hook 設定..."
+echo "[7/8] Pre-commit hook 設定..."
 
 # Git リポジトリかチェック
 if [ -d .git ]; then
@@ -154,10 +260,10 @@ else
 fi
 
 # -----------------------------------------------
-# 6. .gitignore 更新
+# 8. .gitignore 更新
 # -----------------------------------------------
 echo ""
-echo "[6/6] .gitignore 更新..."
+echo "[8/8] .gitignore 更新..."
 if [ ! -f .gitignore ]; then
   touch .gitignore
 fi
@@ -176,7 +282,9 @@ echo ""
 echo "導入されたもの:"
 echo "  - specs/, plans/, tasks/  テンプレート"
 echo "  - sage/                   ガバナンス文書"
-echo "  - CLAUDE.md               AIが自動でSAGEを守るルール"
+echo "  - .claude/rules/          パス別ルール（5ファイル）"
+echo "  - .claude/skills/         ワークフロー（/sage-spec, /sage-plan, /sage-review）"
+echo "  - CLAUDE.md               AIが自動でSAGEを守るルール（最小ブートストラップ）"
 echo "  - AGENTS.md               Codex用ルール"
 echo "  - commit-msg hook         TASK-IDなしコミット防止"
 echo ""
