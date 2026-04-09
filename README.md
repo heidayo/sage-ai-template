@@ -445,4 +445,4 @@ bash scripts/sage-publish.sh 0.3.0
 
 ## ライセンス
 
-MIT License
+All Rights Reserved. ライセンスは未定です。
