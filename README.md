@@ -1,213 +1,423 @@
 # SAGE Development System
 
-**SAGE** = Spec-driven, Agent-governed, Guard-railed, Evolving
+> **S**pec-driven, **A**gent-governed, **G**uard-railed, **E**volving
 
-AI駆動開発において、複数のAIが同時に開発しても品質・安全性・一貫性が崩れない開発体系。
+複数のAIエージェントが同時にコードを書く環境で、**人間の規律に頼らずアーキテクチャで品質を保証する**開発体系。
 
-## SAGEとは
+---
 
-SAGEは「AIにうまくコードを書かせるテクニック集」ではありません。
+## なぜ SAGE が必要か
 
-**AIが逸脱しにくい構造を先に作る技術**です。
+従来の「人間がレビューで品質を守る」方式は、AIエージェントの並列開発では機能しない。
+
+```
+❌ 従来：人間の規律 → レビューが追いつかない → 品質崩壊
+✅ SAGE：構造が強制 → AIが勝手に守る → 品質維持
+```
+
+SAGEは「AIにうまくコードを書かせるテクニック集」ではない。
+**AIが逸脱しにくい構造を先に作る技術**。
+
+---
+
+## アーキテクチャ全体図
+
+```mermaid
+graph TB
+    subgraph L1["🟢 L1: Foundation — 常時ロード"]
+        CM[CLAUDE.md<br/>最小ブートストラップ]
+        AM[AGENTS.md<br/>Codex用ルール]
+    end
+
+    subgraph L2["🟡 L2: Context-Aware — パス別自動ロード"]
+        R1[specs-rules.md]
+        R2[plans-rules.md]
+        R3[tasks-rules.md]
+        R4[src-rules.md]
+        R5[governance-rules.md]
+    end
+
+    subgraph L3["🔵 L3: On-Demand — スキル呼び出し"]
+        S1[/sage-spec]
+        S2[/sage-plan]
+        S3[/sage-review]
+        S4[/sage-evaluate]
+    end
+
+    subgraph L4["🔴 L4: Enforcement — 機械強制"]
+        H1[commit-msg hook<br/>TASK-ID必須]
+        H2[CI Gate<br/>SPEC-ID必須]
+        H3[Quality Gates<br/>5段階チェック]
+    end
+
+    CM --> R1 & R2 & R3 & R4 & R5
+    R1 & R2 & R3 --> S1 & S2
+    R4 --> S3
+    S1 & S2 --> S4
+    S4 -->|100点| H1
+    H1 --> H2 --> H3
+
+    style L1 fill:#d4edda,stroke:#28a745,color:#000
+    style L2 fill:#fff3cd,stroke:#ffc107,color:#000
+    style L3 fill:#cce5ff,stroke:#007bff,color:#000
+    style L4 fill:#f8d7da,stroke:#dc3545,color:#000
+```
+
+### 4層ガードレール構造
+
+| 層 | 名前 | 役割 | いつ動くか |
+|----|------|------|-----------|
+| 🟢 **L1** | **Foundation** | CLAUDE.md / AGENTS.md。AIが最初に読む「憲法」 | **毎セッション自動** |
+| 🟡 **L2** | **Context-Aware** | `.claude/rules/`。パス別の詳細ルール | **該当ファイル操作時のみ** |
+| 🔵 **L3** | **On-Demand** | `.claude/skills/`。ワークフロー + 自動採点 | **`/sage-spec` 等で呼んだ時のみ** |
+| 🔴 **L4** | **Enforcement** | commit-msg hook + CI Gate + Quality Gates | **コミット・PR時に機械強制** |
+
+---
+
+## 開発ライフサイクル
+
+```mermaid
+graph LR
+    A["📝 Specify<br/>仕様定義"] --> B["📐 Plan<br/>実装計画"]
+    B --> C["✂️ Slice<br/>タスク分割"]
+    C --> D["⚡ Execute<br/>実装"]
+    D --> E["✅ Verify<br/>検証"]
+    E --> F["🔀 Merge<br/>統合"]
+    F --> G["👁️ Observe<br/>観察"]
+    G -.->|フィードバック| A
+
+    style A fill:#e8f5e9,stroke:#4caf50,color:#000
+    style B fill:#e8f5e9,stroke:#4caf50,color:#000
+    style C fill:#fff8e1,stroke:#ff9800,color:#000
+    style D fill:#fff8e1,stroke:#ff9800,color:#000
+    style E fill:#e3f2fd,stroke:#2196f3,color:#000
+    style F fill:#e3f2fd,stroke:#2196f3,color:#000
+    style G fill:#fce4ec,stroke:#e91e63,color:#000
+```
+
+### 自動採点ループ（100点到達まで）
+
+SPEC / PLAN 完了時に自動で `/sage-evaluate` が起動し、**100点になるまで改善を繰り返す**。
+
+```mermaid
+graph TD
+    START["SPEC/PLAN 作成完了"] --> SCORE["6軸で採点"]
+    SCORE --> CHECK{100点?}
+    CHECK -->|No| FIX["減点箇所を自動修正"]
+    FIX --> SCORE
+    CHECK -->|Yes| DONE["✅ 実装開始可能"]
+
+    style START fill:#e8f5e9,stroke:#4caf50,color:#000
+    style SCORE fill:#fff8e1,stroke:#ff9800,color:#000
+    style CHECK fill:#e3f2fd,stroke:#2196f3,color:#000
+    style FIX fill:#fce4ec,stroke:#e91e63,color:#000
+    style DONE fill:#d4edda,stroke:#28a745,color:#000
+```
+
+| 軸 | 満点 | 何を見るか |
+|----|------|-----------|
+| ① Codified Rules | **20点** | CLAUDE.md連携・Forbidden Shortcuts・機械的ゲート |
+| ② Atomic Decomposition | **20点** | タスク独立性・依存グラフ・完了条件 |
+| ③ Spec-Driven Development | **20点** | SPEC-ID・受け入れ条件・エラーケース |
+| ④ Observable Development | **20点** | 検証コマンド・テスト種別・フィードバック |
+| ⑤ Knowledge Management | **15点** | failures.md連携・Error Resolution |
+| ⑥ 段階採用戦略 | **5点** | 影響ゼロ設計・ロールバック手順 |
+
+| スコア | グレード | 判定 |
+|--------|---------|------|
+| **100** | 🏆 S++ | 完璧。即実装可 |
+| 95-99 | ⭐ S+ | ほぼ完成。微修正で到達可能 |
+| 90-94 | ✨ S | 優秀。小改善あり |
+| 85-89 | 🔹 A- | 良好。改善推奨 |
+| 70-84 | 🔸 B | 基本OK。要改善 |
+| ~69 | ⚠️ C | 大幅改善必要 |
+
+---
 
 ## 導入方法
 
-### 1. install.sh を取得する
-
-このリポジトリの `install.sh` を入手してください（Gist、Slack、社内URLなど）。
-
-### 2. 導入したいリポジトリで実行する
+### Step 1: install.sh を取得して実行する
 
 ```bash
 cd /path/to/your-project
-bash install.sh
+curl -fsSL https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh | bash
 ```
 
-これだけで完了です。以下が自動的にセットアップされます：
-
-| セットアップ内容 | 説明 |
-|----------------|------|
-| `specs/`, `plans/`, `tasks/` | 仕様書・計画書・タスクのテンプレート |
-| `sage/` | ガバナンス文書（原則・品質ゲート・アンチパターン） |
-| `.claude/rules/` | パス別ルール（5ファイル、該当パス操作時のみ自動読み込み） |
-| `.claude/skills/` | ワークフロー（`/sage-spec` `/sage-plan` `/sage-review`） |
-| `CLAUDE.md` への追記 | 最小ブートストラップ（15-20行のルーティング） |
-| `AGENTS.md` の作成 | Codexが自動でSAGEに従うルール |
-| `commit-msg` フック | TASK-IDなしのコミットを自動で拒否 |
-| `scripts/` | ID生成・構造検証スクリプト |
-
-**既存ファイルは上書きしません。** CLAUDE.mdが既にある場合は監査レポート（`.sage/adoption-audit.md`）を生成してからSAGEセクションを追記します。
-
-### 3. 普通に開発を始める
-
-開発者が特別なことをする必要はありません。Claude CodeやCodexを開いてチャットを始めるだけです。
-
-```
-開発者：「お気に入りボタンを追加して」
-    ↓
-AI：CLAUDE.mdを自動で読む
-    ↓
-AI：「SPECが見つかりません。まず仕様を整理しましょう」
-```
-
-AIが自動的にSAGEのワークフローに従います。
-
-### 更新方法
-
-#### 自動更新（推奨）
-
-`.sage/config.yaml` に `installer_url` を設定すると、AIが毎日自動でバージョンチェック＆更新します。
-
-```yaml
-# .sage/config.yaml
-auto_update:
-  installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
-```
-
-仕組み：
-- Claude Code / Codex がセッション開始時に `sage-update-check.sh` を自動実行
-- 1日1回だけチェック（同日2回目以降はスキップ）
-- 新バージョンがあれば自動で `install.sh --update` を実行
-- ネットワークエラーやURL未設定の場合は警告のみで開発を止めない
-
-#### 手動更新
-
-新しい `install.sh` を同じプロジェクトで再実行するだけです。
+または `install.sh` を直接ダウンロードして実行:
 
 ```bash
 bash install.sh
 ```
 
-- バージョンが上がっていれば自動でアップデートモードになります
-- CLAUDE.mdのプロジェクト固有部分はそのまま残ります
-- `sage/failures.md` や `.sage/config.yaml` など、プロジェクト固有データも保持されます
+### Step 2: 完了
 
-### カスタマイズと更新の共存
-
-SAGE更新時にプロジェクト固有の設定が消えないよう、以下のルールで管理されています。
-
-| やりたいこと | やり方 | 更新時 |
-|------------|--------|--------|
-| プロジェクト固有ルールを追加 | CLAUDE.md の SAGEマーカーより**上**に書く | 安全（マーカー間だけ置換） |
-| パス別ルールを追加 | `.claude/rules/` に**別名で**ファイル作成 | 安全（SAGEは自分のファイルだけ上書き） |
-| スキルを追加 | `.claude/skills/` に**別名で**ディレクトリ作成 | 安全 |
-| SAGEのルールを上書き | `.claude/rules/` に同じ globs で優先ルールを書く | 安全 |
-| SAGE管理ファイルを直接編集 | **やらない** | 上書きされて消える |
-
-#### SAGE管理ファイル一覧（更新時に上書きされるもの）
+これだけです。以下が自動セットアップされます：
 
 ```
-.claude/rules/specs-rules.md       ← SAGE管理
-.claude/rules/plans-rules.md       ← SAGE管理
-.claude/rules/tasks-rules.md       ← SAGE管理
-.claude/rules/src-rules.md         ← SAGE管理
-.claude/rules/sage-governance-rules.md ← SAGE管理
-.claude/skills/sage-spec/SKILL.md  ← SAGE管理
-.claude/skills/sage-plan/SKILL.md  ← SAGE管理
-.claude/skills/sage-review/SKILL.md ← SAGE管理
-sage/charter.md, governance.md ... ← SAGE管理
-scripts/sage-*.sh                  ← SAGE管理
+your-project/
+├── 🟢 CLAUDE.md              ← AI が毎セッション自動で読む
+├── 🟢 AGENTS.md              ← Codex が自動で読む
+├── 🟡 .claude/rules/         ← パス別ルール（5ファイル）
+├── 🔵 .claude/skills/        ← ワークフロー（4スキル）
+├── 📝 specs/                 ← SPEC テンプレート
+├── 📐 plans/                 ← PLAN テンプレート
+├── ✂️  tasks/                 ← TASK テンプレート
+├── 📜 sage/                  ← ガバナンス文書
+├── 🔴 .git/hooks/commit-msg  ← TASK-ID 強制
+└── ⚙️  scripts/               ← ID生成・検証
 ```
 
-#### 安全にカスタマイズする例
+### Step 3: 普通に開発を始める
 
-```bash
-# プロジェクト固有のAPIルールを追加
-cat > .claude/rules/my-api-rules.md << 'EOF'
+```mermaid
+sequenceDiagram
+    participant Dev as 👤 開発者
+    participant AI as 🤖 AI Agent
+    participant SAGE as 📜 SAGE
+
+    Dev->>AI: 「お気に入りボタンを追加して」
+    AI->>SAGE: CLAUDE.md を読む
+    SAGE-->>AI: SPECなしの実装は禁止
+    AI->>Dev: 「SPECが見つかりません。<br/>まず仕様を整理しましょう」
+    Dev->>AI: 仕様を一緒に作成
+    AI->>SAGE: /sage-evaluate で自動採点
+    SAGE-->>AI: 100点到達 ✅
+    AI->>Dev: 「実装を開始します」
+```
+
 ---
-description: "Project-specific API rules"
-globs: ["src/api/**", "src/routes/**"]
----
-# API Rules
-- All endpoints must return JSON
-- Authentication required on all routes except /health
-- Rate limiting must be configured
-EOF
-
-# CLAUDE.md にプロジェクト固有ルールを追加（SAGEマーカーの上に書く）
-# ※ SAGEマーカー（<!-- === SAGE ... === -->）より下は触らない
-```
-
-## 仕組み：4層の自動防御
-
-開発者は何も意識しなくてOK。4層で自動的にSAGEが守られます。
-
-```
-第1層：CLAUDE.md / AGENTS.md（常時ロード）
-  → 最小ブートストラップ（15-20行）。SPECなしの実装を拒否
-
-第2層：.claude/rules/（パス別自動ロード）
-  → specs/ plans/ tasks/ src/ sage/ 操作時に該当ルールだけ読み込み
-
-第3層：.claude/skills/（オンデマンド）
-  → /sage-spec /sage-plan /sage-review で詳細ワークフローを呼び出し
-
-第4層：commit-msg hook + CI Gate（機械強制）
-  → TASK-IDなしコミット拒否 + SPEC-IDなしPRマージ防止
-```
-
-## 核心思想
-
-1. **仕様が最上位の真実** — コードは成果物であり、真実ではない
-2. **AIは制約内の実行者** — 仕様・役割・権限・制約・検証の中で働く
-3. **品質は検証から生まれる** — モデルの優秀さではなく、構造と検証の強さ
-4. **並列化は分割設計** — AIを増やすのではなく、責務を分けて粒度を整える
-5. **人間は監督者** — 目的定義・仕様承認・優先順位・例外判断・最終責任
-
-## 標準ライフサイクル
-
-```
-Specify → Plan → Slice → Execute → Verify → Merge → Observe
-（仕様）   （計画） （分割）  （実装）  （検証）  （統合） （観察）
-```
 
 ## AIエージェントでの運用
 
-Claude Code・Codex などで開発する場合、セッションを3つに分けます：
+### セッション分離（必須）
 
-| セッション | 役割 | やること |
-|-----------|------|---------|
-| A | 仕様 | SPECとTASKを作る |
-| B | 実装 | TASKのFile Scopeに従ってコードを書く |
-| C | レビュー | SPECとの整合性を確認する |
+```mermaid
+graph LR
+    A["🅰️ 仕様セッション<br/>SPEC + PLAN + TASK"]
+    B["🅱️ 実装セッション<br/>コーディング"]
+    C["🅲️ レビューセッション<br/>品質検証"]
 
-同じセッションで実装とレビューを行わないでください。
+    A -->|100点到達| B
+    B --> C
+    C -.->|問題あり| A
+
+    style A fill:#e8f5e9,stroke:#4caf50,color:#000
+    style B fill:#fff8e1,stroke:#ff9800,color:#000
+    style C fill:#e3f2fd,stroke:#2196f3,color:#000
+```
+
+| セッション | 役割 | 使うスキル | 禁止事項 |
+|-----------|------|-----------|---------|
+| 🅰️ **仕様** | SPEC・PLAN・TASKを作る | `/sage-spec` `/sage-plan` | コードを書かない |
+| 🅱️ **実装** | TASKのFile Scopeに従って実装 | — | File Scope外を触らない |
+| 🅲️ **レビュー** | SPECとの整合性を確認 | `/sage-review` | コードを修正しない |
+
+> **鉄則**: 同じセッションで実装とレビューを行わない
+
+---
+
+## 核心思想
+
+| # | 原則 | 説明 |
+|---|------|------|
+| 1 | 📝 **仕様が最上位の真実** | コードは成果物であり、真実ではない |
+| 2 | 🤖 **AIは制約内の実行者** | 仕様・役割・権限・制約・検証の中で働く |
+| 3 | ✅ **品質は検証から生まれる** | モデルの優秀さではなく、構造と検証の強さ |
+| 4 | ✂️ **並列化は分割設計** | AIを増やすのではなく、責務を分けて粒度を整える |
+| 5 | 👤 **人間は監督者** | 目的定義・仕様承認・優先順位・例外判断・最終責任 |
+
+---
 
 ## ディレクトリ構成
 
 ```
 .
-├── CLAUDE.md              # 最小ブートストラップ（15-20行、ルーティングのみ）
-├── AGENTS.md              # Codex向けルール（自動で読まれる）
-├── .claude/
-│   ├── rules/             # パス別ルール（該当ファイル操作時のみ読み込み）
-│   │   ├── specs-rules.md
-│   │   ├── plans-rules.md
-│   │   ├── tasks-rules.md
-│   │   ├── src-rules.md
-│   │   └── sage-governance-rules.md
-│   └── skills/            # オンデマンドワークフロー
-│       ├── sage-spec/     # /sage-spec で呼び出し
-│       ├── sage-plan/     # /sage-plan で呼び出し
-│       └── sage-review/   # /sage-review で呼び出し
-├── sage/                  # SAGE憲章・原則・品質ゲート・アンチパターン
-├── specs/                 # SPEC-XXXX 仕様書
-├── plans/                 # PLAN-XXXX 実装計画
-├── tasks/                 # TASK-XXXX タスク定義
-├── docs/                  # アーキテクチャ・ルール・フロー文書
-├── scripts/               # 検証・ID生成スクリプト
-├── .sage/                 # ランタイム設定・実行ログ
-└── .github/               # CI/CDワークフロー
+├── 🟢 CLAUDE.md                    # 最小ブートストラップ（~20行）
+├── 🟢 AGENTS.md                    # Codex向けルール
+│
+├── 🟡 .claude/
+│   ├── rules/                      # パス別ルール（自動ロード）
+│   │   ├── specs-rules.md          # specs/** 操作時
+│   │   ├── plans-rules.md          # plans/** 操作時
+│   │   ├── tasks-rules.md          # tasks/** 操作時
+│   │   ├── src-rules.md            # src/** app/** 操作時
+│   │   └── sage-governance-rules.md # sage/** 操作時
+│   │
+│   └── skills/                     # オンデマンドワークフロー
+│       ├── 🔵 sage-spec/           # /sage-spec → SPEC作成
+│       ├── 🔵 sage-plan/           # /sage-plan → PLAN+TASK作成
+│       ├── 🔵 sage-review/         # /sage-review → コードレビュー
+│       └── 🔵 sage-evaluate/       # /sage-evaluate → 自動採点（100点ループ）
+│           └── references/         # 採点基準・知識ベース
+│
+├── 📝 specs/                       # SPEC-XXXX 仕様書
+├── 📐 plans/                       # PLAN-XXXX 実装計画
+├── ✂️  tasks/                       # TASK-XXXX タスク定義
+├── 📜 sage/                        # ガバナンス文書（人間の承認が必要）
+├── ⚙️  scripts/                     # ID生成・検証・公開スクリプト
+├── 🔴 .git/hooks/                  # commit-msg hook（TASK-ID強制）
+├── 🔧 .sage/                       # ランタイム設定・実行ログ
+└── 🔴 .github/                     # CI/CDワークフロー
 ```
 
-### 関心の分離
+---
 
-| 層 | 何を置くか | いつ読まれるか |
-|----|-----------|---------------|
-| `CLAUDE.md` | 最小ルーティング | 毎セッション |
-| `.claude/rules/` | パス別の詳細ルール | 該当ファイル操作時のみ |
-| `.claude/skills/` | ワークフロー手順 | `/sage-spec` 等で呼んだ時のみ |
-| hooks / CI | 機械的チェック | コミット・PR時 |
+## カスタマイズと更新の共存
+
+```mermaid
+graph TD
+    subgraph SAFE["✅ 安全（更新で消えない）"]
+        A["CLAUDE.md<br/>SAGEマーカーの上"]
+        B[".claude/rules/<br/>別名ファイル"]
+        C[".claude/skills/<br/>別名ディレクトリ"]
+        D[".sage/config.yaml"]
+        E["sage/failures.md"]
+    end
+
+    subgraph DANGER["⚠️ 上書きされる（編集禁止）"]
+        F["specs-rules.md 等<br/>SAGE管理の5ファイル"]
+        G["sage-spec/ 等<br/>SAGE管理の4スキル"]
+        H["sage/*.md<br/>ガバナンス文書"]
+        I["scripts/sage-*.sh"]
+    end
+
+    style SAFE fill:#d4edda,stroke:#28a745,color:#000
+    style DANGER fill:#f8d7da,stroke:#dc3545,color:#000
+```
+
+| やりたいこと | やり方 | 更新時 |
+|:------------|:-------|:------:|
+| プロジェクト固有ルールを追加 | CLAUDE.md のSAGEマーカーより**上**に書く | ✅ 安全 |
+| パス別ルールを追加 | `.claude/rules/` に**別名で**ファイル作成 | ✅ 安全 |
+| スキルを追加 | `.claude/skills/` に**別名で**ディレクトリ作成 | ✅ 安全 |
+| SAGE管理ファイルを直接編集 | **やらない** | ❌ 消える |
+
+---
+
+## 更新方法
+
+### 自動更新（推奨）
+
+`.sage/config.yaml` に `installer_url` を設定するだけ：
+
+```yaml
+auto_update:
+  installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
+```
+
+```mermaid
+graph LR
+    A["🤖 セッション開始"] --> B["sage-update-check.sh"]
+    B --> C{今日チェック済み?}
+    C -->|Yes| D["スキップ"]
+    C -->|No| E["Gist からバージョン取得"]
+    E --> F{新バージョン?}
+    F -->|No| G["最新です"]
+    F -->|Yes| H["自動更新実行"]
+
+    style A fill:#e8f5e9,stroke:#4caf50,color:#000
+    style H fill:#fff8e1,stroke:#ff9800,color:#000
+    style D fill:#f5f5f5,stroke:#9e9e9e,color:#000
+    style G fill:#f5f5f5,stroke:#9e9e9e,color:#000
+```
+
+### 手動更新
+
+```bash
+bash install.sh
+```
+
+---
+
+## 既存 CLAUDE.md がある場合
+
+初回導入時に既存ルールを自動監査します。
+
+```mermaid
+graph TD
+    A["install.sh 実行"] --> B{CLAUDE.md<br/>は存在する?}
+    B -->|No| C["新規作成"]
+    B -->|Yes| D{SAGEセクション<br/>は存在する?}
+    D -->|Yes| E["SAGEセクションだけ置換"]
+    D -->|No| F["🔍 監査レポート生成<br/>.sage/adoption-audit.md"]
+    F --> G["SAGEセクションを追記"]
+
+    style F fill:#fff8e1,stroke:#ff9800,color:#000
+    style C fill:#d4edda,stroke:#28a745,color:#000
+    style E fill:#e3f2fd,stroke:#2196f3,color:#000
+```
+
+### 監査レポートの3区分
+
+| 区分 | 意味 | 対応 |
+|:-----|:-----|:-----|
+| ✅ **SAFE_AUTO_APPLY** | SAGEと無関係 | 何もしなくてOK |
+| 🟡 **NEEDS_REVIEW** | SAGEと重複の可能性 | 手動で確認、重複を削除 |
+| 🔴 **CONFLICT** | SAGEと矛盾の可能性 | **手動で解決が必要** |
+
+---
+
+## Gist の設定（管理者向け）
+
+### 初回セットアップ
+
+```bash
+# 1. GitHub CLI 認証
+gh auth login
+
+# 2. install.sh を生成 & Gist 作成
+bash scripts/generate-installer.sh > install.sh
+gh gist create install.sh --desc "SAGE Development System Installer"
+
+# 3. Gist ID を保存
+echo "YOUR_GIST_ID" > .sage/gist-id
+```
+
+### 更新（ワンコマンド）
+
+```bash
+bash scripts/sage-publish.sh 0.3.0
+```
+
+```
+=========================================
+  SAGE Publish: v0.2.0 → v0.3.0
+=========================================
+[1/3] バージョン更新...     OK
+[2/3] install.sh 再生成...  OK
+[3/3] Gist 更新...          OK
+=========================================
+各プロジェクトは次回セッション開始時に自動更新されます。
+```
+
+---
+
+## 導入フェーズ
+
+`install.sh` は Phase A を自動セットアップします。
+
+```mermaid
+graph LR
+    A["🟢 Phase A<br/>Foundation"] --> B["🟡 Phase B<br/>Guardrails"]
+    B --> C["🔵 Phase C<br/>Multi-Agent"]
+    C --> D["🟣 Phase D<br/>Learning System"]
+
+    style A fill:#d4edda,stroke:#28a745,color:#000
+    style B fill:#fff3cd,stroke:#ffc107,color:#000
+    style C fill:#cce5ff,stroke:#007bff,color:#000
+    style D fill:#e8daef,stroke:#8e44ad,color:#000
+```
+
+| Phase | 内容 | 状態 |
+|-------|------|:----:|
+| 🟢 **A: Foundation** | 仕様テンプレ・タスクテンプレ・基本CI・境界定義 | ✅ 自動 |
+| 🟡 **B: Guardrails** | architecture check・security scan・レビュールール | 📋 手動 |
+| 🔵 **C: Multi-Agent** | 実装/レビューAI分離・テストAI・並列タスク分解 | 📋 手動 |
+| 🟣 **D: Learning System** | 実行履歴分析・失敗パターン蓄積・テンプレ改善 | 📋 手動 |
+
+詳細は [sage/adoption-phases.md](sage/adoption-phases.md) を参照。
+
+---
 
 ## よく使うコマンド
 
@@ -223,96 +433,12 @@ bash scripts/sage-id-gen.sh task
 
 # 構造検証
 bash scripts/sage-validate.sh
+
+# SAGE を公開（管理者）
+bash scripts/sage-publish.sh 0.3.0
 ```
 
-## 導入フェーズ
-
-SAGEは段階的に導入します。`install.sh` はPhase Aを自動セットアップします。
-
-| Phase | 内容 |
-|-------|------|
-| A: Foundation | 仕様テンプレ・タスクテンプレ・基本CI・境界定義 |
-| B: Guardrails | architecture check・security scan・レビュールール |
-| C: Multi-Agent | 実装/レビューAI分離・テストAI・並列タスク分解 |
-| D: Learning System | 実行履歴分析・失敗パターン蓄積・テンプレ改善 |
-
-詳細は [sage/adoption-phases.md](sage/adoption-phases.md) を参照。
-
-## Gist の設定（管理者向け）
-
-### 初回：Gist を作成する
-
-```bash
-# 1. install.sh を生成
-bash scripts/generate-installer.sh > install.sh
-
-# 2. GitHub CLI で secret Gist を作成
-gh gist create install.sh --desc "SAGE Development System Installer"
-# → https://gist.github.com/YOUR_USER/GIST_ID が表示される
-```
-
-表示されたURLを控えてください。raw URLは以下の形式になります：
-```
-https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh
-```
-
-### 導入先プロジェクトでの設定
-
-`install.sh` を実行した後、`.sage/config.yaml` の `installer_url` を設定します：
-
-```yaml
-# .sage/config.yaml
-auto_update:
-  installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
-```
-
-これにより、各プロジェクトで日次の自動更新チェックが有効になります。
-
-### 更新：Gist を更新する
-
-sage-ai-template を更新した場合：
-
-```bash
-# ワンコマンドで更新（バージョン・再生成・Gist更新を一括実行）
-bash scripts/sage-publish.sh 0.2.0
-```
-
-または手動で：
-
-```bash
-# 1. バージョンを上げる
-echo "0.2.0" > .sage-version
-
-# 2. install.sh を再生成する
-bash scripts/generate-installer.sh > install.sh
-
-# 3. Gist を更新する
-gh gist edit GIST_ID install.sh
-
-# 4. 各プロジェクトは次回セッション開始時に自動更新される
-```
-
-> **Note**: `sage-publish.sh` を使う場合は、初回に `.sage/gist-id` ファイルにGist IDを保存してください。
-> ```bash
-> echo "YOUR_GIST_ID" > .sage/gist-id
-> ```
-
-## テンプレートの更新（手動配布の場合）
-
-Gistを使わず手動で配布する場合：
-
-```bash
-# 1. バージョンを上げる
-echo "0.2.0" > .sage-version
-
-# 2. install.sh を再生成する
-bash scripts/generate-installer.sh > install.sh
-
-# 3. install.sh を配布する（Slack、社内URLなど）
-
-# 4. 各プロジェクトで再実行してもらう
-bash install.sh
-```
+---
 
 ## ライセンス
 
