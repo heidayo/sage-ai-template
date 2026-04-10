@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="0.2.0"
+SAGE_VERSION="0.3.0"
 
 # === Embedded templates ===
 
@@ -485,6 +485,29 @@ AIに以下を許可しない:
 - 既存境界をまたぐ無断修正
 - 実行ログなしの変更
 
+### 4.4 Claude Code Hooks
+
+セッション中の自動防御として、以下の5つの hooks を `.claude/settings.json` に設定する:
+
+| Hook | イベント | プロファイル | 動作 |
+|------|---------|------------|------|
+| block-dangerous-commands | PreToolUse (Bash) | standard+ | `--no-verify`, `--force`, `rm -rf` をブロック |
+| protect-sage-files | PreToolUse (Edit\|Write) | standard+ | CLAUDE.md, sage/, .sage/config.yaml の無断変更をブロック |
+| check-file-scope | PreToolUse (Edit\|Write) | standard(warn) / strict(block) | TASK の File Scope 外のファイル編集を検出 |
+| session-start | SessionStart | minimal+ | 直近 RUN ログ・保留 TASK・failures.md 要約をコンテキストに注入 |
+| session-stop | Stop | minimal+ | セッションメトリクスを `.sage/metrics/sessions.jsonl` に記録 |
+
+#### Hook プロファイル
+
+`.sage/config.yaml` の `hooks.profile` で制御:
+
+| プロファイル | Phase | 有効な hooks |
+|-------------|-------|------------|
+| minimal | Phase A | session-start + session-stop のみ |
+| standard | Phase B | minimal + 危険コマンドブロック + SAGE ファイル保護 |
+| strict | Phase C+ | standard + File Scope チェックをブロック化 |
+| none | — | 全 hooks 無効 |
+
 ---
 
 ## 5. マルチエージェント競合解決
@@ -708,6 +731,8 @@ git log --oneline -n 1 | grep -qE 'TASK-[0-9]{4}' || echo "WARNING: Invisible De
 
 **防止策**: すべてのルールは CI または pre-commit hook で強制
 
+**現状 (v0.2)**: SPEC-0002 で CI Gate を enforcement 化（WARN→FAIL）、SPEC-0003 で Claude Code hooks を実装（危険コマンドブロック・設定ファイル保護）。AP-06 は部分的に解消。残存リスク: Branch protection の自動設定は未実装（手動設定が必要）。
+
 ---
 
 ## 昇格ルール
@@ -748,6 +773,8 @@ SAGEでは5段階の品質ゲートを定義する。すべてのゲートはCI�
 **閾値**: エラー0件で通過。Warning は許容するがログに記録。
 ノイズ差分（trailing whitespace、行末改行変更など変更意図のない差分）: 0件。
 
+**設定方法**: `.sage/config.yaml` の `project_checks.lint` / `format` / `type_check` にコマンドを設定する。未設定のチェックは SKIPPED として扱われる（偽PASSにはならない）。
+
 **注**: `git diff --check` はwhitespace系の差分のみ検出。変更意図のないリフォーマット、既存パターンとの不整合、投機的コードの混入はセルフレビュー（src-rules）およびレビュー（sage-review）で担保する。
 
 ---
@@ -766,6 +793,8 @@ SAGEでは5段階の品質ゲートを定義する。すべてのゲートはCI�
 - カバレッジ: **80%以上**（`.sage/config.yaml` で調整可）
 - テスト: 全件パス
 - カバレッジが既存より低下した場合は失敗
+
+**設定方法**: `.sage/config.yaml` の `project_checks.test_command` にテストコマンドを設定する。未設定の場合は SKIPPED。
 
 ---
 
@@ -799,6 +828,8 @@ SAGEでは5段階の品質ゲートを定義する。すべてのゲートはCI�
 - レイヤ境界違反: 0件
 - TASK-ID未記載コミット: 0件（初期コミット・マージコミットを除く）
 
+**Enforcement**: トレーサビリティ違反検出時は FAIL（exit 1）。WARN ではなくマージをブロックする。
+
 ---
 
 ## Gate 5: Release（リリース）
@@ -814,6 +845,8 @@ SAGEでは5段階の品質ゲートを定義する。すべてのゲートはCI�
 
 **閾値**: すべてのチェックが通過で合格。
 
+**前提条件チェック**: Gate 1-4 の最新実行結果を GitHub Actions API で取得し、いずれかが failure の場合は Gate 5 も failure とする。
+
 ---
 
 ## マージ条件（すべて満たすこと）
@@ -823,6 +856,18 @@ SAGEでは5段階の品質ゲートを定義する。すべてのゲートはCI�
 - [ ] 検証が通っている（Gate 1-3 必須、Gate 4-5 条件付き）
 - [ ] レビュー指摘が解消済み
 - [ ] 実行ログが残っている（RUN-ID）
+
+---
+
+## ステータス表示
+
+PRコメントには以下の3状態で結果が表示される:
+
+| 状態 | アイコン | 意味 |
+|------|---------|------|
+| PASS | ✅ | チェック通過 |
+| FAIL | ❌ | チェック失敗（マージブロック） |
+| SKIPPED | ⏭️ | チェック未設定（`.sage/config.yaml` で設定可能） |
 
 __EOF_TMPL_QUALITY_GATES__
 
@@ -885,6 +930,8 @@ tasks/_template.md
 - [ ] `sage/anti-patterns.md` がチーム内で共有済み
 - [ ] Branch protection が設定されている（required status checks）
 - [ ] 生成コードと手書きコードが分離されている
+- [ ] `.sage/config.yaml` の `hooks.profile` が `standard` に設定されている
+- [ ] `.sage/config.yaml` の `project_checks` が設定されている（lint/test 等）
 
 ### 必要ファイル（Phase Aに追加）
 ```
@@ -918,6 +965,8 @@ sage/anti-patterns.md
 - [ ] `.github/workflows/sage-claude-review.yml` が設定済み
 - [ ] TASK-ID別にブランチを分けるワークフローが確立
 - [ ] 実行ログを `.sage/runs/` に記録する習慣がある
+- [ ] `make doctor` が ALL OK を返す
+- [ ] `make report` が HEALTHY を返す
 
 ### 必要ファイル（Phase Bに追加）
 ```
@@ -935,6 +984,9 @@ scripts/sage-validate.sh
 scripts/sage-trace-check.sh
 scripts/sage-id-gen.sh
 scripts/sage-adopt.sh
+scripts/sage-doctor.sh
+scripts/sage-repair.sh
+scripts/sage-report.sh
 ```
 
 ### 次のフェーズへの移行条件
@@ -1141,6 +1193,11 @@ harness:
   auto_append_failures: true       # Auto-append Verify Fail patterns to sage/failures.md
   same_fail_abort_threshold: 3     # Abort on same CHECK-ID failing 3 times consecutively
   failure_pattern_escalation: 3    # Escalate to sage/anti-patterns.md after 3 occurrences
+  # Auto-approve mode: SPEC承認後、PLAN→TASK→Execute→Verify→ドキュメント更新まで
+  # 人間の介入なしで完走する。SPECの最初の承認のみ人間が行う。
+  #   false (default): 各フェーズでEvaluator採点→人間確認→次フェーズ
+  #   true:            SPEC承認後はEvaluator 100点到達で自動的に次フェーズへ進行
+  auto_approve: false
 
 # --- Project Checks (SPEC-0002: Gate Enforcement) ---
 # Configure language-specific commands for CI gates.
@@ -1195,6 +1252,10 @@ read -r -d '' TMPL_CLAUDE_SNIPPET <<'__EOF_TMPL_CLAUDE_SNIPPET__' || true
 - SPEC/PLAN completion triggers auto-scoring (100 points required before implementation).
 - Governance docs in `sage/` — do not modify without human approval.
 - Run `bash scripts/sage-update-check.sh` at session start (1日1回).
+- CI Gates enforce quality with 3-state: PASS(✅) / FAIL(❌) / SKIPPED(⏭️). Configure in `.sage/config.yaml` `project_checks`.
+- Claude Code hooks provide runtime protection: dangerous command block, SAGE file protection, File Scope check.
+- Hook profile in `.sage/config.yaml` `hooks.profile`: minimal(Phase A) / standard(Phase B) / strict(Phase C+).
+- Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
 
 Auto-update rules:
 - Update check failure → warning only, never block development
@@ -1202,7 +1263,7 @@ Auto-update rules:
 
 Project-specific rules: add your own files to `.claude/rules/` (do not edit `specs-rules.md` etc. — they are overwritten on update).
 
-Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance)
+Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (runtime guards)
 <!-- === End SAGE === -->
 
 __EOF_TMPL_CLAUDE_SNIPPET__
@@ -1225,8 +1286,13 @@ Prohibited:
 - Modifying files outside TASK's File Scope
 - Leaving TODO/FIXME in committed code
 - Skipping tests
+- Using `--no-verify`, `--force`, `rm -rf` (blocked by hooks)
 
-Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance)
+CI Gates: PASS(✅) / FAIL(❌) / SKIPPED(⏭️). Configure in `.sage/config.yaml` `project_checks`.
+Hooks: block-dangerous-commands, protect-sage-files, check-file-scope, session-start, session-stop.
+Health: `make doctor` | `make repair` | `make report`
+
+Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (guards)
 <!-- === End SAGE === -->
 
 __EOF_TMPL_AGENTS_SNIPPET__
@@ -1800,6 +1866,12 @@ SAGE の SPEC / PLAN / TASK を、AI駆動開発のベストプラクティス�
 
 各軸を採点し、合計点を算出する。詳細な採点基準は `references/scoring-rubric.md` を参照。
 
+**重要: 1回の採点で全指摘を網羅すること。**
+- 各軸の「満点条件」を全てチェックし、不足があれば全て `findings` に含める
+- 「次回指摘しよう」と先送りしない。1回で全減点トリガーを検出する
+- 採点は `scoring-rubric.md` の減点トリガー表を上から順にチェックリストとして使用する
+- 1回の採点で2回以上の修正ラウンドが必要な指摘が出る場合、rubric自体の改善が必要（rubric不備として `sage/failures.md` に記録する）
+
 | 軸 | 満点 | 評価観点 |
 |----|------|---------|
 | ① Codified Rules | 20点 | CLAUDE.md連携・Forbidden Shortcuts・機械的ゲート |
@@ -1905,6 +1977,7 @@ read -r -d '' TMPL_SKILL_EVALUATE_RUBRIC <<'__EOF_TMPL_SKILL_EVALUATE_RUBRIC__' 
 
 ### 満点条件（20点）
 - CLAUDE.md / `.claude/rules/` への具体的なルール連携が定義されている
+- **CLAUDE.md追記内容が具体的に記載されている**（実装エージェント向けのルール。「連携する」ではなく「何を書くか」まで定義）
 - Forbidden Shortcuts（禁止事項）が明示されている
 - 機械的ゲート（lint/CI/hook）でルール違反を自動検出できる
 - File Scope（修正可能ファイル）が明示されている
@@ -1913,6 +1986,7 @@ read -r -d '' TMPL_SKILL_EVALUATE_RUBRIC <<'__EOF_TMPL_SKILL_EVALUATE_RUBRIC__' 
 | 問題 | 減点 |
 |------|------|
 | CLAUDE.md/rules への連携が抽象的（「適切に」「正しく」など） | -3 |
+| **CLAUDE.md追記内容が未定義**（実装エージェントが「何を守って実装するか」不明） | -3 |
 | Forbidden Shortcuts の明示がない | -3 |
 | 機械的ゲート（lint/CI/hook）がない | -4 |
 | File Scope が定義されていない | -4 |
@@ -1946,6 +2020,7 @@ read -r -d '' TMPL_SKILL_EVALUATE_RUBRIC <<'__EOF_TMPL_SKILL_EVALUATE_RUBRIC__' 
 ### 満点条件（20点）
 - SPEC-IDが振られている
 - 受け入れ条件が正常系・異常系の両方で書かれている
+- **異常系ACが各SPECに最低2件以上**（正常系ACとは別に、エラー入力・設定不在・権限不足等）
 - 受け入れ条件が具体的なコマンド/テストで検証可能
 - Out-of-scope（対象外）が明示されている
 
@@ -1954,6 +2029,7 @@ read -r -d '' TMPL_SKILL_EVALUATE_RUBRIC <<'__EOF_TMPL_SKILL_EVALUATE_RUBRIC__' 
 |------|------|
 | SPEC-IDがない | -5 |
 | 受け入れ条件が片方向のみ（正常系のみ、または異常系のみ） | -3 |
+| **異常系ACが1件以下**（エラー入力・設定不在・依存不在等のケースが不足） | -3 |
 | 受け入れ条件がコマンドで検証できない | -4 |
 | Out-of-scope（対象外）が「なし」または未記載 | -3 |
 | タスクの記述が3行以下で具体性が著しく低い | -3 |
@@ -1968,6 +2044,8 @@ read -r -d '' TMPL_SKILL_EVALUATE_RUBRIC <<'__EOF_TMPL_SKILL_EVALUATE_RUBRIC__' 
 - テスト種別（unit/integration/e2e）が明示されている
 - フィードバックサイクルが明文化されている
 - 検証方法セクションに具体的な手順がある
+- **採用メトリクスの合格基準が定義されている**（何をもって「正しく機能している」と判断するか）
+- **段階的移行の昇格条件と検証コマンドが定義されている**（例: minimal→standard の条件）
 
 ### 減点トリガー
 | 問題 | 減点 |
@@ -1978,6 +2056,8 @@ read -r -d '' TMPL_SKILL_EVALUATE_RUBRIC <<'__EOF_TMPL_SKILL_EVALUATE_RUBRIC__' 
 | カバレッジ閾値への言及がない | -3 |
 | Quality Gate（5段階）との対応が不明 | -2 |
 | 本番→開発へのフィードバックループがない | -2 |
+| **採用メトリクスの合格基準がない**（機能がデプロイ後に動いているか判断できない） | -2 |
+| **段階的移行の昇格条件が未定義**（いつ次のフェーズに進むか不明） | -2 |
 
 ---
 
@@ -1985,14 +2065,16 @@ read -r -d '' TMPL_SKILL_EVALUATE_RUBRIC <<'__EOF_TMPL_SKILL_EVALUATE_RUBRIC__' 
 
 ### 満点条件（15点）
 - `sage/failures.md` との連携が設計されている
+- **failures.md更新フローが具体的**（「誰が」「いつ」「どの手順で」更新するか定義。「連携する」だけでは不足）
 - Error Resolution 手順がある（エラー時に何をするか）
 - `sage/anti-patterns.md` の参照がある
-- 新規パターン発見時の蓄積フローがある
+- 新規パターン発見時の蓄積フローがある（検出→記録→昇格の3ステップ）
 
 ### 減点トリガー
 | 問題 | 減点 |
 |------|------|
 | failures.md への言及がない | -4 |
+| **failures.md更新の責任者・タイミングが未定義**（「連携する」のみで具体フロー不在） | -3 |
 | Error Resolution 手順がない | -4 |
 | anti-patterns.md の参照がない | -2 |
 | 新規失敗パターンの蓄積フローがない | -2 |
