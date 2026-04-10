@@ -7,6 +7,9 @@
 .sage/adoption-audit.md
 .sage/backup/
 
+# SAGE admin-only (not for public repo)
+docs/maintainer-guide.md
+
 # SAGE install targets (generated from templates/ by install.sh)
 .claude/rules/
 .claude/skills/
