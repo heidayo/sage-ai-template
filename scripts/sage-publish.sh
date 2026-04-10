@@ -9,10 +9,33 @@ ROOT="$(dirname "$SCRIPT_DIR")"
 GIST_ID_FILE="$ROOT/.sage/gist-id"
 VERSION_FILE="$ROOT/.sage-version"
 
+# --- セマンティックバージョニング自動インクリメント ---
+increment_version() {
+  local version="$1"
+  local part="$2"
+  local major minor patch
+  IFS='.' read -r major minor patch <<< "$version"
+  major=${major:-0}; minor=${minor:-0}; patch=${patch:-0}
+
+  case "$part" in
+    major) echo "$((major + 1)).0.0" ;;
+    minor) echo "${major}.$((minor + 1)).0" ;;
+    patch) echo "${major}.${minor}.$((patch + 1))" ;;
+    *) echo "" ;;
+  esac
+}
+
 # --- 引数チェック ---
 if [ $# -lt 1 ]; then
-  echo "Usage: bash scripts/sage-publish.sh <new-version>"
-  echo "  例: bash scripts/sage-publish.sh 0.2.0"
+  echo "Usage: bash scripts/sage-publish.sh <version|major|minor|patch>"
+  echo ""
+  echo "  セマンティックバージョニング:"
+  echo "    bash scripts/sage-publish.sh major   # 0.3.0 → 1.0.0"
+  echo "    bash scripts/sage-publish.sh minor   # 0.3.0 → 0.4.0"
+  echo "    bash scripts/sage-publish.sh patch   # 0.3.0 → 0.3.1"
+  echo ""
+  echo "  直接指定:"
+  echo "    bash scripts/sage-publish.sh 0.4.0"
   echo ""
   echo "事前準備:"
   echo "  1. gh auth login （GitHub CLI の認証）"
@@ -20,8 +43,22 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
-NEW_VERSION="$1"
 OLD_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.0.0")
+
+# major / minor / patch なら自動インクリメント、それ以外は直接指定
+case "$1" in
+  major|minor|patch)
+    NEW_VERSION=$(increment_version "$OLD_VERSION" "$1")
+    if [ -z "$NEW_VERSION" ]; then
+      echo "Error: バージョン計算に失敗しました。現在: $OLD_VERSION"
+      exit 1
+    fi
+    echo "Auto-increment: $OLD_VERSION → $NEW_VERSION ($1)"
+    ;;
+  *)
+    NEW_VERSION="$1"
+    ;;
+esac
 
 # --- バージョン確認 ---
 if [ "$NEW_VERSION" = "$OLD_VERSION" ]; then
