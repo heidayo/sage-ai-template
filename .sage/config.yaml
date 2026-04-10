@@ -93,6 +93,11 @@ harness:
   auto_append_failures: true       # Auto-append Verify Fail patterns to sage/failures.md
   same_fail_abort_threshold: 3     # Abort on same CHECK-ID failing 3 times consecutively
   failure_pattern_escalation: 3    # Escalate to sage/anti-patterns.md after 3 occurrences
+  # Auto-approve mode: SPEC承認後、PLAN→TASK→Execute→Verify→ドキュメント更新まで
+  # 人間の介入なしで完走する。SPECの最初の承認のみ人間が行う。
+  #   false (default): 各フェーズでEvaluator採点→人間確認→次フェーズ
+  #   true:            SPEC承認後はEvaluator 100点到達で自動的に次フェーズへ進行
+  auto_approve: false
 
 # --- Project Checks (SPEC-0002: Gate Enforcement) ---
 # Configure language-specific commands for CI gates.
