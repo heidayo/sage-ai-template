@@ -13,12 +13,12 @@ Core principle: **Specifications are the single source of truth. Code is an arti
 
 Follow instructions in this order:
 
-1. **CLAUDE.md** (this file) — highest authority
+1. **AGENTS.md** (this file) — highest authority
 2. **sage/governance.md** — lifecycle, agent roles, principles
 3. **docs/rules.md** — architectural constraints
 4. **User instructions** — runtime directives
 
-If conflicts occur, follow this priority chain. CLAUDE.md always wins.
+If conflicts occur, follow this priority chain. AGENTS.md always wins.
 
 ## 3. SAGE Lifecycle Protocol
 
@@ -86,20 +86,6 @@ AI agents MUST NOT:
 - Perform silent scope expansion (adding unspecified changes)
 - Combine multiple responsibilities in a single task
 
-### 4.1 Recommended Workflow: Harness
-
-For autonomous development across the full lifecycle, use the harness orchestrator:
-
-```
-/sage-harness
-[requirements description]
-```
-
-This automatically chains Specify → Plan → Execute → Verify with feedback loops.
-See `templates/skills/sage-harness/SKILL.md` for details.
-
-Harness-specific forbidden shortcuts are defined in `templates/rules/harness-rules.md`.
-
 ## 5. Error Resolution Protocol
 
 When an error occurs:
@@ -133,7 +119,7 @@ When requesting error resolution, always include these 6 elements:
 
 ## 6. Agent Constraints
 
-### Minimum agent configuration (solo developer + Claude Code)
+### Minimum agent configuration (solo developer + Codex)
 
 | Agent Role | Session | Notes |
 |------------|---------|-------|
@@ -148,6 +134,18 @@ When requesting error resolution, always include these 6 elements:
 - The same agent MUST NOT hold both implementation and security approval
 - The same agent MUST NOT hold both implementation and production deployment decision
 
+### Sub-agent invocation pattern
+
+When using Claude Code's Agent tool for role separation:
+
+- Pass file paths (not file contents) to sub-agents; let them Read internally
+- Always include SPEC/PLAN/TASK file paths and File Scope in the prompt
+- Never combine implementation and review in the same Agent tool call
+- Include previous Verify feedback in re-execution prompts
+
+See `docs/development-flow.md` "サブエージェント呼び出しパターン" for concrete examples.
+See `templates/skills/sage-harness/SKILL.md` for the automated harness workflow.
+
 ## 7. File Scope Rules
 
 | Directory | Permitted Agent |
@@ -157,7 +155,7 @@ When requesting error resolution, always include these 6 elements:
 | `tests/` | Test Agent |
 | `sage/` | Human only (or with explicit approval) |
 | `.github/workflows/` | Operations Agent + human approval |
-| `CLAUDE.md` | Human only |
+| `AGENTS.md` | Human only |
 | `.sage/runs/` | Any agent (append only) |
 
 Agents MUST NOT modify files outside their permitted scope.
@@ -224,7 +222,7 @@ Before writing any code, confirm:
 
 ## Protected Documentation
 
-This file (`CLAUDE.md`) defines repository-wide development rules.
+This file (`AGENTS.md`) defines repository-wide development rules.
 
 - AI agents MUST NOT modify this file unless explicitly instructed by a human
 - Changes must be intentional and reviewed carefully

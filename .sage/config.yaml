@@ -76,6 +76,24 @@ anti_pattern_detection:
   invisible_development:
     signal: "Commits without TASK-ID in message"
 
+# --- Harness Configuration ---
+harness:
+  max_iterations: 5               # Execute-Verify loop limit
+  spec_score_threshold: 100        # Phase 1: Evaluator score to proceed
+  plan_score_threshold: 100        # Phase 2: Evaluator score to proceed
+  review_score_threshold: 100      # Phase 3-4: Review Agent score to pass
+  # 100未満 → verdict: FAIL → fix_scope に従いエージェント再実行
+  # Hard Fail → retry_allowed: false → 即abort
+  spec_eval_max_iterations: 10     # Phase 1: Evaluator loop limit
+  plan_eval_max_iterations: 10     # Phase 2: Evaluator loop limit
+  verify_pass_required: true       # All gates must pass
+  enable_browser_verify: false     # Playwright MCP browser verification
+  # abort_reason values: max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error
+  # Failure accumulation (Knowledge Management)
+  auto_append_failures: true       # Auto-append Verify Fail patterns to sage/failures.md
+  same_fail_abort_threshold: 3     # Abort on same CHECK-ID failing 3 times consecutively
+  failure_pattern_escalation: 3    # Escalate to sage/anti-patterns.md after 3 occurrences
+
 # --- Auto Update ---
 auto_update:
   installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"

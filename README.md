@@ -42,6 +42,7 @@ graph TB
         S2["sage-plan"]
         S3["sage-review"]
         S4["sage-evaluate"]
+        S5["sage-harness"]
     end
 
     subgraph L4["🔴 L4: Enforcement"]
@@ -61,7 +62,11 @@ graph TB
     R4 --> S3
     S1 --> S4
     S2 --> S4
-    S4 -->|"100点"| H1
+    S5 -->|"オーケストレーション"| S1
+    S5 --> S2
+    S5 --> S3
+    S5 --> S4
+    S5 -->|"全Phase通過"| H1
     H1 --> H2
     H2 --> H3
 ```
@@ -72,7 +77,7 @@ graph TB
 |----|------|------|-----------|
 | 🟢 **L1** | **Foundation** | CLAUDE.md / AGENTS.md。AIが最初に読む「憲法」 | **毎セッション自動** |
 | 🟡 **L2** | **Context-Aware** | `.claude/rules/`。パス別の詳細ルール | **該当ファイル操作時のみ** |
-| 🔵 **L3** | **On-Demand** | `.claude/skills/`。ワークフロー + 自動採点 | **`/sage-spec` 等で呼んだ時のみ** |
+| 🔵 **L3** | **On-Demand** | `.claude/skills/`。ワークフロー + 自動採点 + ハーネス | **`/sage-spec` `/sage-harness` 等で呼んだ時のみ** |
 | 🔴 **L4** | **Enforcement** | commit-msg hook + CI Gate + Quality Gates | **コミット・PR時に機械強制** |
 
 ---
@@ -98,20 +103,20 @@ graph LR
     style G fill:#fce4ec,stroke:#e91e63,color:#000
 ```
 
-### 自動採点ループ（100点到達まで）
+### 採点・修正ループ（Evaluator Read-Only + Creator Agent 修正）
 
-SPEC / PLAN 完了時に自動で `/sage-evaluate` が起動し、**100点になるまで改善を繰り返す**。
+`/sage-harness` がオーケストレーターとして、Evaluator（採点のみ）と Creator Agent（修正のみ）を分離制御する。**同一エージェントが採点と修正を兼務しない**。
 
 ```mermaid
 graph TD
-    START["SPEC/PLAN 作成完了"] --> SCORE["6軸で採点"]
-    SCORE --> CHECK{100点?}
-    CHECK -->|No| FIX["減点箇所を自動修正"]
-    FIX --> SCORE
+    START["SPEC/PLAN 作成完了"] --> EVAL["Evaluator（Read-Only）<br/>6軸で採点 → eval_feedback YAML"]
+    EVAL --> CHECK{100点?}
+    CHECK -->|No| FIX["Creator Agent が<br/>fix_instructions に従い修正"]
+    FIX --> EVAL
     CHECK -->|Yes| DONE["✅ 実装開始可能"]
 
     style START fill:#e8f5e9,stroke:#4caf50,color:#000
-    style SCORE fill:#fff8e1,stroke:#ff9800,color:#000
+    style EVAL fill:#fff8e1,stroke:#ff9800,color:#000
     style CHECK fill:#e3f2fd,stroke:#2196f3,color:#000
     style FIX fill:#fce4ec,stroke:#e91e63,color:#000
     style DONE fill:#d4edda,stroke:#28a745,color:#000
@@ -182,10 +187,12 @@ sequenceDiagram
     AI->>SAGE: CLAUDE.md を読む
     SAGE-->>AI: SPECなしの実装は禁止
     AI->>Dev: 「SPECが見つかりません。<br/>まず仕様を整理しましょう」
-    Dev->>AI: 仕様を一緒に作成
-    AI->>SAGE: /sage-evaluate で自動採点
-    SAGE-->>AI: 100点到達 ✅
-    AI->>Dev: 「実装を開始します」
+    Dev->>AI: /sage-harness で自律開発を開始
+    AI->>SAGE: Spec Agent → Evaluator（Read-Only採点）
+    SAGE-->>AI: eval_feedback → Creator Agent が修正 → 100点到達 ✅
+    AI->>SAGE: Implementation → Test → Review（3エージェント分離）
+    SAGE-->>AI: review_feedback → 全Gate通過 ✅
+    AI->>Dev: 「実装完了。PRの準備ができています」
 ```
 
 ---
@@ -197,25 +204,30 @@ sequenceDiagram
 ```mermaid
 graph LR
     A["🅰️ 仕様セッション<br/>SPEC + PLAN + TASK"]
-    B["🅱️ 実装セッション<br/>コーディング"]
-    C["🅲️ レビューセッション<br/>品質検証"]
+    B["🅱️ 実装セッション<br/>src/ のみ"]
+    T["🅲️ テストセッション<br/>tests/ のみ"]
+    C["🅳️ レビューセッション<br/>Read-Only 採点"]
 
-    A -->|100点到達| B
-    B --> C
-    C -.->|問題あり| A
+    A -->|"Evaluator 100点"| B
+    B --> T
+    T --> C
+    C -.->|"fix_scope で振り分け"| B
+    C -.->|"fix_scope で振り分け"| T
 
     style A fill:#e8f5e9,stroke:#4caf50,color:#000
     style B fill:#fff8e1,stroke:#ff9800,color:#000
+    style T fill:#e8eaf6,stroke:#5c6bc0,color:#000
     style C fill:#e3f2fd,stroke:#2196f3,color:#000
 ```
 
-| セッション | 役割 | 使うスキル | 禁止事項 |
-|-----------|------|-----------|---------|
-| 🅰️ **仕様** | SPEC・PLAN・TASKを作る | `/sage-spec` `/sage-plan` | コードを書かない |
-| 🅱️ **実装** | TASKのFile Scopeに従って実装 | — | File Scope外を触らない |
-| 🅲️ **レビュー** | SPECとの整合性を確認 | `/sage-review` | コードを修正しない |
+| セッション | 役割 | 使うスキル | Write権限 | 禁止事項 |
+|-----------|------|-----------|----------|---------|
+| 🅰️ **仕様** | SPEC・PLAN・TASKを作る | `/sage-spec` `/sage-plan` | specs/, plans/, tasks/ | コードを書かない |
+| 🅱️ **実装** | TASKのFile Scopeに従って実装 | — | src/（File Scope内） | tests/, specs/ を触らない |
+| 🅲️ **テスト** | テストを作成・修正 | — | tests/ | src/ を修正しない |
+| 🅳️ **レビュー** | 6軸100点で採点 + Gate実行 | `/sage-review` | NONE | コードを一切修正しない |
 
-> **鉄則**: 同じセッションで実装とレビューを行わない
+> **鉄則**: 同じセッションで実装とレビューを行わない。`/sage-harness` はこの分離を自動で制御する
 
 ---
 
@@ -249,9 +261,11 @@ graph LR
 │   └── skills/                     # オンデマンドワークフロー
 │       ├── 🔵 sage-spec/           # /sage-spec → SPEC作成
 │       ├── 🔵 sage-plan/           # /sage-plan → PLAN+TASK作成
-│       ├── 🔵 sage-review/         # /sage-review → コードレビュー
-│       └── 🔵 sage-evaluate/       # /sage-evaluate → 自動採点（100点ループ）
-│           └── references/         # 採点基準・知識ベース
+│       ├── 🔵 sage-review/         # /sage-review → コードレビュー（6軸100点）
+│       │   └── references/         # コードレビュー採点基準
+│       ├── 🔵 sage-evaluate/       # /sage-evaluate → SPEC/PLAN採点（Read-Only）
+│       │   └── references/         # SPEC/PLAN採点基準・知識ベース
+│       └── 🔵 sage-harness/        # /sage-harness → 自律開発オーケストレーター
 │
 ├── 📝 specs/                       # SPEC-XXXX 仕様書
 ├── 📐 plans/                       # PLAN-XXXX 実装計画
@@ -279,7 +293,7 @@ graph TD
 
     subgraph DANGER["⚠️ 上書きされる（編集禁止）"]
         F["specs-rules.md 等<br/>SAGE管理の5ファイル"]
-        G["sage-spec/ 等<br/>SAGE管理の4スキル"]
+        G["sage-spec/ 等<br/>SAGE管理の5スキル"]
         H["sage/*.md<br/>ガバナンス文書"]
         I["scripts/sage-*.sh"]
     end
@@ -415,7 +429,7 @@ graph LR
 |-------|------|:----:|
 | 🟢 **A: Foundation** | 仕様テンプレ・タスクテンプレ・基本CI・境界定義 | ✅ 自動 |
 | 🟡 **B: Guardrails** | architecture check・security scan・レビュールール | 📋 手動 |
-| 🔵 **C: Multi-Agent** | 実装/レビューAI分離・テストAI・並列タスク分解 | 📋 手動 |
+| 🔵 **C: Multi-Agent** | 実装/テスト/レビューAI 3分離・`/sage-harness` 自律ループ | 📋 手動 |
 | 🟣 **D: Learning System** | 実行履歴分析・失敗パターン蓄積・テンプレ改善 | 📋 手動 |
 
 詳細は [sage/adoption-phases.md](sage/adoption-phases.md) を参照。

@@ -42,6 +42,13 @@
 - [ ] `make test` が全件パスする
 - [ ] [具体的な完了判定]
 
+## Done Definition（ラウンド単位）
+
+参照: `tasks/done-def-SPEC-XXXX-round-N.md`（実装開始前に作成）
+
+Done Definition は SPEC 単位・ラウンド単位で作成する。
+テンプレート: `templates/done-definition-template.md`
+
 ## 実行ログ
 
 | フィールド | 内容 |
