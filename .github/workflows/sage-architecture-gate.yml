@@ -30,7 +30,10 @@ jobs:
           ERRORS=0
 
           # Check PR body for SPEC-ID
-          PR_BODY="${{ github.event.pull_request.body }}"
+          PR_BODY=$(cat <<'PRBODYEOF'
+          ${{ github.event.pull_request.body }}
+          PRBODYEOF
+          )
           if echo "$PR_BODY" | grep -qE 'SPEC-[0-9]{4}'; then
             echo "OK: SPEC-ID found in PR body"
           else
