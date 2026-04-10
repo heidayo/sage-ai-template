@@ -2,7 +2,7 @@
 # =============================================================================
 # TASK-0039: session-start.sh
 # Purpose:  SessionStart hook (no stdin) — display project context summary
-# Profile:  minimal+ (runs for all profiles)
+# Profile:  minimal+ (runs for all profiles except "none")
 # Behavior: Prints to stdout:
 #           1. Latest 3 RUN logs from .sage/runs/ (status, task_id, error_log)
 #           2. In-progress/blocked TASKs from tasks/*.md
@@ -19,7 +19,13 @@ if [ -f ".sage/config.yaml" ]; then
 fi
 
 # minimal+ means all profiles run this hook (minimal, standard, strict)
-# No profile skip needed.
+if [ "$PROFILE" = "none" ]; then
+  exit 0
+fi
+
+task_status() {
+  awk -F'|' '/^\|[[:space:]]*ステータス[[:space:]]*\|/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3; exit}' "$1" 2>/dev/null || true
+}
 
 echo "=== SAGE Session Context ==="
 echo ""
@@ -69,14 +75,17 @@ if [ -d "tasks" ]; then
 
     TASK_NAME=$(basename "$task_file" .md)
 
-    # Check for in-progress (実行中) or blocked (ブロック中)
-    if grep -q '実行中' "$task_file" 2>/dev/null; then
-      echo "  [$TASK_NAME] Status: 実行中 (In Progress)"
-      FOUND_TASKS=true
-    elif grep -q 'ブロック中' "$task_file" 2>/dev/null; then
-      echo "  [$TASK_NAME] Status: ブロック中 (Blocked)"
-      FOUND_TASKS=true
-    fi
+    STATUS=$(task_status "$task_file")
+    case "$STATUS" in
+      "In Progress"|"実行中")
+        echo "  [$TASK_NAME] Status: In Progress"
+        FOUND_TASKS=true
+        ;;
+      "Blocked"|"ブロック中")
+        echo "  [$TASK_NAME] Status: Blocked"
+        FOUND_TASKS=true
+        ;;
+    esac
   done
 fi
 

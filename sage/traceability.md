@@ -7,6 +7,7 @@
 | SPEC-ID | SPEC-XXXX | SPEC-0001 | `make id-gen TYPE=spec` |
 | PLAN-ID | PLAN-XXXX | PLAN-0001 | `make id-gen TYPE=plan` |
 | TASK-ID | TASK-XXXX | TASK-0001 | `make id-gen TYPE=task` |
+| AGENT-ID | `spec` / `planning` / `implementation` / `review` / `test` / `security` / `operations` | implementation | `.sage/config.yaml` の `run_log_schema.fields.agent_id` |
 | RUN-ID | RUN-XXXX | RUN-0001 | `make id-gen TYPE=run` |
 | FAIL-ID | FAIL-XXXX | FAIL-0001 | `make id-gen TYPE=fail` |
 | MERGE-ID | PR番号 | #42 | GitHub自動 |
@@ -26,6 +27,7 @@ SPEC-ID → PLAN-ID → TASK-ID → AGENT-ID → RUN-ID → MERGE-ID
 | SPEC-ID | `specs/SPEC-XXXX-*.md` + PR本文 |
 | PLAN-ID | `plans/PLAN-XXXX-*.md` + PR本文 |
 | TASK-ID | `tasks/TASK-XXXX-*.md` + コミットメッセージ + PR本文 |
+| AGENT-ID | `.sage/runs/RUN-XXXX.yaml` の `agent_id` |
 | RUN-ID | `.sage/runs/RUN-XXXX.yaml` |
 | FAIL-ID | `sage/failures.md` |
 | MERGE-ID | GitHub PR |
@@ -36,6 +38,12 @@ SPEC-ID → PLAN-ID → TASK-ID → AGENT-ID → RUN-ID → MERGE-ID
 2. **すべてのコミット** に TASK-ID を含む（形式: `feat: description [TASK-0001]`）
 3. **すべてのエージェント実行** に RUN-ID を記録
 4. **すべての失敗** に FAIL-ID を記録
+
+## Historical Gap Policy
+
+- 過去の `PLAN-ID` / `TASK-ID` / `done-def-*` が欠損していた場合、後から補完する artifact は `historical placeholder` または `retrospective placeholder` と明記する
+- この補完は **参照切れの解消** を目的とし、当時の実行履歴や真正な承認チェーンを遡及的に証明するものではない
+- 現在進行中の開発では placeholder 補完に依存せず、実装前に SPEC / PLAN / TASK / Done Definition を作成する
 
 ## コミットメッセージ形式
 

@@ -13,6 +13,7 @@ docs/maintainer-guide.md
 # SAGE install targets (generated from templates/ by install.sh)
 .claude/rules/
 .claude/skills/
+.claude/settings.local.json
 
 # OS
 .DS_Store

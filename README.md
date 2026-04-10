@@ -149,7 +149,7 @@ graph TD
 
 ```bash
 cd /path/to/your-project
-curl -fsSL https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh | bash
+curl -fsSL https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh | bash
 ```
 
 または `install.sh` を直接ダウンロードして実行:
@@ -167,7 +167,7 @@ your-project/
 ├── 🟢 CLAUDE.md              ← AI が毎セッション自動で読む
 ├── 🟢 AGENTS.md              ← Codex が自動で読む
 ├── 🟡 .claude/rules/         ← パス別ルール（5ファイル）
-├── 🔵 .claude/skills/        ← ワークフロー（4スキル）
+├── 🔵 .claude/skills/        ← ワークフロー（5スキル）
 ├── 📝 specs/                 ← SPEC テンプレート
 ├── 📐 plans/                 ← PLAN テンプレート
 ├── ✂️  tasks/                 ← TASK テンプレート
@@ -250,7 +250,7 @@ graph LR
 
 ```
 .
-├── 🟢 CLAUDE.md                    # 最小ブートストラップ（~20行）
+├── 🟢 CLAUDE.md                    # Claude Code 向けのブートストラップ
 ├── 🟢 AGENTS.md                    # Codex向けルール
 │
 ├── 🟡 .claude/
@@ -303,7 +303,7 @@ graph TD
     end
 
     subgraph DANGER["⚠️ 上書きされる（編集禁止）"]
-        F["specs-rules.md 等<br/>SAGE管理の5ファイル"]
+        F["specs-rules.md 等<br/>SAGE管理の5ルール"]
         G["sage-spec/ 等<br/>SAGE管理の5スキル"]
         H["sage/*.md<br/>ガバナンス文書"]
         I["scripts/sage-*.sh"]
@@ -324,13 +324,13 @@ graph TD
 
 ## 更新方法
 
-### 自動更新（推奨）
+### 更新通知（推奨）
 
 `.sage/config.yaml` に `installer_url` を設定するだけ：
 
 ```yaml
 auto_update:
-  installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
+  installer_url: "https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh"
 ```
 
 ```mermaid
@@ -341,13 +341,15 @@ graph LR
     C -->|No| E["Gist からバージョン取得"]
     E --> F{新バージョン?}
     F -->|No| G["最新です"]
-    F -->|Yes| H["自動更新実行"]
+    F -->|Yes| H["更新通知を表示"]
 
     style A fill:#e8f5e9,stroke:#4caf50,color:#000
     style H fill:#fff8e1,stroke:#ff9800,color:#000
     style D fill:#f5f5f5,stroke:#9e9e9e,color:#000
     style G fill:#f5f5f5,stroke:#9e9e9e,color:#000
 ```
+
+新バージョンが見つかった場合も、このスクリプトは remote installer を自動実行しません。通知を見てから、手動で更新します。
 
 ### 手動更新
 

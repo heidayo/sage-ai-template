@@ -1038,6 +1038,7 @@ read -r -d '' TMPL_TRACEABILITY <<'__EOF_TMPL_TRACEABILITY__' || true
 | SPEC-ID | SPEC-XXXX | SPEC-0001 | `make id-gen TYPE=spec` |
 | PLAN-ID | PLAN-XXXX | PLAN-0001 | `make id-gen TYPE=plan` |
 | TASK-ID | TASK-XXXX | TASK-0001 | `make id-gen TYPE=task` |
+| AGENT-ID | `spec` / `planning` / `implementation` / `review` / `test` / `security` / `operations` | implementation | `.sage/config.yaml` の `run_log_schema.fields.agent_id` |
 | RUN-ID | RUN-XXXX | RUN-0001 | `make id-gen TYPE=run` |
 | FAIL-ID | FAIL-XXXX | FAIL-0001 | `make id-gen TYPE=fail` |
 | MERGE-ID | PR番号 | #42 | GitHub自動 |
@@ -1057,6 +1058,7 @@ SPEC-ID → PLAN-ID → TASK-ID → AGENT-ID → RUN-ID → MERGE-ID
 | SPEC-ID | `specs/SPEC-XXXX-*.md` + PR本文 |
 | PLAN-ID | `plans/PLAN-XXXX-*.md` + PR本文 |
 | TASK-ID | `tasks/TASK-XXXX-*.md` + コミットメッセージ + PR本文 |
+| AGENT-ID | `.sage/runs/RUN-XXXX.yaml` の `agent_id` |
 | RUN-ID | `.sage/runs/RUN-XXXX.yaml` |
 | FAIL-ID | `sage/failures.md` |
 | MERGE-ID | GitHub PR |
@@ -1153,6 +1155,8 @@ run_log_schema:
       structural: "pass | fail"
       functional: "pass | fail | skipped"
       security: "pass | fail"
+      architecture: "pass | fail"
+      release: "pass | fail | skipped"
     error_log: ""
 
 # --- ID Schema ---
@@ -1234,7 +1238,7 @@ hooks:
 
 # --- Auto Update ---
 auto_update:
-  installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
+  installer_url: "https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh"
   check_interval: "daily"
 
 __EOF_TMPL_CONFIG__
@@ -1808,6 +1812,923 @@ review_feedback:
 - Write: NONE（review_feedback YAML を出力として返すのみ。コード修正は行わない）
 
 __EOF_TMPL_SKILL_REVIEW__
+
+read -r -d '' TMPL_SKILL_REVIEW_RUBRIC <<'__EOF_TMPL_SKILL_REVIEW_RUBRIC__' || true
+# コードレビュー 6軸 詳細採点基準
+
+## ① Spec Alignment（満点25点）
+
+### 満点条件（25点）
+- SPECの受け入れ条件が全て実装されている
+- Silent Scope Expansion（SPEC外の変更）がない
+- SPECの異常系が実装されている
+- 受け入れ条件とコードの対応が追跡可能
+
+### 減点トリガー
+| 問題 | 減点 |
+|------|------|
+| 受け入れ条件の未実装（1件につき） | -5 |
+| Silent Scope Expansion（SPEC外の変更あり） | -5 |
+| 異常系の未実装 | -4 |
+| 受け入れ条件とコードの対応が不明 | -3 |
+| SPECの意図と実装の解釈ずれ | -3 |
+
+---
+
+## ② Scope Compliance（満点20点）
+
+### 満点条件（20点）
+- 変更がTASK File Scope内に収まっている
+- コミットメッセージにTASK-IDが含まれている
+- TASK外のファイルへの変更がない
+
+### 減点トリガー
+| 問題 | 減点 |
+|------|------|
+| File Scope外のファイル変更（**Hard Fail**） | -20（即FAIL） |
+| コミットメッセージにTASK-IDがない | -5 |
+| 不要なファイルの変更（フォーマッタの自動変更等） | -3 |
+
+---
+
+## ③ Responsibility Alignment（満点15点）
+
+### 満点条件（15点）
+- 各変更が単一責任の範囲内
+- レイヤー境界（controller/usecase/domain/infra）を越えた依存がない
+- 関心の分離が維持されている
+
+### 減点トリガー
+| 問題 | 減点 |
+|------|------|
+| レイヤー境界違反（例: domain層からinfra層への直接依存） | -5 |
+| 複数責務の混在（1ファイルに無関係な変更） | -4 |
+| 関心の分離が不十分（ビジネスロジックとI/Oの混在） | -3 |
+| 既存パターンとの不整合（同一層で異なる設計） | -2 |
+
+---
+
+## ④ Complexity（満点10点）
+
+### 満点条件（10点）
+- 不要な抽象化がない
+- 過度な結合がない
+- 同じ結果をより簡潔に達成できる方法がない
+
+### 減点トリガー
+| 問題 | 減点 |
+|------|------|
+| 不要な抽象化（1箇所でしか使わないインターフェース等） | -3 |
+| 過度な結合（変更が複数ファイルに波及する設計） | -3 |
+| 冗長なコード（DRY違反、コピペ） | -2 |
+| 過度に複雑な制御フロー（深いネスト、長い関数） | -2 |
+
+---
+
+## ⑤ Test Adequacy（満点15点）
+
+### 満点条件（15点）
+- 正常系テストが受け入れ条件を網羅
+- 境界値テストがある
+- 異常系テストがSPECのエラーケースを網羅
+- カバレッジが閾値（default 80%）を達成
+
+### 減点トリガー
+| 問題 | 減点 |
+|------|------|
+| 正常系テストの欠落（受け入れ条件のカバー漏れ） | -4 |
+| 異常系テストの欠落 | -3 |
+| 境界値テストの欠落 | -2 |
+| カバレッジが閾値未満 | -3 |
+| テストが実装に依存しすぎ（モック過多、内部構造への依存） | -2 |
+| テスト名が不明瞭（何を検証しているか分からない） | -1 |
+
+---
+
+## ⑥ Safety（満点15点）
+
+### 満点条件（15点）
+- secrets/credentialsのハードコードがない
+- システム境界での入力バリデーションがある
+- 依存パッケージに既知脆弱性がない
+- 適切な権限チェックがある
+
+### 減点トリガー
+| 問題 | 減点 |
+|------|------|
+| secrets/credentialsのハードコード（**Hard Fail**） | -15（即FAIL） |
+| 既知脆弱性を持つ依存の追加（**Hard Fail**） | -15（即FAIL） |
+| システム境界での入力バリデーション欠如 | -4 |
+| 権限チェックの欠如（認証・認可） | -3 |
+| SQLインジェクション/XSS等の脆弱性パターン | -5 |
+| エラー情報の過剰露出（スタックトレース等） | -2 |
+
+---
+
+## グレード基準
+
+| スコア | グレード | 判定 |
+|--------|---------|------|
+| 100 | S++ | 完璧。全ゲート通過。verdict: PASS |
+| 95-99 | S+ | ほぼ完成。微修正で到達可能 |
+| 90-94 | S | 優秀。小改善あり |
+| 85-89 | A- | 良好。改善推奨 |
+| 70-84 | B | 基本OK。要改善 |
+| ~69 | C | 大幅改善必要 |
+
+---
+
+## Hard Fail条件（点数に関係なく即FAIL）
+
+以下のいずれかに該当する場合、スコアに関係なく `verdict: FAIL` + `retry_allowed: false`:
+
+- **File Scope違反**: TASK File Scope外のファイルを変更（② Scope Compliance -20）
+- **Gate 1-4のいずれかFail**: Structural / Functional / Security / Architecture
+- **secrets/credentialsのハードコード**（⑥ Safety -15）
+- **既知脆弱性を持つ依存の追加**（⑥ Safety -15）
+
+__EOF_TMPL_SKILL_REVIEW_RUBRIC__
+
+read -r -d '' TMPL_SKILL_HARNESS <<'__EOF_TMPL_SKILL_HARNESS__' || true
+---
+name: sage-harness
+description: "SAGEハーネス: Specify→Plan→Execute→Verifyの全ライフサイクルを自律実行。Agent toolで各フェーズを独立コンテキストで実行し、Verify失敗時は構造化フィードバック付きで自動ループ。MANDATORY TRIGGERS: harness, ハーネス実行, sage-harness, 自律開発, フルサイクル, 自動開発"
+---
+
+# SAGE ハーネス — 自律開発オーケストレーター
+
+SAGE の 7フェーズライフサイクル（Specify → Plan → Slice → Execute → Verify → Merge → Observe）のうち、Specify〜Verify を自律的に実行するオーケストレータースキル。
+
+## 設計原則
+
+1. **コンテキスト分離**: 各フェーズを Agent tool で独立コンテキストとして実行する。メインコンテキストにはフェーズ間の引き継ぎ情報のみ保持する。
+2. **ファイル経由の引き継ぎ**: エージェント間のデータ受け渡しはファイル経由で行う（specs/, plans/, tasks/, docs/feedback/）。プロンプト内に大量のコンテキストを詰め込まない。
+3. **機械的な判定**: Pass/Fail はスコア閾値・テスト結果で機械的に判定する。主観的な「良さそう」は判定基準にしない。
+4. **二重防御**: プロンプトベースの制限 + 事後検証（git diff チェック等）で安全性を担保する。
+5. **役割分離**: 採点エージェント（Evaluator / Review Agent）は Read-Only。修正は常に Creator Agent / Implementation Agent / Test Agent が行う。同一エージェントが実装+最終承認を兼務しない。
+
+---
+
+## 実行モード
+
+### 通常モード（`auto_approve: false`）
+各フェーズでEvaluatorが100点を出した後、人間の確認を挟んでから次フェーズに進む。品質を最大限担保したい場合に使用。
+
+### 全承認モード（`auto_approve: true`）
+**SPECの最初の承認のみ人間が行い、以降は完走する。** Evaluatorが100点に到達した時点で自動的に次フェーズに進行し、Verify完了まで人間の介入なしで実行する。
+
+全承認モードの動作:
+1. **Phase 1 (Specify)**: Spec Agent → Evaluator → 100点到達 → **人間にSPEC承認を求める（唯一の停止点）**
+2. **Phase 2 (Plan+Slice)**: Planning Agent → Evaluator → 100点到達 → **自動で次へ**
+3. **Phase 3-4 (Execute+Verify)**: Implementation → Test → Review → 100点到達 → **自動で完了**
+4. **Phase 5 (Log)**: RUNログ記録 → failures.md追記 → **完了報告**
+
+全承認モードでも以下は停止する:
+- Evaluator が `abort` を返した場合
+- 同一エラーが3回連続した場合（`same_fail_abort_threshold`）
+- max_iterations に到達した場合
+
+設定:
+```yaml
+# .sage/config.yaml
+harness:
+  auto_approve: true  # SPEC承認後は完走
+```
+
+起動時の指定:
+```
+/sage-harness --auto-approve
+[requirements description]
+```
+
+## 前提条件
+
+- `.sage/config.yaml` の `harness` セクションが設定されていること
+- `scripts/sage-id-gen.sh` が実行可能であること
+- `sage/anti-patterns.md` が存在すること（既知パターン参照用）
+
+---
+
+## ハーネス起動時の前処理（anti-patterns 注入）
+
+START前に以下を実行:
+
+1. `sage/anti-patterns.md` を読み込む
+2. 関連する AP-XXX を以下のエージェントのシステムプロンプトに注入:
+   - **Spec Agent**: SPECに禁止パターンを含める指示
+   - **Planning Agent**: TASK の禁止事項に含める指示（既存）
+   - **Implementation Agent**: 実装時の禁止事項として注入
+   - **Review Agent**: findings生成時に既知APとの照合を行う指示
+3. **Evaluator** にも既知パターンリストを渡し、findings と AP の重複を検出させる
+
+---
+
+## YAML 出力バリデーション
+
+Evaluator / Review Agent の YAML 出力を受け取った後、オーケストレーターは以下を検証:
+
+1. **構文チェック**: YAML としてパース可能か
+2. **必須フィールドの存在チェック**:
+   - eval_feedback: `verdict`, `total_score`, `findings`, `fix_instructions`
+   - review_feedback: `verdict`, `review_score`, `gate_results`, `findings`, `fix_scope`
+3. **値域チェック**: verdict が `PASS | FAIL` のいずれか、スコアが 0-100 の範囲内
+
+### バリデーション失敗時
+- **1回目**: 同一エージェントに「出力が YAML スキーマに準拠していません。以下のスキーマに従って再出力してください」とリトライ
+- **2回目失敗**: `abort_reason = "yaml_schema_error"` で abort
+
+---
+
+## フロー
+
+```
+┌───────────────────────────────────────────────────────┐
+│  Phase 1: Specify                                     │
+│  ┌─────────────────────────────────────────────┐      │
+│  │ Agent → Spec Agent                          │      │
+│  │   入力: ユーザー要求 + anti-patterns        │      │
+│  │   出力: specs/SPEC-XXXX-*.md                │      │
+│  └─────────────────────────────────────────────┘      │
+│  ┌─────────────────────────────────────────────┐      │
+│  │ WHILE iteration < spec_eval_max_iterations: │      │
+│  │   Evaluator（Read-Only）→ eval_feedback     │      │
+│  │   score >= 100:                              │      │
+│  │     auto_approve=false → 人間に承認を求める   │      │
+│  │     auto_approve=true  → 人間に承認を求める   │      │
+│  │     ※ SPECの承認は常に人間が行う（唯一の停止点）│     │
+│  │   score < 100 → Spec Agent に修正させる      │      │
+│  │   上限到達 → abort "spec_eval_max"           │      │
+│  └─────────────────────────────────────────────┘      │
+├───────────────────────────────────────────────────────┤
+│  Phase 2: Plan + Slice                                │
+│  ┌─────────────────────────────────────────────┐      │
+│  │ Agent → Planning Agent                      │      │
+│  │   入力: SPEC + anti-patterns                │      │
+│  │   出力: plans/, tasks/, done-def            │      │
+│  └─────────────────────────────────────────────┘      │
+│  ┌─────────────────────────────────────────────┐      │
+│  │ WHILE iteration < plan_eval_max_iterations: │      │
+│  │   Evaluator（Read-Only）→ eval_feedback     │      │
+│  │   score >= 100:                              │      │
+│  │     auto_approve=false → 人間に確認を求める   │      │
+│  │     auto_approve=true  → 自動で次Phaseへ     │      │
+│  │   score < 100 → Planning Agent に修正させる  │      │
+│  │   上限到達 → abort "plan_eval_max"           │      │
+│  └─────────────────────────────────────────────┘      │
+├───────────────────────────────────────────────────────┤
+│  Phase 3-4: Execute + Verify ループ                   │
+│  ┌─────────────────────────────────────────────┐      │
+│  │ WHILE iteration < max_iterations:           │      │
+│  │                                             │      │
+│  │   Step 1: Implementation Agent              │      │
+│  │     Write: src/（TASK File Scope内のみ）     │      │
+│  │     Forbidden: tests/, specs/, plans/       │      │
+│  │                                             │      │
+│  │   Step 2: Test Agent                        │      │
+│  │     Write: tests/（テストファイルのみ）       │      │
+│  │     Read: src/, specs/, plans/              │      │
+│  │     Forbidden: src/ の修正                  │      │
+│  │                                             │      │
+│  │   Step 3: Review Agent（Read-Only）          │      │
+│  │     Write: NONE                             │      │
+│  │     Bash: テスト実行・lint・カバレッジのみ    │      │
+│  │     出力: review_feedback YAML              │      │
+│  │                                             │      │
+│  │   review_score >= 100 AND 全Gate pass:      │
+│  │     auto_approve=false → 人間に確認を求める   │      │
+│  │     auto_approve=true  → 自動で完了          │      │
+│  │   FAIL → fix_scope ルーティングで再実行      │      │
+│  │   same_fail_count >= 3 → abort              │      │
+│  └─────────────────────────────────────────────┘      │
+├───────────────────────────────────────────────────────┤
+│  Phase 5: ログ記録                                    │
+│  → .sage/runs/RUN-XXXX.yaml に全結果を記録            │
+│  → Fail パターンを sage/failures.md に自動追記         │
+│  → 3回以上のパターンを sage/anti-patterns.md に昇格    │
+└───────────────────────────────────────────────────────┘
+```
+
+---
+
+## Phase 1: Specify
+
+### Spec Agent 呼び出し
+
+Agent tool で以下のプロンプトを渡す:
+
+```
+あなたは Spec Agent です。
+.claude/prompts/spec-agent.md を読み、その役割定義に従ってください。
+
+【タスク】
+以下の要求に基づいて SPEC を作成してください:
+{user_request}
+
+【手順】
+1. bash scripts/sage-id-gen.sh spec で SPEC-ID を生成する
+2. specs/_template.md をコピーして specs/SPEC-{ID}-{short-name}.md を作成する
+3. 全セクションを埋める（TBD/TODO 禁止）
+4. 以下の exit criteria を全て満たすこと:
+   - SPEC-ID が割り当てられている
+   - 背景・目的が1文以上
+   - スコープ（含む）がバレットリスト
+   - スコープ外が明示（"なし" は不可）
+   - 受け入れ条件が3件以上（各コマンドで検証可能）
+   - 異常系が1件以上
+   - セキュリティ要件が記載
+
+【既知パターンの注入】
+{anti_patterns_content}
+上記の既知アンチパターンに該当する問題がある場合、SPEC のスコープ外・禁止事項に含めてください。
+
+【出力】
+作成した SPEC ファイルのパスと SPEC-ID を報告してください。
+```
+
+### Evaluator 呼び出し（SPEC採点 — Read-Only）
+
+Agent tool で以下のプロンプトを渡す:
+
+```
+あなたは Evaluator です。
+templates/skills/sage-evaluate/SKILL.md を読み、その役割定義に従ってください。
+templates/skills/sage-evaluate/references/scoring-rubric.md を読み、
+6軸・100点満点で以下の SPEC を採点してください:
+
+対象ファイル: {spec_file_path}
+
+【重要: Read-Only 制約】
+- Write/Edit ツールの使用は絶対に禁止する
+- ドキュメントの修正は一切行わない
+- 問題を発見した場合は findings + fix_instructions として報告する
+
+【既知パターン】
+{anti_patterns_content}
+findings 生成時に上記の既知パターンとの重複を検出してください。
+
+【出力形式】
+以下の eval_feedback YAML 形式で厳密に出力してください:
+
+eval_feedback:
+  target_file: "{spec_file_path}"
+  target_type: SPEC
+  verdict: PASS | FAIL
+  total_score: N
+  grade: "S++ | S+ | S | A- | B | C"
+  subscores:
+    codified_rules: N/20
+    atomic_decomposition: N/20
+    spec_driven_development: N/20
+    observable_development: N/20
+    knowledge_management: N/15
+    gradual_adoption: N/5
+  findings:
+    - id: "EVAL-001"
+      axis: "..."
+      severity: "critical | major | minor"
+      location: "..."
+      problem: "..."
+      expected: "..."
+      actual: "..."
+  fix_instructions:
+    - finding_id: "EVAL-001"
+      target_file: "..."
+      section: "..."
+      action: "..."
+      example: "..."
+
+【File Scope】
+- Read: specs/, plans/, tasks/, sage/, .sage/config.yaml
+- Write: NONE（絶対に書き込み禁止）
+```
+
+### Spec Agent 修正呼び出し（score < 100 の場合）
+
+```
+あなたは Spec Agent です。
+.claude/prompts/spec-agent.md を読み、その役割定義に従ってください。
+
+【タスク】
+以下の Evaluator フィードバックに基づいて SPEC を修正してください:
+
+対象ファイル: {spec_file_path}
+
+【修正指示（fix_instructions）】
+{eval_feedback.fix_instructions を展開}
+
+【ルール】
+- fix_instructions に記載された修正のみを行う
+- 指示にない変更は加えない
+- 修正完了後、変更内容の概要を報告する
+
+【File Scope】
+- Write: specs/（対象 SPEC ファイルのみ）
+```
+
+### Phase 1 ループ制御
+
+```
+iteration = 0
+WHILE iteration < spec_eval_max_iterations:
+  1. Evaluator（Read-Only）を呼び出し → eval_feedback YAML を受け取る
+  2. YAML バリデーション実行（上記「YAML 出力バリデーション」参照）
+  3. eval_feedback.verdict == "PASS" (score >= 100) → Phase 2 へ進む
+  4. eval_feedback.verdict == "FAIL" → Spec Agent 修正呼び出し
+  5. iteration += 1
+
+上限到達（spec_eval_max_iterations）:
+  → status = "aborted"
+  → abort_reason = "spec_eval_max"
+  → ユーザーに報告し判断を委ねる
+```
+
+---
+
+## Phase 2: Plan + Slice
+
+### Planning Agent 呼び出し
+
+Agent tool で以下のプロンプトを渡す:
+
+```
+あなたは Planning Agent です。
+.claude/prompts/planning-agent.md を読み、その役割定義に従ってください。
+
+【タスク】
+以下の SPEC に基づいて PLAN と TASK を作成してください:
+SPEC: {spec_file_path}（SPEC-ID: {spec_id}）
+
+【手順】
+1. bash scripts/sage-id-gen.sh plan で PLAN-ID を生成
+2. plans/_template.md をコピーして plans/PLAN-{ID}-{short-name}.md を作成
+3. SPEC の受け入れ条件を TASK に分解する:
+   a. 各 TASK に bash scripts/sage-id-gen.sh task で TASK-ID を割り当て
+   b. tasks/_template.md をコピーして tasks/TASK-{ID}-{short-name}.md を作成
+   c. 各 TASK に単一責務・File Scope・完了条件を定義
+4. Done Definition を作成する:
+   a. templates/done-definition-template.md をコピーして
+      tasks/done-def-{spec_id}-round-1.md を作成
+   b. テスト対象URL、起動コマンド、Pass/Fail判定基準を埋める
+      （実装前なので仮値可、Implementation Agent が具体化する）
+
+【既知パターンの注入】
+sage/anti-patterns.md の「ハーネス検出パターン」セクションを読み、
+該当するパターンがあれば TASK の禁止事項に含めてください。
+{anti_patterns_content}
+
+【出力】
+PLAN-ID、全 TASK-ID のリスト、Done Definition ファイルパスを報告してください。
+```
+
+### Evaluator 呼び出し（PLAN採点 — Read-Only）
+
+SPEC と同じ要領で、PLAN + TASK を6軸採点。
+- Evaluator は Read-Only（Write/Edit ツール使用禁止）
+- eval_feedback YAML 形式で出力
+- score < 100 → Planning Agent に fix_instructions を渡して修正させる
+
+### Planning Agent 修正呼び出し（score < 100 の場合）
+
+```
+あなたは Planning Agent です。
+.claude/prompts/planning-agent.md を読み、その役割定義に従ってください。
+
+【タスク】
+以下の Evaluator フィードバックに基づいて PLAN / TASK を修正してください:
+
+対象ファイル: {eval_feedback.fix_instructions で指定されたファイル}
+
+【修正指示（fix_instructions）】
+{eval_feedback.fix_instructions を展開}
+
+【ルール】
+- fix_instructions に記載された修正のみを行う
+- 指示にない変更は加えない
+- 修正完了後、変更内容の概要を報告する
+
+【File Scope】
+- Write: plans/, tasks/（対象ファイルのみ）
+```
+
+### Phase 2 ループ制御
+
+Phase 1 と同一パターン。上限: `plan_eval_max_iterations` 回。
+上限到達 → `abort_reason = "plan_eval_max"`
+
+---
+
+## Phase 3-4: Execute + Verify ループ
+
+### ループ初期化
+
+```
+iteration = 0
+previous_review_feedback = null
+fail_history = {}  # REV-ID → 連続失敗回数
+```
+
+### Step 1: Implementation Agent 呼び出し
+
+Agent tool で以下のプロンプトを渡す:
+
+```
+あなたは Implementation Agent です。
+.claude/prompts/implementation-agent.md を読み、その役割定義に従ってください。
+
+【タスク】
+以下の TASK を実装してください:
+{task_file_paths のリスト}
+
+【参照ドキュメント】
+- SPEC: {spec_file_path}
+- PLAN: {plan_file_path}
+- Done Definition: {done_def_file_path}
+
+【既知パターンの注入】
+以下のアンチパターンに該当する実装を行わないでください:
+{anti_patterns_content}
+
+{IF previous_review_feedback AND fix_scope.implementation is not empty:}
+【前回の Review フィードバック（iteration {N-1}）】
+以下の問題を優先的に修正してください:
+
+findings（implementation向け）:
+{previous_review_feedback.findings のうち fix_scope.implementation に該当するもの}
+
+修正指示:
+{previous_review_feedback.instruction のうち target: "implementation" のもの}
+{ENDIF}
+
+【ルール】
+- TASK の File Scope 内の src/ ファイルのみ変更する
+- tests/ の変更は禁止（Test Agent の責務）
+- specs/, plans/ の変更は禁止
+- コミットメッセージに TASK-ID を含める（例: feat: add auth handler [TASK-0001]）
+- TODO/FIXME をコミットに残さない
+- Done Definition の起動コマンド・テスト対象URL を具体値で更新する
+
+【出力】
+実装した内容の概要、変更ファイルリスト、Done Definition の更新内容を報告してください。
+```
+
+### Step 1 後の git diff チェック（二重防御）
+
+```bash
+# Implementation Agent が tests/ や specs/ を変更していないか確認
+impl_diff = bash("git diff --name-only")
+forbidden_changes = impl_diff のうち tests/ または specs/ または plans/ にマッチするもの
+if forbidden_changes is not empty:
+  bash("git checkout -- {forbidden_changes}")
+  log_warning("Implementation Agent attempted forbidden file modification — reverted: {forbidden_changes}")
+```
+
+### Step 2: Test Agent 呼び出し
+
+Agent tool で以下のプロンプトを渡す:
+
+```
+あなたは Test Agent です。
+.claude/prompts/test-agent.md を読み、その役割定義に従ってください。
+
+【タスク】
+以下の SPEC と Done Definition に基づいてテストを作成・更新してください:
+
+【参照ドキュメント】
+- SPEC: {spec_file_path}
+- Done Definition: {done_def_file_path}
+- TASK ファイル: {task_file_paths}
+
+{IF previous_review_feedback AND fix_scope.test is not empty:}
+【前回の Review フィードバック（iteration {N-1}）】
+以下のテスト問題を優先的に修正してください:
+
+findings（test向け）:
+{previous_review_feedback.findings のうち fix_scope.test に該当するもの}
+
+修正指示:
+{previous_review_feedback.instruction のうち target: "test" のもの}
+{ENDIF}
+
+【ルール】
+- tests/ 内のテストファイルのみ変更する
+- src/ の変更は禁止（Implementation Agent の責務）
+- specs/, plans/ の変更は禁止
+- 正常系・境界値・異常系を網羅する
+- カバレッジ閾値（.sage/config.yaml の unit_test_coverage）を達成する
+
+【出力】
+作成・更新したテストファイルリスト、テスト実行結果、カバレッジ情報を報告してください。
+```
+
+### Step 2 後の git diff チェック（二重防御）
+
+```bash
+# Test Agent が src/ を変更していないか確認
+test_diff = bash("git diff --name-only")
+forbidden_changes = test_diff のうち src/ にマッチするもの
+if forbidden_changes is not empty:
+  bash("git checkout -- {forbidden_changes}")
+  log_warning("Test Agent attempted src/ modification — reverted: {forbidden_changes}")
+```
+
+### Step 3: Review Agent 呼び出し（Read-Only）
+
+Agent tool で以下のプロンプトを渡す:
+
+```
+あなたは Review Agent です。
+.claude/prompts/review-agent.md を読み、その役割定義に従ってください。
+特に「Harness Mode」セクションと「Scoring Rubric」セクションを厳守してください。
+
+【ツール使用制限（絶対）】
+- Read: 使用可（全ファイル読み取り可）
+- Bash: 使用可（テスト実行・lint・カバレッジ計測のみ）
+- Write/Edit: 使用禁止（コードの修正は一切行わない）
+- Agent: 使用禁止
+
+コードに問題を発見した場合、修正するのではなく、
+review_feedback YAML 形式で報告してください。
+修正は Implementation Agent / Test Agent の責務です。
+
+【検証対象】
+- SPEC: {spec_file_path}
+- Done Definition: {done_def_file_path}
+- TASK ファイル: {task_file_paths}
+
+【既知パターンの照合】
+{anti_patterns_content}
+findings 生成時に上記の既知パターンとの照合を行い、該当する場合はその旨を記載してください。
+
+【実行する検証】
+1. Gate 1 (Structural): lint, format, type check を実行
+2. Gate 2 (Functional): テスト実行、カバレッジ確認 (>= 80%)
+3. Gate 3 (Security): secret scan, dependency check を実行
+4. Gate 4 (Architecture): File Scope 遵守確認、TASK-ID in commits 確認
+5. Done Definition の受け入れ条件を1件ずつ検証
+6. ブラウザ検証（.mcp.json が存在する場合のみ）
+7. Scoring Rubric（6軸100点）で採点
+
+【出力形式】
+以下の review_feedback YAML 形式で厳密に出力してください:
+
+review_feedback:
+  round: {round_number}
+  iteration: {iteration_number}
+  verdict: PASS | FAIL
+  review_score: N
+  subscores:
+    spec_alignment: N/25
+    scope_compliance: N/20
+    responsibility_alignment: N/15
+    complexity: N/10
+    test_adequacy: N/15
+    safety: N/15
+  gate_results:
+    structural: pass | fail
+    functional: pass | fail
+    security: pass | fail
+    architecture: pass | fail
+  findings:
+    - id: "REV-001"
+      category: "spec_alignment | scope_compliance | responsibility | complexity | test | safety"
+      severity: "critical | major | minor"
+      file: "path/to/file"
+      expected: "期待される状態"
+      actual: "現在の状態"
+  fix_scope:
+    implementation: [{ file: "path", reason: "理由" }]
+    test: [{ file: "path", reason: "理由" }]
+  instruction:
+    - target: "implementation"
+      action: "Implementation Agentへの具体的修正指示"
+    - target: "test"
+      action: "Test Agentへの具体的修正指示"
+  retry_allowed: true | false
+  same_fail_count: N
+
+【Hard Fail条件】
+以下に該当する場合、review_score に関係なく verdict: FAIL + retry_allowed: false:
+- File Scope違反
+- Gate 1-4のいずれかFail
+- secrets/credentialsのハードコード
+- 既知脆弱性を持つ依存の追加
+```
+
+### Step 3 後の git diff チェック（二重防御）
+
+```
+review_diff = bash("git diff --name-only")
+if review_diff is not empty:
+  bash("git checkout -- .")
+  log_warning("Review Agent attempted file modification — reverted")
+```
+
+### fix_scope ルーティング規則
+
+review_feedback の `fix_scope` に基づき、オーケストレーターが再実行するエージェントを機械的に決定する:
+
+| fix_scope.implementation | fix_scope.test | 再実行対象 |
+|--------------------------|----------------|-----------|
+| 空でない | 空でない | Implementation Agent → Test Agent の順で再実行 |
+| 空でない | 空 | Implementation Agent のみ再実行 |
+| 空 | 空でない | Test Agent のみ再実行 |
+| 空 | 空 | abort（verdict: FAIL だが fix_scope 空はスキーマ不整合） |
+
+### ループ判定
+
+```
+IF review_result.verdict == "PASS" AND review_result.review_score >= review_score_threshold (100):
+  → ループ終了、Phase 5 へ
+
+IF review_result.retry_allowed == false:
+  → abort_reason = "human_escalation"
+  → ユーザーに報告
+
+# 同一失敗チェック
+FOR each finding in review_result.findings:
+  fail_history[finding.id] += 1
+  IF fail_history[finding.id] >= same_fail_abort_threshold (3):
+    → abort_reason = "same_fail_3x"
+    → 該当パターンを sage/failures.md に追記
+    → ユーザーに報告
+
+IF iteration >= max_iterations:
+  → abort_reason = "max_iterations"
+  → ユーザーに報告
+
+ELSE:
+  → previous_review_feedback = review_result
+  → fix_scope ルーティング規則に従い、該当エージェントのみ再実行
+  → 次のイテレーションへ
+```
+
+---
+
+## Phase 5: ログ記録
+
+### Run Log 作成
+
+```bash
+bash scripts/sage-id-gen.sh run
+```
+
+で RUN-ID を生成し、`.sage/runs/RUN-XXXX.yaml` に以下を書き出す:
+
+```yaml
+run_id: RUN-XXXX
+type: harness
+spec_id: SPEC-XXXX
+plan_id: PLAN-XXXX
+task_ids: [TASK-XXXX, TASK-XXXY]
+started_at: "2026-04-10T10:00:00+09:00"
+completed_at: "2026-04-10T10:45:00+09:00"
+status: pass  # pass | fail | aborted
+abort_reason: ""  # max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error
+iterations: 2
+phases:
+  specify:
+    status: pass
+    score: 100
+    eval_iterations: 3
+    duration_seconds: 120
+  plan:
+    status: pass
+    score: 100
+    eval_iterations: 2
+    duration_seconds: 180
+  execute_verify:
+    - iteration: 1
+      implementation_status: completed
+      test_status: completed
+      review_status: fail
+      review_score: 72
+      review_feedback:
+        findings:
+          - id: "REV-001"
+            category: test
+            expected: "テストカバレッジ >= 80%"
+            actual: "65%"
+        fix_scope:
+          implementation: []
+          test: [{ file: "tests/auth/login.test.ts", reason: "カバレッジ不足" }]
+        instruction:
+          - target: "test"
+            action: "401応答テストを追加"
+    - iteration: 2
+      implementation_status: skipped  # fix_scope.implementation が空のためスキップ
+      test_status: completed
+      review_status: pass
+      review_score: 100
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+```
+
+### Failure 自動蓄積
+
+`auto_append_failures: true` の場合、abort されたパターンを `sage/failures.md` に自動追記:
+
+```markdown
+### FAIL-XXXX: {abort_reason} at Phase {phase}
+- **日時**: {timestamp}
+- **RUN-ID**: RUN-XXXX
+- **Phase**: {specify | plan | execute_verify}
+- **Iteration**: {iteration}/{max}
+- **最終スコア**: {last_score}
+- **最終findings**: {last_findingsの要約}
+- **abort_reason**: {max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error}
+- **再発回数**: N
+- **対策**: [未解決]
+```
+
+### Anti-Pattern 昇格
+
+`failure_pattern_escalation` 回数（3回）に達したパターンは `sage/anti-patterns.md` に以下の形式で昇格:
+
+```markdown
+## AP-XXX: {パターン名}
+- **初回発生**: {日時}
+- **発生回数**: N
+- **abort_reason**: {reason}
+- **共通findings**: {繰り返されたfindingsのパターン}
+- **推奨対策**: [未解決 | 対策内容]
+- **関連FAIL**: [FAIL-001, FAIL-002, ...]
+```
+
+---
+
+## 設定値（.sage/config.yaml）
+
+```yaml
+harness:
+  max_iterations: 5               # Execute-Verify ループ上限
+  spec_score_threshold: 100        # Phase 1 通過に必要な Evaluator スコア
+  plan_score_threshold: 100        # Phase 2 通過に必要な Evaluator スコア
+  review_score_threshold: 100      # Phase 3-4: Review Agent score to pass
+  spec_eval_max_iterations: 10     # Phase 1 Evaluator ループ上限
+  plan_eval_max_iterations: 10     # Phase 2 Evaluator ループ上限
+  verify_pass_required: true       # 全ゲート通過必須
+  enable_browser_verify: false     # Playwright MCP によるブラウザ検証
+  auto_append_failures: true       # sage/failures.md への自動追記
+  same_fail_abort_threshold: 3     # 同一 REV-ID 連続失敗での abort
+  failure_pattern_escalation: 3    # anti-patterns.md への昇格閾値
+```
+
+---
+
+## 呼び出し方
+
+```
+/sage-harness
+```
+
+プロンプトで要求を記述する。例:
+
+```
+/sage-harness
+ユーザー認証機能を追加してください。
+メールアドレスとパスワードによるログイン、JWTトークン発行、
+認証ミドルウェアが必要です。
+```
+
+### オプション引数
+
+- `--spec SPEC-XXXX`: 既存 SPEC から再開（Phase 2 から開始）
+- `--plan PLAN-XXXX`: 既存 PLAN から再開（Phase 3 から開始）
+- `--max-iterations N`: ループ上限の一時変更
+
+---
+
+## File Scope
+
+| 操作 | 対象 |
+|------|------|
+| Read | 全ファイル（オーケストレーター自身は全ファイル参照可） |
+| Write | `.sage/runs/`（Run Log のみ、append only） |
+| Delegate | specs/, plans/, tasks/ は Spec/Planning Agent 経由で変更 |
+| Delegate | src/ は Implementation Agent 経由で変更 |
+| Delegate | tests/ は Test Agent 経由で変更 |
+| Forbidden | `CLAUDE.md`, `AGENTS.md`, `sage/`（governance系）の直接変更 |
+
+---
+
+## Abort 時の対応
+
+ハーネスが abort した場合、以下をユーザーに報告する:
+
+1. **abort_reason** と最終スコア
+2. **最後の構造化フィードバック**（失敗項目・修正指示）
+3. **Run Log のパス**（`.sage/runs/RUN-XXXX.yaml`）
+4. **推奨アクション**:
+   - `same_fail_3x`: 該当パターンの根本原因を人間が調査
+   - `max_iterations`: SPEC の受け入れ条件を見直し、再実行
+   - `spec_eval_max` / `plan_eval_max`: SPEC/PLAN の品質を人間がレビュー
+   - `human_escalation`: Review Agent が `retry_allowed: false` と判断した問題を確認
+   - `yaml_schema_error`: エージェントの YAML 出力が2回連続でスキーマ不適合
+
+__EOF_TMPL_SKILL_HARNESS__
 
 read -r -d '' TMPL_SKILL_EVALUATE <<'__EOF_TMPL_SKILL_EVALUATE__' || true
 ---
@@ -2411,9 +3332,9 @@ echo ""
 
 # --- Check 6: Noise Diff Check ---
 echo "[6/7] ノイズ差分チェック..."
-# CI環境では HEAD~1 比較、ローカルではステージング済みファイル比較
+# CI環境では直近コミットをルート安全に検査、ローカルではステージング済みファイル比較
 if [ -n "${CI:-}" ]; then
-  DIFF_CMD="git diff HEAD~1 --check"
+  DIFF_CMD="git diff-tree --check --no-commit-id --root -r HEAD"
 else
   DIFF_CMD="git diff --cached --check"
 fi
@@ -2589,7 +3510,7 @@ __EOF_TMPL_TRACE_CHECK__
 
 read -r -d '' TMPL_UPDATE_CHECK <<'__EOF_TMPL_UPDATE_CHECK__' || true
 #!/bin/bash
-# sage-update-check.sh — 1日1回、Gist から最新バージョンを確認し、必要なら自動更新
+# sage-update-check.sh — 1日1回、Gist から最新バージョンを確認して更新通知する
 # エラーが発生しても開発を止めない（警告のみ）
 
 SAGE_DIR=".sage"
@@ -2639,18 +3560,10 @@ if [ "$REMOTE_VERSION" = "$LOCAL_VERSION" ]; then
   exit 0
 fi
 
-# 自動更新（AC-5）
+# 更新通知（AC-5）
 echo "SAGE 更新があります: v${LOCAL_VERSION} → v${REMOTE_VERSION}"
-echo "更新を適用中..."
-
-TMP_INSTALLER="/tmp/sage-install-$$-$(date +%s).sh"
-if curl -fsSL --connect-timeout 10 "$GIST_URL" -o "$TMP_INSTALLER" 2>/dev/null; then
-  bash "$TMP_INSTALLER" --update
-  rm -f "$TMP_INSTALLER"
-else
-  echo "SAGE: install.sh のダウンロードに失敗しました。次回再試行します。"
-  rm -f "$TMP_INSTALLER"
-fi
+echo "install.sh を確認してから手動で更新してください。"
+echo "推奨: bash install.sh --update"
 
 __EOF_TMPL_UPDATE_CHECK__
 
@@ -2659,7 +3572,7 @@ read -r -d '' TMPL_HOOK_BLOCK_DANGEROUS <<'__EOF_TMPL_HOOK_BLOCK_DANGEROUS__' ||
 # =============================================================================
 # TASK-0036: block-dangerous-commands.sh
 # Purpose:  PreToolUse hook (Bash matcher) — block dangerous shell commands
-# Profile:  standard+ (skipped if profile is "minimal")
+# Profile:  standard+ (skipped if profile is "minimal" or "none")
 # Behavior: Reads JSON from stdin with tool_name and tool_input.command.
 #           Blocks patterns: --no-verify, git push --force/-f, rm -rf /|~|.
 #           Exit 0 = allow/warn, Exit 2 = block
@@ -2673,7 +3586,7 @@ if [ -f ".sage/config.yaml" ]; then
   [ -z "$PROFILE" ] && PROFILE="standard"
 fi
 
-if [ "$PROFILE" = "minimal" ]; then
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
   exit 0
 fi
 
@@ -2712,7 +3625,7 @@ if echo "$COMMAND" | grep -qE '\-\-no-verify'; then
 fi
 
 # Pattern: git push --force or git push -f (destructive force push)
-if echo "$COMMAND" | grep -qE 'git\s+push\s+.*(\-\-force|\-f)'; then
+if echo "$COMMAND" | grep -qE 'git[[:space:]]+push' && echo "$COMMAND" | grep -qE '(^|[[:space:]])(--force|-f)($|[[:space:]])'; then
   echo "BLOCKED: Force push detected (git push --force/-f)." >&2
   echo "Suggestion: Use 'git push --force-with-lease' for safer force pushing." >&2
   exit 2
@@ -2749,10 +3662,10 @@ read -r -d '' TMPL_HOOK_PROTECT_SAGE <<'__EOF_TMPL_HOOK_PROTECT_SAGE__' || true
 # =============================================================================
 # TASK-0037: protect-sage-files.sh
 # Purpose:  PreToolUse hook (Edit|Write matcher) — protect SAGE-managed files
-# Profile:  standard+ (skipped if profile is "minimal")
+# Profile:  standard+ (skipped if profile is "minimal" or "none")
 # Behavior: Reads JSON from stdin with tool_name and tool_input.file_path.
 #           Protected: CLAUDE.md, sage/*, .sage/config.yaml, .claude/settings.json
-#           If a TASK with sage-managed: true AND status 実行中 exists, allow.
+#           If a TASK with sage-managed: true AND status In Progress / 実行中 exists, allow.
 #           Otherwise block (exit 2).
 #           On empty stdin or parse error: exit 0
 # =============================================================================
@@ -2765,9 +3678,26 @@ if [ -f ".sage/config.yaml" ]; then
   [ -z "$PROFILE" ] && PROFILE="standard"
 fi
 
-if [ "$PROFILE" = "minimal" ]; then
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
   exit 0
 fi
+
+task_status() {
+  awk -F'|' '/^\|[[:space:]]*ステータス[[:space:]]*\|/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3; exit}' "$1" 2>/dev/null || true
+}
+
+task_is_active() {
+  local status
+  status="$(task_status "$1")"
+  case "$status" in
+    "In Progress"|"実行中")
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 # --- Read stdin (JSON) ---
 INPUT=""
@@ -2840,7 +3770,7 @@ if [ -d "tasks" ]; then
   for task_file in tasks/*.md; do
     [ -f "$task_file" ] || continue
 
-    # Check if task has sage-managed: true AND status: 実行中
+    # Check if task has sage-managed: true AND active status
     HAS_SAGE_MANAGED=false
     HAS_ACTIVE_STATUS=false
 
@@ -2848,7 +3778,7 @@ if [ -d "tasks" ]; then
       HAS_SAGE_MANAGED=true
     fi
 
-    if grep -q '実行中' "$task_file" 2>/dev/null; then
+    if task_is_active "$task_file"; then
       HAS_ACTIVE_STATUS=true
     fi
 
@@ -2862,7 +3792,7 @@ fi
 # --- Block: no active sage-managed task ---
 echo "BLOCKED: '$NORM_PATH' is a SAGE-protected file." >&2
 echo "Protected files: CLAUDE.md, sage/*, .sage/config.yaml, .claude/settings.json" >&2
-echo "To modify, ensure a TASK in tasks/ has 'sage-managed: true' and status '実行中'." >&2
+echo "To modify, ensure a TASK in tasks/ has 'sage-managed: true' and status 'In Progress' (or '実行中')." >&2
 exit 2
 
 __EOF_TMPL_HOOK_PROTECT_SAGE__
@@ -2874,7 +3804,7 @@ read -r -d '' TMPL_HOOK_CHECK_SCOPE <<'__EOF_TMPL_HOOK_CHECK_SCOPE__' || true
 # Purpose:  PreToolUse hook (Edit|Write matcher) — enforce TASK File Scope
 # Profile:  standard+ (warn on stderr, exit 0), strict (block with exit 2)
 # Behavior: Reads JSON from stdin with tool_input.file_path.
-#           Finds active TASK (status 実行中 in tasks/*.md), extracts File Scope.
+#           Finds active TASKs (status In Progress / 実行中 in tasks/*.md), extracts File Scope.
 #           If file_path is outside scope: warn (standard) or block (strict).
 #           If no active TASK found: skip check, exit 0.
 #           On empty stdin or parse error: exit 0
@@ -2888,9 +3818,56 @@ if [ -f ".sage/config.yaml" ]; then
   [ -z "$PROFILE" ] && PROFILE="standard"
 fi
 
-if [ "$PROFILE" = "minimal" ]; then
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
   exit 0
 fi
+
+task_status() {
+  awk -F'|' '/^\|[[:space:]]*ステータス[[:space:]]*\|/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3; exit}' "$1" 2>/dev/null || true
+}
+
+task_is_active() {
+  local status
+  status="$(task_status "$1")"
+  case "$status" in
+    "In Progress"|"実行中")
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+append_scope_from_task() {
+  local task_file="$1"
+  local in_scope=false
+
+  while IFS= read -r line; do
+    if echo "$line" | grep -qiE '^#{1,3}\s+file.?scope'; then
+      in_scope=true
+      continue
+    fi
+
+    if [ "$in_scope" = true ] && echo "$line" | grep -qE '^#{1,3}\s+'; then
+      break
+    fi
+
+    if [ "$in_scope" = true ]; then
+      local item extracted
+      item=$(echo "$line" | sed -n 's/^[[:space:]]*[-*][[:space:]]*//p' 2>/dev/null || true)
+      [ -z "$item" ] && continue
+
+      extracted=$(echo "$item" | sed -E 's/^[^:]+:[[:space:]]*//' | tr -d '`' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)
+      case "$extracted" in
+        ""|"[パス]"|"[path]")
+          continue
+          ;;
+      esac
+      SCOPE_PATHS+=("$extracted")
+    fi
+  done < "$task_file"
+}
 
 # --- Read stdin (JSON) ---
 INPUT=""
@@ -2914,9 +3891,9 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
-# --- Find active TASK (status 実行中) ---
-ACTIVE_TASK=""
-SCOPE_PATHS=""
+# --- Find active TASKs (status In Progress / 実行中) ---
+ACTIVE_TASKS=()
+SCOPE_PATHS=()
 
 if [ ! -d "tasks" ]; then
   echo "No active TASKs found, skipping scope check." >&2
@@ -2926,46 +3903,21 @@ fi
 for task_file in tasks/*.md; do
   [ -f "$task_file" ] || continue
 
-  if grep -q '実行中' "$task_file" 2>/dev/null; then
-    ACTIVE_TASK="$task_file"
-    break
+  if task_is_active "$task_file"; then
+    ACTIVE_TASKS+=("$task_file")
   fi
 done
 
-if [ -z "$ACTIVE_TASK" ]; then
+if [ "${#ACTIVE_TASKS[@]}" -eq 0 ]; then
   echo "No active TASK found, skipping scope check." >&2
   exit 0
 fi
 
-# --- Extract File Scope from active TASK ---
-# Look for "File Scope" or "file_scope" section and collect paths
-# Typical format:
-#   ## File Scope
-#   - src/foo/bar.ts
-#   - tests/foo/
-IN_SCOPE=false
-while IFS= read -r line; do
-  # Detect File Scope header (various formats)
-  if echo "$line" | grep -qiE '^#{1,3}\s+file.?scope'; then
-    IN_SCOPE=true
-    continue
-  fi
+for active_task in "${ACTIVE_TASKS[@]}"; do
+  append_scope_from_task "$active_task"
+done
 
-  # Stop at next header
-  if [ "$IN_SCOPE" = true ] && echo "$line" | grep -qE '^#{1,3}\s+'; then
-    break
-  fi
-
-  if [ "$IN_SCOPE" = true ]; then
-    # Extract path from list items: "- path" or "* path" or "  - path"
-    EXTRACTED=$(echo "$line" | sed -n 's/^[[:space:]]*[-*][[:space:]]*\(`\?\)\([^`]*\)\(`\?\)$/\2/p' 2>/dev/null || true)
-    if [ -n "$EXTRACTED" ]; then
-      SCOPE_PATHS="$SCOPE_PATHS|$EXTRACTED"
-    fi
-  fi
-done < "$ACTIVE_TASK"
-
-if [ -z "$SCOPE_PATHS" ]; then
+if [ "${#SCOPE_PATHS[@]}" -eq 0 ]; then
   # No File Scope defined in TASK — skip check
   exit 0
 fi
@@ -2981,30 +3933,33 @@ if [[ "$NORM_PATH" == /* ]]; then
   NORM_PATH="${NORM_PATH#$PWD_PREFIX}"
 fi
 
-IFS='|' read -ra PATHS <<< "$SCOPE_PATHS"
-for scope_path in "${PATHS[@]}"; do
-  [ -z "$scope_path" ] && continue
-  # Strip backticks, leading/trailing whitespace
-  scope_path=$(echo "$scope_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+for scope_path in "${SCOPE_PATHS[@]}"; do
   [ -z "$scope_path" ] && continue
 
-  # Check if file_path starts with or matches the scope path
-  if [[ "$NORM_PATH" == "$scope_path"* ]] || [[ "$NORM_PATH" == "$scope_path" ]]; then
-    # Within scope
+  if [[ "$scope_path" == */ ]]; then
+    if [[ "$NORM_PATH" == "$scope_path"* ]]; then
+      exit 0
+    fi
+  elif [[ "$NORM_PATH" == "$scope_path" ]] || [[ "$NORM_PATH" == "$scope_path/"* ]]; then
     exit 0
   fi
 done
 
 # --- Out of scope ---
-TASK_ID=$(basename "$ACTIVE_TASK" .md)
+TASK_IDS=()
+for active_task in "${ACTIVE_TASKS[@]}"; do
+  TASK_IDS+=("$(basename "$active_task" .md)")
+done
+TASK_LABEL=$(IFS=', '; echo "${TASK_IDS[*]}")
+ALLOWED_PATHS=$(printf '%s\n' "${SCOPE_PATHS[@]}" | awk 'NF && !seen[$0]++' | paste -sd ', ' -)
 
 if [ "$PROFILE" = "strict" ]; then
-  echo "BLOCKED: '$NORM_PATH' is outside File Scope for $TASK_ID." >&2
-  echo "Allowed paths: ${SCOPE_PATHS//|/, }" >&2
+  echo "BLOCKED: '$NORM_PATH' is outside File Scope for ${TASK_LABEL}." >&2
+  echo "Allowed paths: $ALLOWED_PATHS" >&2
   exit 2
 else
-  echo "WARNING: '$NORM_PATH' is outside File Scope for $TASK_ID." >&2
-  echo "Allowed paths: ${SCOPE_PATHS//|/, }" >&2
+  echo "WARNING: '$NORM_PATH' is outside File Scope for ${TASK_LABEL}." >&2
+  echo "Allowed paths: $ALLOWED_PATHS" >&2
   exit 0
 fi
 
@@ -3015,7 +3970,7 @@ read -r -d '' TMPL_HOOK_SESSION_START <<'__EOF_TMPL_HOOK_SESSION_START__' || tru
 # =============================================================================
 # TASK-0039: session-start.sh
 # Purpose:  SessionStart hook (no stdin) — display project context summary
-# Profile:  minimal+ (runs for all profiles)
+# Profile:  minimal+ (runs for all profiles except "none")
 # Behavior: Prints to stdout:
 #           1. Latest 3 RUN logs from .sage/runs/ (status, task_id, error_log)
 #           2. In-progress/blocked TASKs from tasks/*.md
@@ -3032,7 +3987,13 @@ if [ -f ".sage/config.yaml" ]; then
 fi
 
 # minimal+ means all profiles run this hook (minimal, standard, strict)
-# No profile skip needed.
+if [ "$PROFILE" = "none" ]; then
+  exit 0
+fi
+
+task_status() {
+  awk -F'|' '/^\|[[:space:]]*ステータス[[:space:]]*\|/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3; exit}' "$1" 2>/dev/null || true
+}
 
 echo "=== SAGE Session Context ==="
 echo ""
@@ -3082,14 +4043,17 @@ if [ -d "tasks" ]; then
 
     TASK_NAME=$(basename "$task_file" .md)
 
-    # Check for in-progress (実行中) or blocked (ブロック中)
-    if grep -q '実行中' "$task_file" 2>/dev/null; then
-      echo "  [$TASK_NAME] Status: 実行中 (In Progress)"
-      FOUND_TASKS=true
-    elif grep -q 'ブロック中' "$task_file" 2>/dev/null; then
-      echo "  [$TASK_NAME] Status: ブロック中 (Blocked)"
-      FOUND_TASKS=true
-    fi
+    STATUS=$(task_status "$task_file")
+    case "$STATUS" in
+      "In Progress"|"実行中")
+        echo "  [$TASK_NAME] Status: In Progress"
+        FOUND_TASKS=true
+        ;;
+      "Blocked"|"ブロック中")
+        echo "  [$TASK_NAME] Status: Blocked"
+        FOUND_TASKS=true
+        ;;
+    esac
   done
 fi
 
@@ -3133,7 +4097,7 @@ read -r -d '' TMPL_HOOK_SESSION_STOP <<'__EOF_TMPL_HOOK_SESSION_STOP__' || true
 # =============================================================================
 # TASK-0040: session-stop.sh
 # Purpose:  Stop hook (no stdin) — record session metrics
-# Profile:  minimal+ (runs for all profiles)
+# Profile:  minimal+ (runs for all profiles except "none")
 # Behavior: Appends 1 JSON line to .sage/metrics/sessions.jsonl
 #           Schema: {"timestamp":"ISO8601","files_changed":N,"files":["path1",...]}
 #           Gets changed files from: git diff --name-only HEAD
@@ -3149,8 +4113,10 @@ if [ -f ".sage/config.yaml" ]; then
   [ -z "$PROFILE" ] && PROFILE="minimal"
 fi
 
-# minimal+ means all profiles run this hook
-# No profile skip needed.
+# minimal+ means all profiles run this hook except "none"
+if [ "$PROFILE" = "none" ]; then
+  exit 0
+fi
 
 # --- Ensure metrics directory exists ---
 mkdir -p .sage/metrics 2>/dev/null || true
@@ -3483,7 +4449,7 @@ echo ""
 
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
-mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-evaluate/references
+mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness
 echo "  OK"
 
 # --- [2/9] Templates & governance ---
@@ -3549,6 +4515,8 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new ".claude/skills/sage-spec/SKILL.md" "$TMPL_SKILL_SPEC"
   write_file_if_new ".claude/skills/sage-plan/SKILL.md" "$TMPL_SKILL_PLAN"
   write_file_if_new ".claude/skills/sage-review/SKILL.md" "$TMPL_SKILL_REVIEW"
+  write_file_if_new ".claude/skills/sage-review/references/review-scoring-rubric.md" "$TMPL_SKILL_REVIEW_RUBRIC"
+  write_file_if_new ".claude/skills/sage-harness/SKILL.md" "$TMPL_SKILL_HARNESS"
   write_file_if_new ".claude/skills/sage-evaluate/SKILL.md" "$TMPL_SKILL_EVALUATE"
   write_file_if_new ".claude/skills/sage-evaluate/references/scoring-rubric.md" "$TMPL_SKILL_EVALUATE_RUBRIC"
   write_file_if_new ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
@@ -3556,6 +4524,8 @@ else
   update_file ".claude/skills/sage-spec/SKILL.md" "$TMPL_SKILL_SPEC"
   update_file ".claude/skills/sage-plan/SKILL.md" "$TMPL_SKILL_PLAN"
   update_file ".claude/skills/sage-review/SKILL.md" "$TMPL_SKILL_REVIEW"
+  update_file ".claude/skills/sage-review/references/review-scoring-rubric.md" "$TMPL_SKILL_REVIEW_RUBRIC"
+  update_file ".claude/skills/sage-harness/SKILL.md" "$TMPL_SKILL_HARNESS"
   update_file ".claude/skills/sage-evaluate/SKILL.md" "$TMPL_SKILL_EVALUATE"
   update_file ".claude/skills/sage-evaluate/references/scoring-rubric.md" "$TMPL_SKILL_EVALUATE_RUBRIC"
   update_file ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
@@ -3662,6 +4632,8 @@ STATEHEADER
     ".claude/skills/sage-spec/SKILL.md"
     ".claude/skills/sage-plan/SKILL.md"
     ".claude/skills/sage-review/SKILL.md"
+    ".claude/skills/sage-review/references/review-scoring-rubric.md"
+    ".claude/skills/sage-harness/SKILL.md"
     ".claude/skills/sage-evaluate/SKILL.md"
     ".claude/skills/sage-evaluate/references/scoring-rubric.md"
     ".claude/skills/sage-evaluate/references/knowledge-base.md"

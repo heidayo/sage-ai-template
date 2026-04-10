@@ -11,14 +11,14 @@ Core principle: **Specifications are the single source of truth. Code is an arti
 
 ## 2. Instruction Priority
 
-Follow instructions in this order:
+For **Codex sessions**, follow instructions in this order:
 
-1. **AGENTS.md** (this file) — highest authority
+1. **AGENTS.md** (this file) — highest authority for Codex
 2. **sage/governance.md** — lifecycle, agent roles, principles
 3. **docs/rules.md** — architectural constraints
 4. **User instructions** — runtime directives
 
-If conflicts occur, follow this priority chain. AGENTS.md always wins.
+`CLAUDE.md` is the Claude Code-specific counterpart. The two documents must stay semantically aligned.
 
 ## 3. SAGE Lifecycle Protocol
 
@@ -57,11 +57,12 @@ All changes MUST follow this 7-phase lifecycle. Skipping phases is prohibited.
 ### Verify phase exit criteria
 - [ ] Gate 2 (functional) coverage meets threshold in .sage/config.yaml (default 80%)
 - [ ] Gate 3 (security) secret scan + dependency vuln scan passed
-- [ ] Gate 4 (architecture) layer boundary + traceability check passed
+- [ ] Gate 4 (architecture) layer boundary + traceability check passed (FAIL on violation, not WARN)
+- [ ] Gate 5 (release) Gate 1-4 prerequisite check passed for main/production PRs
 - [ ] Review Agent has completed review (spec alignment, responsibility alignment, complexity, safety)
 
 ### Merge phase exit criteria
-- [ ] All Gates (1-4) passed
+- [ ] All Gates (1-5) passed or SKIPPED (Gate 5 is conditional for main/production PRs)
 - [ ] All review comments resolved
 - [ ] SPEC-ID, PLAN-ID, TASK-ID are in the PR body
 - [ ] Run log (RUN-ID) is recorded in .sage/runs/
@@ -226,7 +227,7 @@ This file (`AGENTS.md`) defines repository-wide development rules.
 
 - AI agents MUST NOT modify this file unless explicitly instructed by a human
 - Changes must be intentional and reviewed carefully
-- This file is the highest-authority instruction source for all AI agents
+- This file is the highest-authority instruction source for Codex-based agents
 
 <!-- === SAGE Development System (auto-injected) === -->
 # SAGE Workflow
@@ -244,6 +245,11 @@ Prohibited:
 - Modifying files outside TASK's File Scope
 - Leaving TODO/FIXME in committed code
 - Skipping tests
+- Using `--no-verify`, `--force`, `rm -rf` (blocked by hooks)
 
-Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance)
+CI Gates: PASS(✅) / FAIL(❌) / SKIPPED(⏭️). Configure in `.sage/config.yaml` `project_checks`.
+Hooks: block-dangerous-commands, protect-sage-files, check-file-scope, session-start, session-stop.
+Health: `make doctor` | `make repair` | `make report`
+
+Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (guards)
 <!-- === End SAGE === -->

@@ -7,7 +7,7 @@
 | SPEC-ID   | SPEC-0001 |
 | ステータス | Implemented |
 | 作成日    | 2025-04-09 |
-| 更新日    | 2025-04-09 |
+| 更新日    | 2026-04-10 |
 | 担当Agent | Spec Agent (Claude Code) |
 | 依存SPEC  | none |
 | 権限レベル | system |
@@ -65,7 +65,7 @@ SAGE を導入したい開発チーム（1-3名 + AI エージェント）。
 - [x] AC-01: `make validate` が ALL PASSED を返す
 - [x] AC-02: `make id-gen TYPE=spec` が SPEC-0002 を返す
 - [x] AC-03: すべてのGitHub Actions YAML が有効な構文である
-- [ ] AC-04: `bash scripts/sage-adopt.sh` が空リポジトリで正常実行できる
+- [x] AC-04: `bash scripts/sage-adopt.sh` が空リポジトリで正常実行できる
 
 ## 異常系
 
@@ -92,3 +92,8 @@ SAGE を導入したい開発チーム（1-3名 + AI エージェント）。
 
 - PLAN-ID: PLAN-0001
 - TASK-ID: TASK-0001 〜 TASK-0026
+
+## トレーサビリティ補足
+
+- `PLAN-0001` と `TASK-0001`〜`TASK-0026` は 2026-04-10 に retrospective placeholder として補完した
+- 元の粒度・実装順の完全再現ではなく、SPEC-0001 の traceability 欠損を解消するための履歴補助 artifact である

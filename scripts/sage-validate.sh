@@ -146,9 +146,9 @@ echo ""
 
 # --- Check 6: Noise Diff Check ---
 echo "[6/7] ノイズ差分チェック..."
-# CI環境では HEAD~1 比較、ローカルではステージング済みファイル比較
+# CI環境では直近コミットをルート安全に検査、ローカルではステージング済みファイル比較
 if [ -n "${CI:-}" ]; then
-  DIFF_CMD="git diff HEAD~1 --check"
+  DIFF_CMD="git diff-tree --check --no-commit-id --root -r HEAD"
 else
   DIFF_CMD="git diff --cached --check"
 fi
