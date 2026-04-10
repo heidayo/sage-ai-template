@@ -150,6 +150,29 @@ AIに以下を許可しない:
 - 既存境界をまたぐ無断修正
 - 実行ログなしの変更
 
+### 4.4 Claude Code Hooks
+
+セッション中の自動防御として、以下の5つの hooks を `.claude/settings.json` に設定する:
+
+| Hook | イベント | プロファイル | 動作 |
+|------|---------|------------|------|
+| block-dangerous-commands | PreToolUse (Bash) | standard+ | `--no-verify`, `--force`, `rm -rf` をブロック |
+| protect-sage-files | PreToolUse (Edit\|Write) | standard+ | CLAUDE.md, sage/, .sage/config.yaml の無断変更をブロック |
+| check-file-scope | PreToolUse (Edit\|Write) | standard(warn) / strict(block) | TASK の File Scope 外のファイル編集を検出 |
+| session-start | SessionStart | minimal+ | 直近 RUN ログ・保留 TASK・failures.md 要約をコンテキストに注入 |
+| session-stop | Stop | minimal+ | セッションメトリクスを `.sage/metrics/sessions.jsonl` に記録 |
+
+#### Hook プロファイル
+
+`.sage/config.yaml` の `hooks.profile` で制御:
+
+| プロファイル | Phase | 有効な hooks |
+|-------------|-------|------------|
+| minimal | Phase A | session-start + session-stop のみ |
+| standard | Phase B | minimal + 危険コマンドブロック + SAGE ファイル保護 |
+| strict | Phase C+ | standard + File Scope チェックをブロック化 |
+| none | — | 全 hooks 無効 |
+
 ---
 
 ## 5. マルチエージェント競合解決

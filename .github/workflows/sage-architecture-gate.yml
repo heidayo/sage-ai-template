@@ -58,6 +58,12 @@ jobs:
 
           echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
 
+      - name: Enforce traceability
+        if: steps.trace.outputs.errors != '0'
+        run: |
+          echo "FAIL: ${{ steps.trace.outputs.errors }} traceability violation(s) found."
+          exit 1
+
       - name: Comment result on PR
         if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -66,8 +72,8 @@ jobs:
           script: |
             const marker = '<!-- sage-architecture-gate -->';
             const errors = Number('${{ steps.trace.outputs.errors }}' || '0');
-            const status = errors === 0 ? 'PASS' : 'WARN';
-            const icon = errors === 0 ? '✅' : '⚠️';
+            const status = errors === 0 ? 'PASS' : 'FAIL';
+            const icon = errors === 0 ? '✅' : '❌';
             const title = `${icon} SAGE Gate 4 (Architecture): ${status}`;
 
             const body = [

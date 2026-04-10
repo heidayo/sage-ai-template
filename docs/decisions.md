@@ -54,3 +54,36 @@
 | auto-dev | Runtime Layer | https://github.com/phodal/auto-dev |
 | awesome-AI-driven-development | Tooling Layer | https://github.com/AIDrivenDevelopment/awesome-AI-driven-development |
 | Spec-Driven Development (記事) | Philosophy Layer | https://www.softwareseni.com/spec-driven-development-in-2025-the-complete-guide-to-using-ai-to-write-production-code/ |
+
+## ADR-0004: CI Gate を advisory から enforcement に変更
+
+- **日付**: 2026-04-10
+- **ステータス**: Accepted
+- **SPEC**: SPEC-0002
+- **背景**: 5つのCI Gate workflowがすべてadvisory-only（WARNコメントのみ、jobをfailさせない）で、AP-06（Human-Only Guard）に該当していた
+- **決定**: Gate 1-2は `.sage/config.yaml` の `project_checks` 経由でコマンド実行。未設定時はSKIPPED（偽PASSにしない）。Gate 4はWARN→FAIL（exit 1）。Gate 5はGate 1-4のAPI prerequisiteチェック
+- **理由**: SAGEの原則5「ルールは実行可能でなければならない」に準拠。ECC (everything-claude-code) の「守るべきことは止める」思想を参考
+- **代替案**: 全チェックをローカルhookで実行（CI不要）→ 却下（CIとhookの二段構えが安全）
+- **影響**: プロジェクトは `.sage/config.yaml` にlint/testコマンドを設定する必要がある。未設定はSKIPPED
+
+## ADR-0005: Claude Code hooks を bash で実装
+
+- **日付**: 2026-04-10
+- **ステータス**: Accepted
+- **SPEC**: SPEC-0003
+- **背景**: Claude Codeのruntime保護（危険コマンドブロック、設定ファイル保護、File Scopeチェック、セッション文脈復元）が必要
+- **決定**: 5つのhookをbashスクリプトで実装。jqでJSON parse、不在時はgrepフォールバック。プロファイル制御（minimal/standard/strict）をSAGE Phase A-Dと対応
+- **理由**: SAGEの既存スクリプトが全てbash。Node.js依存を避け、配布物の依存関係を最小化。ECCのNode.js hookパターンを参考にしたが、SAGEの文脈に合わせてbash化
+- **代替案**: Node.js（ECC互換）→ 却下（依存追加）。Python → 却下（bashより重い）
+- **影響**: jq推奨（なくても動作するがパース精度が落ちる）
+
+## ADR-0006: install-state.yaml によるインストール状態管理
+
+- **日付**: 2026-04-10
+- **ステータス**: Accepted
+- **SPEC**: SPEC-0004
+- **背景**: install.shは一括展開のみで、破損検知・部分修復ができなかった。ECC (everything-claude-code) のdoctor/repair/install-stateパターンを参考
+- **決定**: `.sage/install-state.yaml` にファイルパス・SHA256・managed/unmanagedフラグを記録。`sage-doctor.sh`で診断、`sage-repair.sh`で修復、`sage-report.sh`で採用メトリクス
+- **理由**: managed:true（SAGE管理、update時上書き）とmanaged:false（ユーザーカスタマイズ、上書きしない）の区別が必須。AI制御ファイル（CLAUDE.md/settings.json/prompts/）のセキュリティ監査も統合
+- **代替案**: checksumなし（ファイル存在チェックのみ）→ 却下（改ざん検知不能）
+- **影響**: install.sh実行時にinstall-state.yaml自動生成。`make doctor`で健全性チェック可能

@@ -108,6 +108,8 @@ git log --oneline -n 1 | grep -qE 'TASK-[0-9]{4}' || echo "WARNING: Invisible De
 
 **防止策**: すべてのルールは CI または pre-commit hook で強制
 
+**現状 (v0.2)**: SPEC-0002 で CI Gate を enforcement 化（WARN→FAIL）、SPEC-0003 で Claude Code hooks を実装（危険コマンドブロック・設定ファイル保護）。AP-06 は部分的に解消。残存リスク: Branch protection の自動設定は未実装（手動設定が必要）。
+
 ---
 
 ## 昇格ルール

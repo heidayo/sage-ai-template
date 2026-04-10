@@ -59,6 +59,74 @@ jobs:
       #     ruff check .
       #     mypy .
 
+      - name: Run project checks from .sage/config.yaml
+        id: project_checks
+        run: |
+          CONFIG=".sage/config.yaml"
+
+          # Validate config file exists and is parseable
+          if [ ! -f "$CONFIG" ]; then
+            echo "INFO: $CONFIG not found. All project checks SKIPPED."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! yq '.' "$CONFIG" > /dev/null 2>&1; then
+            echo "CONFIG ERROR: $CONFIG parse failed (invalid YAML)"
+            exit 1
+          fi
+
+          FAILED=0
+
+          # --- Lint ---
+          LINT_CMD=$(yq -r '.project_checks.lint // ""' "$CONFIG" 2>/dev/null || echo "")
+          if [ -n "$LINT_CMD" ]; then
+            echo "--- Running lint: $LINT_CMD ---"
+            if eval "$LINT_CMD"; then
+              echo "PASS: lint"
+            else
+              echo "FAIL: lint"
+              FAILED=1
+            fi
+          else
+            echo "SKIPPED: lint not configured in $CONFIG"
+          fi
+
+          # --- Format ---
+          FORMAT_CMD=$(yq -r '.project_checks.format // ""' "$CONFIG" 2>/dev/null || echo "")
+          if [ -n "$FORMAT_CMD" ]; then
+            echo "--- Running format: $FORMAT_CMD ---"
+            if eval "$FORMAT_CMD"; then
+              echo "PASS: format"
+            else
+              echo "FAIL: format"
+              FAILED=1
+            fi
+          else
+            echo "SKIPPED: format not configured in $CONFIG"
+          fi
+
+          # --- Type check ---
+          TYPE_CHECK_CMD=$(yq -r '.project_checks.type_check // ""' "$CONFIG" 2>/dev/null || echo "")
+          if [ -n "$TYPE_CHECK_CMD" ]; then
+            echo "--- Running type_check: $TYPE_CHECK_CMD ---"
+            if eval "$TYPE_CHECK_CMD"; then
+              echo "PASS: type_check"
+            else
+              echo "FAIL: type_check"
+              FAILED=1
+            fi
+          else
+            echo "SKIPPED: type_check not configured in $CONFIG"
+          fi
+
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "One or more project checks failed."
+            exit 1
+          fi
+
       - name: SAGE structure validation
         run: bash scripts/sage-validate.sh
 
@@ -70,15 +138,27 @@ jobs:
           script: |
             const marker = '<!-- sage-structural-gate -->';
             const status = '${{ job.status }}';
-            const title = status === 'success'
-              ? '✅ SAGE Gate 1 (Structural): PASS'
-              : '❌ SAGE Gate 1 (Structural): FAIL';
+            const configured = '${{ steps.project_checks.outputs.configured }}';
+
+            let icon, label;
+            if (status === 'success' && configured !== 'true') {
+              icon = '⏭️'; label = 'SKIPPED';
+            } else if (status === 'success') {
+              icon = '✅'; label = 'PASS';
+            } else {
+              icon = '❌'; label = 'FAIL';
+            }
+
+            const checksNote = configured !== 'true'
+              ? '- Project checks: **SKIPPED** (not configured in .sage/config.yaml)'
+              : `- Project checks: **${status === 'success' ? 'PASS' : 'FAIL'}**`;
 
             const body = [
               marker,
-              `## ${title}`,
+              `## ${icon} SAGE Gate 1 (Structural): ${label}`,
               '',
-              `- Status: **${status}**`,
+              checksNote,
+              `- SAGE validation: **${status === 'success' ? 'PASS' : 'CHECK LOGS'}**`,
               `- Commit: \`${context.sha.slice(0, 7)}\``,
               `- Updated: ${new Date().toISOString()}`,
             ].join('\n');

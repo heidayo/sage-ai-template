@@ -15,6 +15,11 @@ Prohibited:
 - Modifying files outside TASK's File Scope
 - Leaving TODO/FIXME in committed code
 - Skipping tests
+- Using `--no-verify`, `--force`, `rm -rf` (blocked by hooks)
 
-Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance)
+CI Gates: PASS(✅) / FAIL(❌) / SKIPPED(⏭️). Configure in `.sage/config.yaml` `project_checks`.
+Hooks: block-dangerous-commands, protect-sage-files, check-file-scope, session-start, session-stop.
+Health: `make doctor` | `make repair` | `make report`
+
+Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (guards)
 <!-- === End SAGE === -->
