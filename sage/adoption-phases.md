@@ -56,6 +56,8 @@ tasks/_template.md
 - [ ] `sage/anti-patterns.md` がチーム内で共有済み
 - [ ] Branch protection が設定されている（required status checks）
 - [ ] 生成コードと手書きコードが分離されている
+- [ ] `.sage/config.yaml` の `hooks.profile` が `standard` に設定されている
+- [ ] `.sage/config.yaml` の `project_checks` が設定されている（lint/test 等）
 
 ### 必要ファイル（Phase Aに追加）
 ```
@@ -89,6 +91,8 @@ sage/anti-patterns.md
 - [ ] `.github/workflows/sage-claude-review.yml` が設定済み
 - [ ] TASK-ID別にブランチを分けるワークフローが確立
 - [ ] 実行ログを `.sage/runs/` に記録する習慣がある
+- [ ] `make doctor` が ALL OK を返す
+- [ ] `make report` が HEALTHY を返す
 
 ### 必要ファイル（Phase Bに追加）
 ```
@@ -106,6 +110,9 @@ scripts/sage-validate.sh
 scripts/sage-trace-check.sh
 scripts/sage-id-gen.sh
 scripts/sage-adopt.sh
+scripts/sage-doctor.sh
+scripts/sage-repair.sh
+scripts/sage-report.sh
 ```
 
 ### 次のフェーズへの移行条件

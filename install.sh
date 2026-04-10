@@ -205,6 +205,13 @@ read -r -d '' TMPL_TASK <<'__EOF_TMPL_TASK__' || true
 - [ ] `make test` が全件パスする
 - [ ] [具体的な完了判定]
 
+## Done Definition（ラウンド単位）
+
+参照: `tasks/done-def-SPEC-XXXX-round-N.md`（実装開始前に作成）
+
+Done Definition は SPEC 単位・ラウンド単位で作成する。
+テンプレート: `templates/done-definition-template.md`
+
 ## 実行ログ
 
 | フィールド | 内容 |
@@ -1117,6 +1124,57 @@ anti_pattern_detection:
   invisible_development:
     signal: "Commits without TASK-ID in message"
 
+# --- Harness Configuration ---
+harness:
+  max_iterations: 5               # Execute-Verify loop limit
+  spec_score_threshold: 100        # Phase 1: Evaluator score to proceed
+  plan_score_threshold: 100        # Phase 2: Evaluator score to proceed
+  review_score_threshold: 100      # Phase 3-4: Review Agent score to pass
+  # 100未満 → verdict: FAIL → fix_scope に従いエージェント再実行
+  # Hard Fail → retry_allowed: false → 即abort
+  spec_eval_max_iterations: 10     # Phase 1: Evaluator loop limit
+  plan_eval_max_iterations: 10     # Phase 2: Evaluator loop limit
+  verify_pass_required: true       # All gates must pass
+  enable_browser_verify: false     # Playwright MCP browser verification
+  # abort_reason values: max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error
+  # Failure accumulation (Knowledge Management)
+  auto_append_failures: true       # Auto-append Verify Fail patterns to sage/failures.md
+  same_fail_abort_threshold: 3     # Abort on same CHECK-ID failing 3 times consecutively
+  failure_pattern_escalation: 3    # Escalate to sage/anti-patterns.md after 3 occurrences
+
+# --- Project Checks (SPEC-0002: Gate Enforcement) ---
+# Configure language-specific commands for CI gates.
+# Uncomment and set commands for your project.
+# If unset, the corresponding gate check will be SKIPPED (not faked as PASS).
+project_checks:
+  # lint: "npm run lint"                    # Gate 1: Lint check
+  # format: "npx prettier --check ."       # Gate 1: Format check
+  # type_check: "npx tsc --noEmit"         # Gate 1: Type check
+  # test_command: "npm test"               # Gate 2: Test runner
+  # Go example:
+  #   lint: "golangci-lint run"
+  #   format: "gofmt -l . | grep -c . && exit 1 || true"
+  #   type_check: "go vet ./..."
+  #   test_command: "go test ./... -coverprofile=coverage.out"
+  # Python example:
+  #   lint: "ruff check ."
+  #   format: "black --check ."
+  #   type_check: "mypy ."
+  #   test_command: "pytest --cov=src --cov-report=term-missing"
+
+# --- Hooks (SPEC-0003: Hooks実用化) ---
+# Profile controls which hooks are active.
+# Aligned with SAGE adoption phases:
+#   minimal  = Phase A (SessionStart + Stop only)
+#   standard = Phase B (+ dangerous command block + SAGE file protection)
+#   strict   = Phase C+ (+ File Scope check as block)
+#   none     = All hooks disabled
+hooks:
+  profile: minimal
+  # Upgrade conditions:
+  #   minimal → standard: make report shows SESSIONS >= 10 and STATUS: HEALTHY
+  #   standard → strict:  make report shows 2 weeks continuous HEALTHY
+
 # --- Auto Update ---
 auto_update:
   installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
@@ -1608,21 +1666,92 @@ Reference: `sage/anti-patterns.md`
 ## After review
 レビューで新しい品質問題パターンを発見した場合、`sage/failures.md` に症状/原因/対策/検出層の4項目で追記すること。
 
+---
+
+## Scoring Rubric（コードレビュー採点基準）
+
+| 軸 | 満点 | 評価観点 |
+|----|------|---------|
+| Spec Alignment | 25点 | SPECの受け入れ条件との一致。Silent Scope Expansionの有無 |
+| Scope Compliance | 20点 | TASK File Scope内のみ変更。違反は即Hard Fail |
+| Responsibility Alignment | 15点 | 単一責任維持。レイヤー境界遵守 |
+| Complexity | 10点 | 不要な抽象化・過度な結合がないか |
+| Test Adequacy | 15点 | 正常系・境界値・異常系カバレッジ。閾値達成 |
+| Safety | 15点 | secrets/credentials検出なし。入力バリデーション。依存脆弱性なし |
+
+合計: 100点
+
+詳細な満点条件と減点トリガーは `references/review-scoring-rubric.md` を参照。
+
+### Hard Fail条件（点数に関係なく即FAIL）
+
+以下のいずれかに該当する場合、スコアに関係なく `verdict: FAIL` + `retry_allowed: false`:
+
+- **File Scope違反**: TASK File Scope外のファイルを変更
+- **Gate 1-4のいずれかFail**: Structural / Functional / Security / Architecture
+- **secrets/credentialsのハードコード**: APIキー、パスワード、トークン等
+- **既知脆弱性を持つ依存の追加**: CVEが報告されている依存パッケージ
+
+---
+
+## 出力フォーマット（review_feedback YAML）
+
+レビュー結果を以下の構造化 YAML で返却する：
+
+```yaml
+review_feedback:
+  round: N
+  iteration: M
+  verdict: PASS | FAIL
+  review_score: N
+  subscores:
+    spec_alignment: N/25
+    scope_compliance: N/20
+    responsibility_alignment: N/15
+    complexity: N/10
+    test_adequacy: N/15
+    safety: N/15
+  gate_results:
+    structural: pass | fail
+    functional: pass | fail
+    security: pass | fail
+    architecture: pass | fail
+  findings:
+    - id: "REV-001"
+      category: "spec_alignment | scope_compliance | responsibility | complexity | test | safety"
+      severity: "critical | major | minor"
+      file: "path/to/file"
+      expected: "期待される状態"
+      actual: "現在の状態"
+  fix_scope:
+    implementation: [{ file, reason }]
+    test: [{ file, reason }]
+  instruction:
+    - target: "implementation"
+      action: "Implementation Agentへの具体的修正指示"
+    - target: "test"
+      action: "Test Agentへの具体的修正指示"
+  retry_allowed: true | false
+  same_fail_count: N
+```
+
+---
+
 ## File scope for this skill
 - Read: all files
-- Write: review comments only (no code modifications)
+- Write: NONE（review_feedback YAML を出力として返すのみ。コード修正は行わない）
 
 __EOF_TMPL_SKILL_REVIEW__
 
 read -r -d '' TMPL_SKILL_EVALUATE <<'__EOF_TMPL_SKILL_EVALUATE__' || true
 ---
 name: sage-evaluate
-description: "SAGE要件定義・プラン自動採点スキル: SPEC/PLANを6軸・100点満点で採点し、100点になるまで改善ループを回す。MANDATORY TRIGGERS: プランを評価, SPECを評価, 採点して, evaluate, score plan, score spec"
+description: "SAGE要件定義・プラン自動採点スキル: SPEC/PLANを6軸・100点満点で採点し、構造化フィードバックを返す。修正はCreator Agentの責務。MANDATORY TRIGGERS: プランを評価, SPECを評価, 採点して, evaluate, score plan, score spec"
 ---
 
 # SAGE 要件定義・プラン自動採点スキル
 
-SAGE の SPEC / PLAN / TASK を、AI駆動開発のベストプラクティスに基づいて採点・改善提案し、**100点（S++）になるまで自動で改善ループを回す**スキル。
+SAGE の SPEC / PLAN / TASK を、AI駆動開発のベストプラクティスに基づいて採点し、**構造化フィードバック（eval_feedback YAML）を返す** Read-Only 採点スキル。修正は Creator Agent（Spec Agent / Planning Agent）の責務であり、本スキルはドキュメントを一切変更しない。
 
 ## 採点の背景
 
@@ -1638,28 +1767,23 @@ SAGE の SPEC / PLAN / TASK を、AI駆動開発のベストプラクティス�
 
 ---
 
-## 自動改善ループ
+## 評価フロー（Read-Only）
 
-このスキルの核心は **Score → Fix → Re-score** の自動ループ。
+本スキルは **採点 → 構造化フィードバック返却** のみを行う。改善ループの制御はオーケストレーター（sage-harness）が担当する。
 
 ```
 ┌─────────────────────────────────────────┐
 │  1. SPEC/PLAN/TASK を読み込む            │
 │  2. 6軸で採点する                        │
-│  3. スコア < 100 ?                       │
-│     ├─ YES → 減点箇所を自動修正          │
-│     │        → 修正内容を表示            │
-│     │        → Step 2 に戻る             │
-│     └─ NO  → 「実装を開始してください」   │
-│              → ループ終了                │
+│  3. eval_feedback YAML を返却する        │
+│     → ループ制御はオーケストレーターが行う │
 └─────────────────────────────────────────┘
 ```
 
-### ループルール
-- **最大10回**まで改善を繰り返す（無限ループ防止）
-- 各イテレーションで**変更差分**を明示する
-- 10回で100点に届かない場合、現状スコアと残課題を報告して人間に判断を委ねる
-- 改善は**ドキュメントのみ**修正する（コードは触らない）
+### Read-Only ルール
+- **ドキュメントの修正は一切行わない**（Write/Edit ツール使用禁止）
+- 問題を発見した場合は `findings` + `fix_instructions` として報告する
+- 修正の実行は Creator Agent（Spec Agent / Planning Agent）の責務
 
 ---
 
@@ -1685,48 +1809,44 @@ SAGE の SPEC / PLAN / TASK を、AI駆動開発のベストプラクティス�
 | ⑤ Knowledge Management | 15点 | failures.md連携・Error Resolution・知識蓄積 |
 | ⑥ 段階採用戦略 | 5点（加点） | 既存コード影響ゼロ・段階的導入設計 |
 
-### Step 3: 自動修正（スコア < 100 の場合）
+### Step 3: 出力フォーマット（eval_feedback YAML）
 
-減点した項目について：
-1. **問題を1行で明示**する
-2. **対象ファイルを直接修正**する（SPEC/PLAN/TASKファイル）
-3. **修正差分を表示**する
-4. Step 2 に戻り再採点する
+採点結果を以下の構造化 YAML で返却する：
 
-### Step 4: 出力フォーマット
-
-各イテレーションで以下を出力する：
-
+```yaml
+eval_feedback:
+  target_file: "specs/SPEC-XXXX-*.md"
+  target_type: SPEC | PLAN | TASK
+  verdict: PASS | FAIL
+  total_score: N
+  grade: "S++ | S+ | S | A- | B | C"
+  subscores:
+    codified_rules: N/20
+    atomic_decomposition: N/20
+    spec_driven_development: N/20
+    observable_development: N/20
+    knowledge_management: N/15
+    gradual_adoption: N/5
+  findings:
+    - id: "EVAL-001"
+      axis: "codified_rules"
+      severity: "critical | major | minor"
+      location: "セクション名"
+      problem: "問題の1行説明"
+      expected: "期待される記述"
+      actual: "現在の記述"
+  fix_instructions:
+    - finding_id: "EVAL-001"
+      target_file: "specs/SPEC-XXXX-*.md"
+      section: "File Scope"
+      action: "修正内容の具体的指示"
+      example: "修正例"
 ```
-## 採点結果（イテレーション N/10）
 
-**総合スコア：XX / 100（グレード）**
+### 判定基準
 
-| 軸 | スコア | 備考 |
-|----|--------|------|
-| ① Codified Rules | XX/20 | ... |
-| ② Atomic Decomposition | XX/20 | ... |
-| ③ Spec-Driven Development | XX/20 | ... |
-| ④ Observable Development | XX/20 | ... |
-| ⑤ Knowledge Management | XX/15 | ... |
-| ⑥ 段階採用戦略 | XX/5 | ... |
-
-### 修正内容（このイテレーション）
-- [修正1]: ...
-- [修正2]: ...
-
-### 残課題
-- ...
-```
-
-最終イテレーション（100点）では：
-
-```
-**総合スコア：100 / 100（グレード S++）**
-
-✓ 全軸が基準を満たしています。このまま実装を開始してください。
-次のステップ: 実装セッションで TASK の File Scope に従ってコードを書く
-```
+- `verdict: PASS` — total_score >= 100（グレード S++）
+- `verdict: FAIL` — total_score < 100（fix_instructions を参照して修正が必要）
 
 ---
 
@@ -1734,7 +1854,7 @@ SAGE の SPEC / PLAN / TASK を、AI駆動開発のベストプラクティス�
 
 | スコア | グレード | 判定 |
 |--------|---------|------|
-| 100 | S++ | 完璧。即実装可。ループ終了 |
+| 100 | S++ | 完璧。即実装可。verdict: PASS |
 | 95-99 | S+ | ほぼ完成。微修正で到達可能 |
 | 90-94 | S | 優秀。小改善あり |
 | 85-89 | A- | 良好。改善推奨 |
@@ -1750,26 +1870,26 @@ SAGE の SPEC / PLAN / TASK を、AI駆動開発のベストプラクティス�
 /sage-evaluate
 ```
 
-### 自動呼び出し（推奨）
-`/sage-spec` または `/sage-plan` の完了後に自動的に呼び出される。
-100点になるまでドキュメントを自動改善し、到達したら実装可能と判定する。
+### オーケストレーター経由（推奨）
+`/sage-harness` 内で Evaluator として呼び出される。
+オーケストレーターが eval_feedback を受け取り、verdict: FAIL の場合は Creator Agent に fix_instructions を渡して修正させ、再採点を依頼する。
 
 ---
 
 ## 評価時の注意
 
 - 採点は厳格に行う。「書いてあれば満点」ではなく「具体性・実行可能性」で判断する
-- 改善は必ず実行可能な形（コマンド・コードスニペット）で示す
-- 「実装を止める問題」か「実装後に気づく小さな穴」かを区別する
+- findings は必ず実行可能な形（コマンド・コードスニペット）で fix_instructions に示す
+- 「実装を止める問題」か「実装後に気づく小さな穴」かを severity で区別する
 - 前バージョンがある場合は差分を明示し、改善が反映されているか確認する
-- スコアが100点なら「このまま実装を開始してください」と明示する
+- スコアが100点なら verdict: PASS を返す
 
 ---
 
 ## File scope for this skill
 - Read: `specs/`, `plans/`, `tasks/`, `sage/`, `.sage/config.yaml`
-- Write: `specs/`, `plans/`, `tasks/`（採点対象ドキュメントの改善のみ）
-- Forbidden: `src/`, `tests/`, `.github/`, `CLAUDE.md`
+- Write: NONE（採点エージェントはドキュメントを一切修正しない）
+- Forbidden: `src/`, `tests/`, `.github/`, `CLAUDE.md`, `specs/`, `plans/`, `tasks/`（書き込み）
 
 ## 参照ファイル
 
@@ -1903,9 +2023,9 @@ read -r -d '' TMPL_SKILL_EVALUATE_RUBRIC <<'__EOF_TMPL_SKILL_EVALUATE_RUBRIC__' 
 
 ---
 
-## 自動修正の優先順位
+## 修正指示の優先順位（fix_instructions）
 
-スコアが低い場合、以下の順で修正する（効果が大きいものから）：
+スコアが低い場合、以下の順で修正を指示する（効果が大きいものから）：
 
 | 優先度 | 修正内容 | 典型的な効果 |
 |--------|---------|------------|
@@ -2072,7 +2192,7 @@ echo "=== SAGE Validation ==="
 echo ""
 
 # --- CLAUDE.md Section Check ---
-echo "[1/6] CLAUDE.md 必須セクション検証..."
+echo "[1/7] CLAUDE.md 必須セクション検証..."
 REQUIRED_SECTIONS=(
   "Project Overview"
   "Instruction Priority"
@@ -2102,7 +2222,7 @@ fi
 echo ""
 
 # --- specs/_template.md Field Check ---
-echo "[2/6] テンプレート必須フィールド検証..."
+echo "[2/7] テンプレート必須フィールド検証..."
 
 if [ -f specs/_template.md ]; then
   REQUIRED_SPEC_FIELDS=("スコープ外" "受け入れ条件" "異常系" "契約" "リスク" "PLAN-ID")
@@ -2148,7 +2268,7 @@ fi
 echo ""
 
 # --- Directory Structure Check ---
-echo "[3/6] ディレクトリ構造検証..."
+echo "[3/7] ディレクトリ構造検証..."
 REQUIRED_DIRS=("specs" "plans" "tasks" "sage" ".sage" "docs" "scripts")
 for dir in "${REQUIRED_DIRS[@]}"; do
   if [ -d "$dir" ]; then
@@ -2161,7 +2281,7 @@ done
 echo ""
 
 # --- Document Integrity Check ---
-echo "[4/6] ドキュメント整合性チェック..."
+echo "[4/7] ドキュメント整合性チェック..."
 
 # SPEC-0002: Error Context Template
 if grep -q "Error Context Template" CLAUDE.md 2>/dev/null; then
@@ -2197,7 +2317,7 @@ fi
 echo ""
 
 # --- Vibe Branch Check ---
-echo "[5/6] ブランチ規約チェック..."
+echo "[5/7] ブランチ規約チェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
 if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
   echo "  ERROR: vibe/* ブランチから直接マージ禁止。staging経由 + SPEC作成後にmainへ"
@@ -2208,7 +2328,7 @@ fi
 echo ""
 
 # --- Check 6: Noise Diff Check ---
-echo "[6/6] ノイズ差分チェック..."
+echo "[6/7] ノイズ差分チェック..."
 # CI環境では HEAD~1 比較、ローカルではステージング済みファイル比較
 if [ -n "${CI:-}" ]; then
   DIFF_CMD="git diff HEAD~1 --check"
@@ -2223,6 +2343,48 @@ if [ -n "$NOISE" ]; then
   ERRORS=$((ERRORS + 1))
 else
   echo "  OK: ノイズ差分なし"
+fi
+echo ""
+
+# --- Check 7: AI Control Plane Security Check ---
+echo "[7/7] AI Control Plane セキュリティチェック..."
+
+# Secret patterns (lightweight subset of sage-doctor.sh)
+SECRET_PATTERN='(api[_-]?key|secret[_-]?key|access[_-]?token|password|credential)\s*[:=]\s*["'"'"']?[A-Za-z0-9+/=_-]{8,}'
+AWS_PATTERN='(AKIA|ASIA)[A-Z0-9]{16}'
+JWT_PATTERN='eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.'
+GITHUB_TOKEN_PATTERN='gh[pousr]_[A-Za-z0-9_]{20,}'
+
+SECURITY_SCAN_FILES=()
+[ -f CLAUDE.md ] && SECURITY_SCAN_FILES+=("CLAUDE.md")
+if [ -d ".claude/prompts" ]; then
+  while IFS= read -r f; do
+    SECURITY_SCAN_FILES+=("$f")
+  done < <(find .claude/prompts -type f 2>/dev/null)
+fi
+
+SECRET_FOUND=false
+for file in "${SECURITY_SCAN_FILES[@]}"; do
+  for pattern in "$SECRET_PATTERN" "$AWS_PATTERN" "$JWT_PATTERN" "$GITHUB_TOKEN_PATTERN"; do
+    if grep -qEi "$pattern" "$file" 2>/dev/null; then
+      echo "  FAIL: Secret pattern detected in $file"
+      ERRORS=$((ERRORS + 1))
+      SECRET_FOUND=true
+      break
+    fi
+  done
+done
+if [ "$SECRET_FOUND" = false ]; then
+  echo "  OK: AI制御プレーンファイルにシークレットなし"
+fi
+
+# Permission check
+if [ -f ".claude/settings.json" ]; then
+  if grep -qE '"allow"\s*:\s*\[\s*"\*"' .claude/settings.json 2>/dev/null; then
+    echo "  WARN: .claude/settings.json に過度に許可的な allow: [\"*\"] が設定されています"
+  else
+    echo "  OK: .claude/settings.json パーミッション適切"
+  fi
 fi
 echo ""
 
@@ -2410,6 +2572,614 @@ fi
 
 __EOF_TMPL_UPDATE_CHECK__
 
+read -r -d '' TMPL_HOOK_BLOCK_DANGEROUS <<'__EOF_TMPL_HOOK_BLOCK_DANGEROUS__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0036: block-dangerous-commands.sh
+# Purpose:  PreToolUse hook (Bash matcher) — block dangerous shell commands
+# Profile:  standard+ (skipped if profile is "minimal")
+# Behavior: Reads JSON from stdin with tool_name and tool_input.command.
+#           Blocks patterns: --no-verify, git push --force/-f, rm -rf /|~|.
+#           Exit 0 = allow/warn, Exit 2 = block
+# =============================================================================
+set -euo pipefail
+
+# --- Profile gating ---
+PROFILE="standard"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "standard")
+  [ -z "$PROFILE" ] && PROFILE="standard"
+fi
+
+if [ "$PROFILE" = "minimal" ]; then
+  exit 0
+fi
+
+# --- Read stdin (JSON) ---
+INPUT=""
+if ! read -r -t 1 INPUT; then
+  # Empty stdin or read timeout — never block
+  exit 0
+fi
+
+if [ -z "$INPUT" ]; then
+  exit 0
+fi
+
+# --- Parse command from JSON ---
+COMMAND=""
+if command -v jq &>/dev/null; then
+  COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+else
+  # grep fallback: extract command value from JSON
+  COMMAND=$(echo "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | head -1 | sed 's/.*"command"[[:space:]]*:[[:space:]]*"//;s/"$//' || true)
+fi
+
+if [ -z "$COMMAND" ]; then
+  # Could not parse command — never block
+  exit 0
+fi
+
+# --- Check for dangerous patterns ---
+
+# Pattern: --no-verify (bypasses git hooks)
+if echo "$COMMAND" | grep -qE '\-\-no-verify'; then
+  echo "BLOCKED: Command contains --no-verify which bypasses git hooks." >&2
+  echo "Suggestion: Remove --no-verify to ensure quality gates are enforced." >&2
+  exit 2
+fi
+
+# Pattern: git push --force or git push -f (destructive force push)
+if echo "$COMMAND" | grep -qE 'git\s+push\s+.*(\-\-force|\-f)'; then
+  echo "BLOCKED: Force push detected (git push --force/-f)." >&2
+  echo "Suggestion: Use 'git push --force-with-lease' for safer force pushing." >&2
+  exit 2
+fi
+
+# Pattern: rm -rf / (wipe root)
+if echo "$COMMAND" | grep -qE 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|(-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*))\s+/\s*$'; then
+  echo "BLOCKED: 'rm -rf /' would destroy the entire filesystem." >&2
+  echo "Suggestion: Specify a safe, scoped path instead." >&2
+  exit 2
+fi
+
+# Pattern: rm -rf ~ (wipe home directory)
+if echo "$COMMAND" | grep -qE 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|(-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*))\s+~'; then
+  echo "BLOCKED: 'rm -rf ~' would destroy your home directory." >&2
+  echo "Suggestion: Specify a safe, scoped path instead." >&2
+  exit 2
+fi
+
+# Pattern: rm -rf . (wipe current directory)
+if echo "$COMMAND" | grep -qE 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|(-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*))\s+\.\s*$'; then
+  echo "BLOCKED: 'rm -rf .' would destroy the current directory." >&2
+  echo "Suggestion: Specify a safe, scoped path instead." >&2
+  exit 2
+fi
+
+# All checks passed
+exit 0
+
+__EOF_TMPL_HOOK_BLOCK_DANGEROUS__
+
+read -r -d '' TMPL_HOOK_PROTECT_SAGE <<'__EOF_TMPL_HOOK_PROTECT_SAGE__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0037: protect-sage-files.sh
+# Purpose:  PreToolUse hook (Edit|Write matcher) — protect SAGE-managed files
+# Profile:  standard+ (skipped if profile is "minimal")
+# Behavior: Reads JSON from stdin with tool_name and tool_input.file_path.
+#           Protected: CLAUDE.md, sage/*, .sage/config.yaml, .claude/settings.json
+#           If a TASK with sage-managed: true AND status 実行中 exists, allow.
+#           Otherwise block (exit 2).
+#           On empty stdin or parse error: exit 0
+# =============================================================================
+set -euo pipefail
+
+# --- Profile gating ---
+PROFILE="standard"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "standard")
+  [ -z "$PROFILE" ] && PROFILE="standard"
+fi
+
+if [ "$PROFILE" = "minimal" ]; then
+  exit 0
+fi
+
+# --- Read stdin (JSON) ---
+INPUT=""
+if ! read -r -t 1 INPUT; then
+  exit 0
+fi
+
+if [ -z "$INPUT" ]; then
+  exit 0
+fi
+
+# --- Parse file_path from JSON ---
+FILE_PATH=""
+if command -v jq &>/dev/null; then
+  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+else
+  FILE_PATH=$(echo "$INPUT" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | head -1 | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"//;s/"$//' || true)
+fi
+
+if [ -z "$FILE_PATH" ]; then
+  exit 0
+fi
+
+# --- Check if file is protected ---
+IS_PROTECTED=false
+
+# Normalize: strip leading ./ if present
+NORM_PATH="${FILE_PATH#./}"
+
+case "$NORM_PATH" in
+  CLAUDE.md)
+    IS_PROTECTED=true
+    ;;
+  sage/*)
+    IS_PROTECTED=true
+    ;;
+  .sage/config.yaml)
+    IS_PROTECTED=true
+    ;;
+  .claude/settings.json)
+    IS_PROTECTED=true
+    ;;
+esac
+
+# Also check if the path ends with these (for absolute paths)
+if [ "$IS_PROTECTED" = false ]; then
+  case "$FILE_PATH" in
+    */CLAUDE.md)
+      IS_PROTECTED=true
+      ;;
+    */sage/*)
+      IS_PROTECTED=true
+      ;;
+    */.sage/config.yaml)
+      IS_PROTECTED=true
+      ;;
+    */.claude/settings.json)
+      IS_PROTECTED=true
+      ;;
+  esac
+fi
+
+if [ "$IS_PROTECTED" = false ]; then
+  # Not a protected file — allow
+  exit 0
+fi
+
+# --- Check for active sage-managed TASK ---
+if [ -d "tasks" ]; then
+  for task_file in tasks/*.md; do
+    [ -f "$task_file" ] || continue
+
+    # Check if task has sage-managed: true AND status: 実行中
+    HAS_SAGE_MANAGED=false
+    HAS_ACTIVE_STATUS=false
+
+    if grep -q 'sage-managed:[[:space:]]*true' "$task_file" 2>/dev/null; then
+      HAS_SAGE_MANAGED=true
+    fi
+
+    if grep -q '実行中' "$task_file" 2>/dev/null; then
+      HAS_ACTIVE_STATUS=true
+    fi
+
+    if [ "$HAS_SAGE_MANAGED" = true ] && [ "$HAS_ACTIVE_STATUS" = true ]; then
+      # Active sage-managed task found — allow edit
+      exit 0
+    fi
+  done
+fi
+
+# --- Block: no active sage-managed task ---
+echo "BLOCKED: '$NORM_PATH' is a SAGE-protected file." >&2
+echo "Protected files: CLAUDE.md, sage/*, .sage/config.yaml, .claude/settings.json" >&2
+echo "To modify, ensure a TASK in tasks/ has 'sage-managed: true' and status '実行中'." >&2
+exit 2
+
+__EOF_TMPL_HOOK_PROTECT_SAGE__
+
+read -r -d '' TMPL_HOOK_CHECK_SCOPE <<'__EOF_TMPL_HOOK_CHECK_SCOPE__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0038: check-file-scope.sh
+# Purpose:  PreToolUse hook (Edit|Write matcher) — enforce TASK File Scope
+# Profile:  standard+ (warn on stderr, exit 0), strict (block with exit 2)
+# Behavior: Reads JSON from stdin with tool_input.file_path.
+#           Finds active TASK (status 実行中 in tasks/*.md), extracts File Scope.
+#           If file_path is outside scope: warn (standard) or block (strict).
+#           If no active TASK found: skip check, exit 0.
+#           On empty stdin or parse error: exit 0
+# =============================================================================
+set -euo pipefail
+
+# --- Profile gating ---
+PROFILE="standard"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "standard")
+  [ -z "$PROFILE" ] && PROFILE="standard"
+fi
+
+if [ "$PROFILE" = "minimal" ]; then
+  exit 0
+fi
+
+# --- Read stdin (JSON) ---
+INPUT=""
+if ! read -r -t 1 INPUT; then
+  exit 0
+fi
+
+if [ -z "$INPUT" ]; then
+  exit 0
+fi
+
+# --- Parse file_path from JSON ---
+FILE_PATH=""
+if command -v jq &>/dev/null; then
+  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+else
+  FILE_PATH=$(echo "$INPUT" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | head -1 | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"//;s/"$//' || true)
+fi
+
+if [ -z "$FILE_PATH" ]; then
+  exit 0
+fi
+
+# --- Find active TASK (status 実行中) ---
+ACTIVE_TASK=""
+SCOPE_PATHS=""
+
+if [ ! -d "tasks" ]; then
+  echo "No active TASKs found, skipping scope check." >&2
+  exit 0
+fi
+
+for task_file in tasks/*.md; do
+  [ -f "$task_file" ] || continue
+
+  if grep -q '実行中' "$task_file" 2>/dev/null; then
+    ACTIVE_TASK="$task_file"
+    break
+  fi
+done
+
+if [ -z "$ACTIVE_TASK" ]; then
+  echo "No active TASK found, skipping scope check." >&2
+  exit 0
+fi
+
+# --- Extract File Scope from active TASK ---
+# Look for "File Scope" or "file_scope" section and collect paths
+# Typical format:
+#   ## File Scope
+#   - src/foo/bar.ts
+#   - tests/foo/
+IN_SCOPE=false
+while IFS= read -r line; do
+  # Detect File Scope header (various formats)
+  if echo "$line" | grep -qiE '^#{1,3}\s+file.?scope'; then
+    IN_SCOPE=true
+    continue
+  fi
+
+  # Stop at next header
+  if [ "$IN_SCOPE" = true ] && echo "$line" | grep -qE '^#{1,3}\s+'; then
+    break
+  fi
+
+  if [ "$IN_SCOPE" = true ]; then
+    # Extract path from list items: "- path" or "* path" or "  - path"
+    EXTRACTED=$(echo "$line" | sed -n 's/^[[:space:]]*[-*][[:space:]]*\(`\?\)\([^`]*\)\(`\?\)$/\2/p' 2>/dev/null || true)
+    if [ -n "$EXTRACTED" ]; then
+      SCOPE_PATHS="$SCOPE_PATHS|$EXTRACTED"
+    fi
+  fi
+done < "$ACTIVE_TASK"
+
+if [ -z "$SCOPE_PATHS" ]; then
+  # No File Scope defined in TASK — skip check
+  exit 0
+fi
+
+# --- Check if file_path falls within any scope path ---
+# Normalize file_path: strip leading ./
+NORM_PATH="${FILE_PATH#./}"
+
+# Also handle absolute paths by extracting relative portion
+if [[ "$NORM_PATH" == /* ]]; then
+  # Try to make it relative to PWD
+  PWD_PREFIX="$(pwd)/"
+  NORM_PATH="${NORM_PATH#$PWD_PREFIX}"
+fi
+
+IFS='|' read -ra PATHS <<< "$SCOPE_PATHS"
+for scope_path in "${PATHS[@]}"; do
+  [ -z "$scope_path" ] && continue
+  # Strip backticks, leading/trailing whitespace
+  scope_path=$(echo "$scope_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  [ -z "$scope_path" ] && continue
+
+  # Check if file_path starts with or matches the scope path
+  if [[ "$NORM_PATH" == "$scope_path"* ]] || [[ "$NORM_PATH" == "$scope_path" ]]; then
+    # Within scope
+    exit 0
+  fi
+done
+
+# --- Out of scope ---
+TASK_ID=$(basename "$ACTIVE_TASK" .md)
+
+if [ "$PROFILE" = "strict" ]; then
+  echo "BLOCKED: '$NORM_PATH' is outside File Scope for $TASK_ID." >&2
+  echo "Allowed paths: ${SCOPE_PATHS//|/, }" >&2
+  exit 2
+else
+  echo "WARNING: '$NORM_PATH' is outside File Scope for $TASK_ID." >&2
+  echo "Allowed paths: ${SCOPE_PATHS//|/, }" >&2
+  exit 0
+fi
+
+__EOF_TMPL_HOOK_CHECK_SCOPE__
+
+read -r -d '' TMPL_HOOK_SESSION_START <<'__EOF_TMPL_HOOK_SESSION_START__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0039: session-start.sh
+# Purpose:  SessionStart hook (no stdin) — display project context summary
+# Profile:  minimal+ (runs for all profiles)
+# Behavior: Prints to stdout:
+#           1. Latest 3 RUN logs from .sage/runs/ (status, task_id, error_log)
+#           2. In-progress/blocked TASKs from tasks/*.md
+#           3. Latest 5 entries from sage/failures.md
+#           Always exit 0
+# =============================================================================
+set -euo pipefail
+
+# --- Profile gating ---
+PROFILE="minimal"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "minimal")
+  [ -z "$PROFILE" ] && PROFILE="minimal"
+fi
+
+# minimal+ means all profiles run this hook (minimal, standard, strict)
+# No profile skip needed.
+
+echo "=== SAGE Session Context ==="
+echo ""
+
+# --- 1. Latest 3 RUN logs ---
+echo "--- Recent RUN Logs ---"
+if [ -d ".sage/runs" ] && ls .sage/runs/*.json &>/dev/null 2>&1; then
+  # Get latest 3 files by modification time
+  LATEST_RUNS=$(ls -t .sage/runs/*.json 2>/dev/null | head -3)
+
+  for run_file in $LATEST_RUNS; do
+    [ -f "$run_file" ] || continue
+    RUN_NAME=$(basename "$run_file")
+
+    if command -v jq &>/dev/null; then
+      STATUS=$(jq -r '.status // "unknown"' "$run_file" 2>/dev/null || echo "unknown")
+      TASK_ID=$(jq -r '.task_id // "N/A"' "$run_file" 2>/dev/null || echo "N/A")
+      ERROR_LOG=$(jq -r '.error_log // empty' "$run_file" 2>/dev/null | head -1 || true)
+    else
+      STATUS=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$run_file" 2>/dev/null | head -1 | sed 's/.*"status"[[:space:]]*:[[:space:]]*"//;s/"$//' || echo "unknown")
+      TASK_ID=$(grep -o '"task_id"[[:space:]]*:[[:space:]]*"[^"]*"' "$run_file" 2>/dev/null | head -1 | sed 's/.*"task_id"[[:space:]]*:[[:space:]]*"//;s/"$//' || echo "N/A")
+      ERROR_LOG=$(grep -o '"error_log"[[:space:]]*:[[:space:]]*"[^"]*"' "$run_file" 2>/dev/null | head -1 | sed 's/.*"error_log"[[:space:]]*:[[:space:]]*"//;s/"$//' | head -1 || true)
+    fi
+
+    echo "  $RUN_NAME: status=$STATUS task=$TASK_ID${ERROR_LOG:+ error=$ERROR_LOG}"
+  done
+elif [ -d ".sage/runs" ] && ls .sage/runs/*.yaml &>/dev/null 2>&1; then
+  LATEST_RUNS=$(ls -t .sage/runs/*.yaml 2>/dev/null | head -3)
+  for run_file in $LATEST_RUNS; do
+    [ -f "$run_file" ] || continue
+    RUN_NAME=$(basename "$run_file")
+    STATUS=$(grep 'status:' "$run_file" 2>/dev/null | head -1 | awk '{print $2}' || echo "unknown")
+    TASK_ID=$(grep 'task_id:' "$run_file" 2>/dev/null | head -1 | awk '{print $2}' || echo "N/A")
+    echo "  $RUN_NAME: status=$STATUS task=$TASK_ID"
+  done
+else
+  echo "  No RUN logs found."
+fi
+echo ""
+
+# --- 2. In-progress / Blocked TASKs ---
+echo "--- Active TASKs ---"
+FOUND_TASKS=false
+if [ -d "tasks" ]; then
+  for task_file in tasks/*.md; do
+    [ -f "$task_file" ] || continue
+
+    TASK_NAME=$(basename "$task_file" .md)
+
+    # Check for in-progress (実行中) or blocked (ブロック中)
+    if grep -q '実行中' "$task_file" 2>/dev/null; then
+      echo "  [$TASK_NAME] Status: 実行中 (In Progress)"
+      FOUND_TASKS=true
+    elif grep -q 'ブロック中' "$task_file" 2>/dev/null; then
+      echo "  [$TASK_NAME] Status: ブロック中 (Blocked)"
+      FOUND_TASKS=true
+    fi
+  done
+fi
+
+if [ "$FOUND_TASKS" = false ]; then
+  echo "  No active TASKs."
+fi
+echo ""
+
+# --- 3. Latest 5 entries from sage/failures.md ---
+echo "--- Recent Failures ---"
+if [ -f "sage/failures.md" ]; then
+  # Extract failure entries (lines starting with ## or ### as entry headers)
+  # Show last 5 entry headers with their first detail line
+  ENTRIES=$(grep -n '^##' "sage/failures.md" 2>/dev/null | tail -5)
+
+  if [ -n "$ENTRIES" ]; then
+    while IFS= read -r entry; do
+      LINE_NUM=$(echo "$entry" | cut -d: -f1)
+      HEADER=$(echo "$entry" | cut -d: -f2-)
+      # Get next non-empty line as detail
+      DETAIL=$(sed -n "$((LINE_NUM + 1)),$((LINE_NUM + 3))p" "sage/failures.md" 2>/dev/null | grep -v '^$' | head -1 || true)
+      echo "  $HEADER"
+      [ -n "$DETAIL" ] && echo "    $DETAIL"
+    done <<< "$ENTRIES"
+  else
+    echo "  No failure entries found."
+  fi
+else
+  echo "  sage/failures.md not found."
+fi
+
+echo ""
+echo "=== End Session Context ==="
+
+exit 0
+
+__EOF_TMPL_HOOK_SESSION_START__
+
+read -r -d '' TMPL_HOOK_SESSION_STOP <<'__EOF_TMPL_HOOK_SESSION_STOP__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0040: session-stop.sh
+# Purpose:  Stop hook (no stdin) — record session metrics
+# Profile:  minimal+ (runs for all profiles)
+# Behavior: Appends 1 JSON line to .sage/metrics/sessions.jsonl
+#           Schema: {"timestamp":"ISO8601","files_changed":N,"files":["path1",...]}
+#           Gets changed files from: git diff --name-only HEAD
+#           Creates .sage/metrics/ if not exists.
+#           Always exit 0
+# =============================================================================
+set -euo pipefail
+
+# --- Profile gating ---
+PROFILE="minimal"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "minimal")
+  [ -z "$PROFILE" ] && PROFILE="minimal"
+fi
+
+# minimal+ means all profiles run this hook
+# No profile skip needed.
+
+# --- Ensure metrics directory exists ---
+mkdir -p .sage/metrics 2>/dev/null || true
+
+# --- Get changed files from git ---
+CHANGED_FILES=""
+CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || true)
+
+# --- Build JSON line ---
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
+
+if command -v jq &>/dev/null; then
+  # Use jq for proper JSON construction
+  if [ -n "$CHANGED_FILES" ]; then
+    FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null || echo "[]")
+    FILES_COUNT=$(echo "$CHANGED_FILES" | grep -c '.' 2>/dev/null || echo "0")
+  else
+    FILES_JSON="[]"
+    FILES_COUNT=0
+  fi
+
+  ENTRY=$(jq -n \
+    --arg ts "$TIMESTAMP" \
+    --argjson count "$FILES_COUNT" \
+    --argjson files "$FILES_JSON" \
+    '{"timestamp":$ts,"files_changed":$count,"files":$files}' 2>/dev/null || true)
+
+  if [ -n "$ENTRY" ]; then
+    echo "$ENTRY" >> .sage/metrics/sessions.jsonl
+    exit 0
+  fi
+fi
+
+# --- Fallback: manual JSON construction ---
+FILES_COUNT=0
+FILES_ARRAY=""
+
+if [ -n "$CHANGED_FILES" ]; then
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    FILES_COUNT=$((FILES_COUNT + 1))
+    if [ -n "$FILES_ARRAY" ]; then
+      FILES_ARRAY="$FILES_ARRAY,\"$file\""
+    else
+      FILES_ARRAY="\"$file\""
+    fi
+  done <<< "$CHANGED_FILES"
+fi
+
+echo "{\"timestamp\":\"$TIMESTAMP\",\"files_changed\":$FILES_COUNT,\"files\":[$FILES_ARRAY]}" >> .sage/metrics/sessions.jsonl
+
+exit 0
+
+__EOF_TMPL_HOOK_SESSION_STOP__
+
+read -r -d '' TMPL_SETTINGS_JSON <<'__EOF_TMPL_SETTINGS_JSON__' || true
+{
+  "permissions": {
+    "allow": [],
+    "deny": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash templates/hooks/block-dangerous-commands.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash templates/hooks/protect-sage-files.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash templates/hooks/check-file-scope.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash templates/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash templates/hooks/session-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+__EOF_TMPL_SETTINGS_JSON__
+
 # === Main Logic ===
 
 SAGE_START_MARKER="<!-- === SAGE Development System (auto-injected) === -->"
@@ -2435,7 +3205,7 @@ write_file_if_new() {
 
   if [ -f "$path" ]; then
     echo "  SKIP: $path (already exists)"
-    return 1
+    return 0
   else
     echo "$content" > "$path"
     echo "  CREATE: $path"
@@ -2629,14 +3399,14 @@ fi
 echo "========================================="
 echo ""
 
-# --- [1/8] Directories ---
-echo "[1/8] ディレクトリ..."
+# --- [1/9] Directories ---
+echo "[1/9] ディレクトリ..."
 mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-evaluate/references
 echo "  OK"
 
-# --- [2/8] Templates & governance ---
+# --- [2/9] Templates & governance ---
 echo ""
-echo "[2/8] テンプレート & ガバナンス文書..."
+echo "[2/9] テンプレート & ガバナンス文書..."
 if [ "$MODE" = "install" ]; then
   write_file_if_new "specs/_template.md" "$TMPL_SPEC"
   write_file_if_new "plans/_template.md" "$TMPL_PLAN"
@@ -2673,9 +3443,9 @@ else
   echo "  KEEP: .sage/config.yaml (project settings)"
 fi
 
-# --- [3/8] .claude/rules/ ---
+# --- [3/9] .claude/rules/ ---
 echo ""
-echo "[3/8] .claude/rules/..."
+echo "[3/9] .claude/rules/..."
 if [ "$MODE" = "install" ]; then
   write_file_if_new ".claude/rules/specs-rules.md" "$TMPL_RULES_SPECS"
   write_file_if_new ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
@@ -2690,9 +3460,9 @@ else
   update_file ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
 fi
 
-# --- [4/8] .claude/skills/ ---
+# --- [4/9] .claude/skills/ ---
 echo ""
-echo "[4/8] .claude/skills/..."
+echo "[4/9] .claude/skills/..."
 if [ "$MODE" = "install" ]; then
   write_file_if_new ".claude/skills/sage-spec/SKILL.md" "$TMPL_SKILL_SPEC"
   write_file_if_new ".claude/skills/sage-plan/SKILL.md" "$TMPL_SKILL_PLAN"
@@ -2709,9 +3479,9 @@ else
   update_file ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
 fi
 
-# --- [5/8] CLAUDE.md ---
+# --- [5/9] CLAUDE.md ---
 echo ""
-echo "[5/8] CLAUDE.md..."
+echo "[5/9] CLAUDE.md..."
 # Audit existing CLAUDE.md before first SAGE injection
 AUDIT_GENERATED=""
 if [ -f CLAUDE.md ] && [ -s CLAUDE.md ] && ! grep -qF "$SAGE_START_MARKER" CLAUDE.md; then
@@ -2720,23 +3490,138 @@ if [ -f CLAUDE.md ] && [ -s CLAUDE.md ] && ! grep -qF "$SAGE_START_MARKER" CLAUD
 fi
 upsert_sage_section "CLAUDE.md" "$TMPL_CLAUDE_SNIPPET"
 
-# --- [6/8] AGENTS.md ---
+# --- [6/9] AGENTS.md ---
 echo ""
-echo "[6/8] AGENTS.md (Codex)..."
+echo "[6/9] AGENTS.md (Codex)..."
 upsert_sage_section "AGENTS.md" "$TMPL_AGENTS_SNIPPET"
 
-# --- [7/8] Commit hook ---
+# --- [7/9] Hooks ---
 echo ""
-echo "[7/8] Pre-commit hook..."
+echo "[7/9] Claude Code hooks..."
+mkdir -p templates/hooks
+if [ "$MODE" = "install" ]; then
+  write_file_if_new "templates/hooks/block-dangerous-commands.sh" "$TMPL_HOOK_BLOCK_DANGEROUS" && chmod +x "templates/hooks/block-dangerous-commands.sh"
+  write_file_if_new "templates/hooks/protect-sage-files.sh" "$TMPL_HOOK_PROTECT_SAGE" && chmod +x "templates/hooks/protect-sage-files.sh"
+  write_file_if_new "templates/hooks/check-file-scope.sh" "$TMPL_HOOK_CHECK_SCOPE" && chmod +x "templates/hooks/check-file-scope.sh"
+  write_file_if_new "templates/hooks/session-start.sh" "$TMPL_HOOK_SESSION_START" && chmod +x "templates/hooks/session-start.sh"
+  write_file_if_new "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
+else
+  update_file "templates/hooks/block-dangerous-commands.sh" "$TMPL_HOOK_BLOCK_DANGEROUS" && chmod +x "templates/hooks/block-dangerous-commands.sh"
+  update_file "templates/hooks/protect-sage-files.sh" "$TMPL_HOOK_PROTECT_SAGE" && chmod +x "templates/hooks/protect-sage-files.sh"
+  update_file "templates/hooks/check-file-scope.sh" "$TMPL_HOOK_CHECK_SCOPE" && chmod +x "templates/hooks/check-file-scope.sh"
+  update_file "templates/hooks/session-start.sh" "$TMPL_HOOK_SESSION_START" && chmod +x "templates/hooks/session-start.sh"
+  update_file "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
+fi
+# Deploy settings.json with hook definitions
+if [ ! -f ".claude/settings.json" ] || ! grep -qF "block-dangerous-commands" ".claude/settings.json" 2>/dev/null; then
+  mkdir -p .claude
+  echo "$TMPL_SETTINGS_JSON" > ".claude/settings.json"
+  echo "  CREATE: .claude/settings.json (with hooks)"
+else
+  echo "  SKIP: .claude/settings.json (hooks already configured)"
+fi
+
+# --- [8/9] Commit hook ---
+echo ""
+echo "[8/9] Pre-commit hook..."
 setup_commit_hook
 
-# --- [8/8] .gitignore ---
+# --- [9/9] .gitignore ---
 echo ""
-echo "[8/8] .gitignore..."
+echo "[9/9] .gitignore..."
 setup_gitignore
 
 # --- Save installed version ---
 echo "$SAGE_VERSION" > .sage/version
+
+# --- Generate install-state.yaml (SPEC-0004) ---
+echo ""
+echo "Generating install-state.yaml..."
+generate_install_state() {
+  local state_file=".sage/install-state.yaml"
+  local sha_cmd=""
+
+  # Cross-platform SHA256
+  if command -v sha256sum &>/dev/null; then
+    sha_cmd="sha256sum"
+  elif command -v shasum &>/dev/null; then
+    sha_cmd="shasum -a 256"
+  else
+    echo "  WARN: No sha256 command found. Skipping install-state generation."
+    return
+  fi
+
+  cat > "$state_file" <<STATEHEADER
+version: "${SAGE_VERSION}"
+installed_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+files:
+STATEHEADER
+
+  # SAGE-managed files (update_file targets — overwritten on update)
+  local managed_files=(
+    "specs/_template.md"
+    "plans/_template.md"
+    "tasks/_template.md"
+    "sage/charter.md"
+    "sage/governance.md"
+    "sage/anti-patterns.md"
+    "sage/quality-gates.md"
+    "sage/adoption-phases.md"
+    "sage/traceability.md"
+    "scripts/sage-validate.sh"
+    "scripts/sage-id-gen.sh"
+    "scripts/sage-trace-check.sh"
+    "scripts/sage-update-check.sh"
+    ".claude/rules/specs-rules.md"
+    ".claude/rules/plans-rules.md"
+    ".claude/rules/tasks-rules.md"
+    ".claude/rules/src-rules.md"
+    ".claude/rules/sage-governance-rules.md"
+    ".claude/skills/sage-spec/SKILL.md"
+    ".claude/skills/sage-plan/SKILL.md"
+    ".claude/skills/sage-review/SKILL.md"
+    ".claude/skills/sage-evaluate/SKILL.md"
+    ".claude/skills/sage-evaluate/references/scoring-rubric.md"
+    ".claude/skills/sage-evaluate/references/knowledge-base.md"
+    "templates/hooks/block-dangerous-commands.sh"
+    "templates/hooks/protect-sage-files.sh"
+    "templates/hooks/check-file-scope.sh"
+    "templates/hooks/session-start.sh"
+    "templates/hooks/session-stop.sh"
+  )
+
+  # User-customizable files (write_file_if_new targets — NOT overwritten)
+  local user_files=(
+    "CLAUDE.md"
+    "AGENTS.md"
+    ".sage/config.yaml"
+    "sage/failures.md"
+    ".claude/settings.json"
+  )
+
+  for f in "${managed_files[@]}"; do
+    if [ -f "$f" ]; then
+      local hash=$($sha_cmd "$f" | awk '{print $1}')
+      echo "  - path: \"$f\"" >> "$state_file"
+      echo "    sha256: \"$hash\"" >> "$state_file"
+      echo "    source: \"embedded\"" >> "$state_file"
+      echo "    managed: true" >> "$state_file"
+    fi
+  done
+
+  for f in "${user_files[@]}"; do
+    if [ -f "$f" ]; then
+      local hash=$($sha_cmd "$f" | awk '{print $1}')
+      echo "  - path: \"$f\"" >> "$state_file"
+      echo "    sha256: \"$hash\"" >> "$state_file"
+      echo "    source: \"embedded\"" >> "$state_file"
+      echo "    managed: false" >> "$state_file"
+    fi
+  done
+
+  echo "  OK: .sage/install-state.yaml"
+}
+generate_install_state
 
 echo ""
 echo "========================================="

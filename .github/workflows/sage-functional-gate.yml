@@ -52,11 +52,32 @@ jobs:
       #     pip install pytest pytest-cov
       #     pytest --cov=src --cov-report=term-missing
 
-      - name: Placeholder (configure tests for your project)
+      - name: Run project test command from .sage/config.yaml
+        id: test
         run: |
-          echo "SAGE Gate 2: Functional tests"
-          echo "Configure test commands in this workflow for your project."
-          echo "See comments in this file for language-specific examples."
+          CONFIG=".sage/config.yaml"
+
+          # Validate config file exists and is parseable
+          if [ ! -f "$CONFIG" ]; then
+            echo "INFO: $CONFIG not found. test_command SKIPPED."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! yq '.' "$CONFIG" > /dev/null 2>&1; then
+            echo "CONFIG ERROR: $CONFIG parse failed"
+            exit 1
+          fi
+
+          TEST_CMD=$(yq -r '.project_checks.test_command // ""' "$CONFIG" 2>/dev/null || echo "")
+          if [ -n "$TEST_CMD" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "--- Running test_command: $TEST_CMD ---"
+            eval "$TEST_CMD"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "SKIPPED: test_command not configured in $CONFIG"
+          fi
 
       - name: Comment result on PR
         if: always() && github.event_name == 'pull_request'
@@ -66,15 +87,26 @@ jobs:
           script: |
             const marker = '<!-- sage-functional-gate -->';
             const status = '${{ job.status }}';
-            const title = status === 'success'
-              ? '✅ SAGE Gate 2 (Functional): PASS'
-              : '❌ SAGE Gate 2 (Functional): FAIL';
+            const configured = '${{ steps.test.outputs.configured }}';
+
+            let icon, label;
+            if (status === 'success' && configured !== 'true') {
+              icon = '⏭️'; label = 'SKIPPED';
+            } else if (status === 'success') {
+              icon = '✅'; label = 'PASS';
+            } else {
+              icon = '❌'; label = 'FAIL';
+            }
+
+            const testNote = configured !== 'true'
+              ? '- Tests: **SKIPPED** (test_command not configured in .sage/config.yaml)'
+              : `- Tests: **${status === 'success' ? 'PASS' : 'FAIL'}**`;
 
             const body = [
               marker,
-              `## ${title}`,
+              `## ${icon} SAGE Gate 2 (Functional): ${label}`,
               '',
-              `- Status: **${status}**`,
+              testNote,
               `- Commit: \`${context.sha.slice(0, 7)}\``,
               `- Updated: ${new Date().toISOString()}`,
             ].join('\n');

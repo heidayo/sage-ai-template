@@ -55,13 +55,15 @@ All changes MUST follow this 7-phase lifecycle. Skipping phases is prohibited.
 - [ ] Gate 1 (structural: lint + format + type check) passed
 
 ### Verify phase exit criteria
-- [ ] Gate 2 (functional) coverage meets threshold in .sage/config.yaml (default 80%)
+- [ ] Gate 2 (functional) coverage meets threshold in .sage/config.yaml (default 80%). Configure via `project_checks.test_command`
 - [ ] Gate 3 (security) secret scan + dependency vuln scan passed
-- [ ] Gate 4 (architecture) layer boundary + traceability check passed
+- [ ] Gate 4 (architecture) layer boundary + traceability check passed (FAIL on violation, not WARN)
+- [ ] Gate 5 (release) Gate 1-4 prerequisite check passed (for main/production PRs)
 - [ ] Review Agent has completed review (spec alignment, responsibility alignment, complexity, safety)
+- [ ] Gate status: PASS(✅) / FAIL(❌) / SKIPPED(⏭️) — configure checks in `.sage/config.yaml` `project_checks`
 
 ### Merge phase exit criteria
-- [ ] All Gates (1-4) passed
+- [ ] All Gates (1-5) passed or SKIPPED (unconfigured checks)
 - [ ] All review comments resolved
 - [ ] SPEC-ID, PLAN-ID, TASK-ID are in the PR body
 - [ ] Run log (RUN-ID) is recorded in .sage/runs/
@@ -178,17 +180,33 @@ PRs without SPEC-ID should be rejected.
 
 ## 9. Quality Gate Checklist
 
-Before merge, all 5 gates must pass:
+Before merge, all 5 gates must pass (or be SKIPPED if unconfigured):
 
-| Gate | Checks |
-|------|--------|
-| 1. Structural | lint, format, type check, schema validation |
-| 2. Functional | unit test, integration test, coverage threshold |
-| 3. Security | SAST, secret scan, dependency vulnerability scan |
-| 4. Architecture | layer boundary, forbidden dependency, traceability |
-| 5. Release | migration safety, rollback readiness, monitoring readiness |
+| Gate | Checks | Status |
+|------|--------|--------|
+| 1. Structural | lint, format, type check, schema validation | PASS/FAIL/SKIPPED (config-driven) |
+| 2. Functional | unit test, integration test, coverage threshold | PASS/FAIL/SKIPPED (config-driven) |
+| 3. Security | SAST, secret scan, dependency vulnerability scan | PASS/FAIL |
+| 4. Architecture | layer boundary, forbidden dependency, traceability | PASS/FAIL (enforcement, not WARN) |
+| 5. Release | migration safety, rollback readiness, Gate 1-4 prerequisite | PASS/FAIL |
 
-Gate results are automatically recorded as PR comments.
+Gate 1-2: configure commands in `.sage/config.yaml` `project_checks`. Unconfigured = SKIPPED.
+Gate results are automatically recorded as PR comments with 3-state display (✅/❌/⏭️).
+
+## 9.1 Claude Code Hooks
+
+Runtime protection via `.claude/settings.json` hooks:
+
+| Hook | Blocks | Profile |
+|------|--------|---------|
+| block-dangerous-commands | `--no-verify`, `--force`, `rm -rf` | standard+ |
+| protect-sage-files | CLAUDE.md, sage/, .sage/config.yaml changes | standard+ |
+| check-file-scope | TASK File Scope outside edits | standard(warn) / strict(block) |
+| session-start | (info) RUN logs, active TASKs, failures summary | minimal+ |
+| session-stop | (record) session metrics to .sage/metrics/ | minimal+ |
+
+Profile in `.sage/config.yaml` `hooks.profile`: minimal → standard → strict → none.
+Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
 
 ## 10. Language Rules
 
@@ -229,3 +247,24 @@ This file (`CLAUDE.md`) defines repository-wide development rules.
 - AI agents MUST NOT modify this file unless explicitly instructed by a human
 - Changes must be intentional and reviewed carefully
 - This file is the highest-authority instruction source for all AI agents
+
+<!-- === SAGE Development System (auto-injected) === -->
+## SAGE Development System
+
+- Before writing ANY code, check `specs/` for an existing SPEC. No SPEC = no code.
+- Only modify files listed in the active TASK's File Scope.
+- Every commit must include a TASK-ID (enforced by pre-commit hook).
+- Prototypes go on `vibe/*` branches (no SPEC needed).
+- For detailed workflows: `/sage-spec`, `/sage-plan`, `/sage-review`, `/sage-evaluate`
+- SPEC/PLAN completion triggers auto-scoring (100 points required before implementation).
+- Governance docs in `sage/` — do not modify without human approval.
+- Run `bash scripts/sage-update-check.sh` at session start (1日1回).
+
+Auto-update rules:
+- Update check failure → warning only, never block development
+- `installer_url` not configured → skip silently
+
+Project-specific rules: add your own files to `.claude/rules/` (do not edit `specs-rules.md` etc. — they are overwritten on update).
+
+Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance)
+<!-- === End SAGE === -->

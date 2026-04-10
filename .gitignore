@@ -2,6 +2,14 @@
 .sage/runs/
 .sage/metrics/
 .sage/gist-id
+.sage/install-state.yaml
+.sage/version
+.sage/adoption-audit.md
+.sage/backup/
+
+# SAGE install targets (generated from templates/ by install.sh)
+.claude/rules/
+.claude/skills/
 
 # OS
 .DS_Store

@@ -93,6 +93,44 @@ harness:
   auto_append_failures: true       # Auto-append Verify Fail patterns to sage/failures.md
   same_fail_abort_threshold: 3     # Abort on same CHECK-ID failing 3 times consecutively
   failure_pattern_escalation: 3    # Escalate to sage/anti-patterns.md after 3 occurrences
+  # Auto-approve mode: SPEC承認後、PLAN→TASK→Execute→Verify→ドキュメント更新まで
+  # 人間の介入なしで完走する。SPECの最初の承認のみ人間が行う。
+  #   false (default): 各フェーズでEvaluator採点→人間確認→次フェーズ
+  #   true:            SPEC承認後はEvaluator 100点到達で自動的に次フェーズへ進行
+  auto_approve: false
+
+# --- Project Checks (SPEC-0002: Gate Enforcement) ---
+# Configure language-specific commands for CI gates.
+# Uncomment and set commands for your project.
+# If unset, the corresponding gate check will be SKIPPED (not faked as PASS).
+project_checks:
+  # lint: "npm run lint"                    # Gate 1: Lint check
+  # format: "npx prettier --check ."       # Gate 1: Format check
+  # type_check: "npx tsc --noEmit"         # Gate 1: Type check
+  # test_command: "npm test"               # Gate 2: Test runner
+  # Go example:
+  #   lint: "golangci-lint run"
+  #   format: "gofmt -l . | grep -c . && exit 1 || true"
+  #   type_check: "go vet ./..."
+  #   test_command: "go test ./... -coverprofile=coverage.out"
+  # Python example:
+  #   lint: "ruff check ."
+  #   format: "black --check ."
+  #   type_check: "mypy ."
+  #   test_command: "pytest --cov=src --cov-report=term-missing"
+
+# --- Hooks (SPEC-0003: Hooks実用化) ---
+# Profile controls which hooks are active.
+# Aligned with SAGE adoption phases:
+#   minimal  = Phase A (SessionStart + Stop only)
+#   standard = Phase B (+ dangerous command block + SAGE file protection)
+#   strict   = Phase C+ (+ File Scope check as block)
+#   none     = All hooks disabled
+hooks:
+  profile: minimal
+  # Upgrade conditions:
+  #   minimal → standard: make report shows SESSIONS >= 10 and STATUS: HEALTHY
+  #   standard → strict:  make report shows 2 weeks continuous HEALTHY
 
 # --- Auto Update ---
 auto_update:

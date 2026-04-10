@@ -116,6 +116,21 @@ echo ""
 embed_file "TMPL_UPDATE_CHECK" "$ROOT/scripts/sage-update-check.sh"
 echo ""
 
+# Hook templates (SPEC-0003)
+embed_file "TMPL_HOOK_BLOCK_DANGEROUS" "$ROOT/templates/hooks/block-dangerous-commands.sh"
+echo ""
+embed_file "TMPL_HOOK_PROTECT_SAGE" "$ROOT/templates/hooks/protect-sage-files.sh"
+echo ""
+embed_file "TMPL_HOOK_CHECK_SCOPE" "$ROOT/templates/hooks/check-file-scope.sh"
+echo ""
+embed_file "TMPL_HOOK_SESSION_START" "$ROOT/templates/hooks/session-start.sh"
+echo ""
+embed_file "TMPL_HOOK_SESSION_STOP" "$ROOT/templates/hooks/session-stop.sh"
+echo ""
+# Settings.json template with hooks
+embed_file "TMPL_SETTINGS_JSON" "$ROOT/.claude/settings.json"
+echo ""
+
 # --- メインロジックを埋め込む ---
 cat <<'MAIN_LOGIC'
 # === Main Logic ===
@@ -143,7 +158,7 @@ write_file_if_new() {
 
   if [ -f "$path" ]; then
     echo "  SKIP: $path (already exists)"
-    return 1
+    return 0
   else
     echo "$content" > "$path"
     echo "  CREATE: $path"
@@ -337,14 +352,14 @@ fi
 echo "========================================="
 echo ""
 
-# --- [1/8] Directories ---
-echo "[1/8] ディレクトリ..."
+# --- [1/9] Directories ---
+echo "[1/9] ディレクトリ..."
 mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-evaluate/references
 echo "  OK"
 
-# --- [2/8] Templates & governance ---
+# --- [2/9] Templates & governance ---
 echo ""
-echo "[2/8] テンプレート & ガバナンス文書..."
+echo "[2/9] テンプレート & ガバナンス文書..."
 if [ "$MODE" = "install" ]; then
   write_file_if_new "specs/_template.md" "$TMPL_SPEC"
   write_file_if_new "plans/_template.md" "$TMPL_PLAN"
@@ -381,9 +396,9 @@ else
   echo "  KEEP: .sage/config.yaml (project settings)"
 fi
 
-# --- [3/8] .claude/rules/ ---
+# --- [3/9] .claude/rules/ ---
 echo ""
-echo "[3/8] .claude/rules/..."
+echo "[3/9] .claude/rules/..."
 if [ "$MODE" = "install" ]; then
   write_file_if_new ".claude/rules/specs-rules.md" "$TMPL_RULES_SPECS"
   write_file_if_new ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
@@ -398,9 +413,9 @@ else
   update_file ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
 fi
 
-# --- [4/8] .claude/skills/ ---
+# --- [4/9] .claude/skills/ ---
 echo ""
-echo "[4/8] .claude/skills/..."
+echo "[4/9] .claude/skills/..."
 if [ "$MODE" = "install" ]; then
   write_file_if_new ".claude/skills/sage-spec/SKILL.md" "$TMPL_SKILL_SPEC"
   write_file_if_new ".claude/skills/sage-plan/SKILL.md" "$TMPL_SKILL_PLAN"
@@ -417,9 +432,9 @@ else
   update_file ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
 fi
 
-# --- [5/8] CLAUDE.md ---
+# --- [5/9] CLAUDE.md ---
 echo ""
-echo "[5/8] CLAUDE.md..."
+echo "[5/9] CLAUDE.md..."
 # Audit existing CLAUDE.md before first SAGE injection
 AUDIT_GENERATED=""
 if [ -f CLAUDE.md ] && [ -s CLAUDE.md ] && ! grep -qF "$SAGE_START_MARKER" CLAUDE.md; then
@@ -428,23 +443,138 @@ if [ -f CLAUDE.md ] && [ -s CLAUDE.md ] && ! grep -qF "$SAGE_START_MARKER" CLAUD
 fi
 upsert_sage_section "CLAUDE.md" "$TMPL_CLAUDE_SNIPPET"
 
-# --- [6/8] AGENTS.md ---
+# --- [6/9] AGENTS.md ---
 echo ""
-echo "[6/8] AGENTS.md (Codex)..."
+echo "[6/9] AGENTS.md (Codex)..."
 upsert_sage_section "AGENTS.md" "$TMPL_AGENTS_SNIPPET"
 
-# --- [7/8] Commit hook ---
+# --- [7/9] Hooks ---
 echo ""
-echo "[7/8] Pre-commit hook..."
+echo "[7/9] Claude Code hooks..."
+mkdir -p templates/hooks
+if [ "$MODE" = "install" ]; then
+  write_file_if_new "templates/hooks/block-dangerous-commands.sh" "$TMPL_HOOK_BLOCK_DANGEROUS" && chmod +x "templates/hooks/block-dangerous-commands.sh"
+  write_file_if_new "templates/hooks/protect-sage-files.sh" "$TMPL_HOOK_PROTECT_SAGE" && chmod +x "templates/hooks/protect-sage-files.sh"
+  write_file_if_new "templates/hooks/check-file-scope.sh" "$TMPL_HOOK_CHECK_SCOPE" && chmod +x "templates/hooks/check-file-scope.sh"
+  write_file_if_new "templates/hooks/session-start.sh" "$TMPL_HOOK_SESSION_START" && chmod +x "templates/hooks/session-start.sh"
+  write_file_if_new "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
+else
+  update_file "templates/hooks/block-dangerous-commands.sh" "$TMPL_HOOK_BLOCK_DANGEROUS" && chmod +x "templates/hooks/block-dangerous-commands.sh"
+  update_file "templates/hooks/protect-sage-files.sh" "$TMPL_HOOK_PROTECT_SAGE" && chmod +x "templates/hooks/protect-sage-files.sh"
+  update_file "templates/hooks/check-file-scope.sh" "$TMPL_HOOK_CHECK_SCOPE" && chmod +x "templates/hooks/check-file-scope.sh"
+  update_file "templates/hooks/session-start.sh" "$TMPL_HOOK_SESSION_START" && chmod +x "templates/hooks/session-start.sh"
+  update_file "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
+fi
+# Deploy settings.json with hook definitions
+if [ ! -f ".claude/settings.json" ] || ! grep -qF "block-dangerous-commands" ".claude/settings.json" 2>/dev/null; then
+  mkdir -p .claude
+  echo "$TMPL_SETTINGS_JSON" > ".claude/settings.json"
+  echo "  CREATE: .claude/settings.json (with hooks)"
+else
+  echo "  SKIP: .claude/settings.json (hooks already configured)"
+fi
+
+# --- [8/9] Commit hook ---
+echo ""
+echo "[8/9] Pre-commit hook..."
 setup_commit_hook
 
-# --- [8/8] .gitignore ---
+# --- [9/9] .gitignore ---
 echo ""
-echo "[8/8] .gitignore..."
+echo "[9/9] .gitignore..."
 setup_gitignore
 
 # --- Save installed version ---
 echo "$SAGE_VERSION" > .sage/version
+
+# --- Generate install-state.yaml (SPEC-0004) ---
+echo ""
+echo "Generating install-state.yaml..."
+generate_install_state() {
+  local state_file=".sage/install-state.yaml"
+  local sha_cmd=""
+
+  # Cross-platform SHA256
+  if command -v sha256sum &>/dev/null; then
+    sha_cmd="sha256sum"
+  elif command -v shasum &>/dev/null; then
+    sha_cmd="shasum -a 256"
+  else
+    echo "  WARN: No sha256 command found. Skipping install-state generation."
+    return
+  fi
+
+  cat > "$state_file" <<STATEHEADER
+version: "${SAGE_VERSION}"
+installed_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+files:
+STATEHEADER
+
+  # SAGE-managed files (update_file targets — overwritten on update)
+  local managed_files=(
+    "specs/_template.md"
+    "plans/_template.md"
+    "tasks/_template.md"
+    "sage/charter.md"
+    "sage/governance.md"
+    "sage/anti-patterns.md"
+    "sage/quality-gates.md"
+    "sage/adoption-phases.md"
+    "sage/traceability.md"
+    "scripts/sage-validate.sh"
+    "scripts/sage-id-gen.sh"
+    "scripts/sage-trace-check.sh"
+    "scripts/sage-update-check.sh"
+    ".claude/rules/specs-rules.md"
+    ".claude/rules/plans-rules.md"
+    ".claude/rules/tasks-rules.md"
+    ".claude/rules/src-rules.md"
+    ".claude/rules/sage-governance-rules.md"
+    ".claude/skills/sage-spec/SKILL.md"
+    ".claude/skills/sage-plan/SKILL.md"
+    ".claude/skills/sage-review/SKILL.md"
+    ".claude/skills/sage-evaluate/SKILL.md"
+    ".claude/skills/sage-evaluate/references/scoring-rubric.md"
+    ".claude/skills/sage-evaluate/references/knowledge-base.md"
+    "templates/hooks/block-dangerous-commands.sh"
+    "templates/hooks/protect-sage-files.sh"
+    "templates/hooks/check-file-scope.sh"
+    "templates/hooks/session-start.sh"
+    "templates/hooks/session-stop.sh"
+  )
+
+  # User-customizable files (write_file_if_new targets — NOT overwritten)
+  local user_files=(
+    "CLAUDE.md"
+    "AGENTS.md"
+    ".sage/config.yaml"
+    "sage/failures.md"
+    ".claude/settings.json"
+  )
+
+  for f in "${managed_files[@]}"; do
+    if [ -f "$f" ]; then
+      local hash=$($sha_cmd "$f" | awk '{print $1}')
+      echo "  - path: \"$f\"" >> "$state_file"
+      echo "    sha256: \"$hash\"" >> "$state_file"
+      echo "    source: \"embedded\"" >> "$state_file"
+      echo "    managed: true" >> "$state_file"
+    fi
+  done
+
+  for f in "${user_files[@]}"; do
+    if [ -f "$f" ]; then
+      local hash=$($sha_cmd "$f" | awk '{print $1}')
+      echo "  - path: \"$f\"" >> "$state_file"
+      echo "    sha256: \"$hash\"" >> "$state_file"
+      echo "    source: \"embedded\"" >> "$state_file"
+      echo "    managed: false" >> "$state_file"
+    fi
+  done
+
+  echo "  OK: .sage/install-state.yaml"
+}
+generate_install_state
 
 echo ""
 echo "========================================="

@@ -17,6 +17,38 @@ SAGE の 7フェーズライフサイクル（Specify → Plan → Slice → Exe
 
 ---
 
+## 実行モード
+
+### 通常モード（`auto_approve: false`）
+各フェーズでEvaluatorが100点を出した後、人間の確認を挟んでから次フェーズに進む。品質を最大限担保したい場合に使用。
+
+### 全承認モード（`auto_approve: true`）
+**SPECの最初の承認のみ人間が行い、以降は完走する。** Evaluatorが100点に到達した時点で自動的に次フェーズに進行し、Verify完了まで人間の介入なしで実行する。
+
+全承認モードの動作:
+1. **Phase 1 (Specify)**: Spec Agent → Evaluator → 100点到達 → **人間にSPEC承認を求める（唯一の停止点）**
+2. **Phase 2 (Plan+Slice)**: Planning Agent → Evaluator → 100点到達 → **自動で次へ**
+3. **Phase 3-4 (Execute+Verify)**: Implementation → Test → Review → 100点到達 → **自動で完了**
+4. **Phase 5 (Log)**: RUNログ記録 → failures.md追記 → **完了報告**
+
+全承認モードでも以下は停止する:
+- Evaluator が `abort` を返した場合
+- 同一エラーが3回連続した場合（`same_fail_abort_threshold`）
+- max_iterations に到達した場合
+
+設定:
+```yaml
+# .sage/config.yaml
+harness:
+  auto_approve: true  # SPEC承認後は完走
+```
+
+起動時の指定:
+```
+/sage-harness --auto-approve
+[requirements description]
+```
+
 ## 前提条件
 
 - `.sage/config.yaml` の `harness` セクションが設定されていること
@@ -68,7 +100,10 @@ Evaluator / Review Agent の YAML 出力を受け取った後、オーケスト�
 │  ┌─────────────────────────────────────────────┐      │
 │  │ WHILE iteration < spec_eval_max_iterations: │      │
 │  │   Evaluator（Read-Only）→ eval_feedback     │      │
-│  │   score >= 100 → 次Phase                    │      │
+│  │   score >= 100:                              │      │
+│  │     auto_approve=false → 人間に承認を求める   │      │
+│  │     auto_approve=true  → 人間に承認を求める   │      │
+│  │     ※ SPECの承認は常に人間が行う（唯一の停止点）│     │
 │  │   score < 100 → Spec Agent に修正させる      │      │
 │  │   上限到達 → abort "spec_eval_max"           │      │
 │  └─────────────────────────────────────────────┘      │
@@ -82,7 +117,9 @@ Evaluator / Review Agent の YAML 出力を受け取った後、オーケスト�
 │  ┌─────────────────────────────────────────────┐      │
 │  │ WHILE iteration < plan_eval_max_iterations: │      │
 │  │   Evaluator（Read-Only）→ eval_feedback     │      │
-│  │   score >= 100 → 次Phase                    │      │
+│  │   score >= 100:                              │      │
+│  │     auto_approve=false → 人間に確認を求める   │      │
+│  │     auto_approve=true  → 自動で次Phaseへ     │      │
 │  │   score < 100 → Planning Agent に修正させる  │      │
 │  │   上限到達 → abort "plan_eval_max"           │      │
 │  └─────────────────────────────────────────────┘      │
@@ -105,7 +142,9 @@ Evaluator / Review Agent の YAML 出力を受け取った後、オーケスト�
 │  │     Bash: テスト実行・lint・カバレッジのみ    │      │
 │  │     出力: review_feedback YAML              │      │
 │  │                                             │      │
-│  │   review_score >= 100 AND 全Gate pass → 完了│      │
+│  │   review_score >= 100 AND 全Gate pass:      │
+│  │     auto_approve=false → 人間に確認を求める   │      │
+│  │     auto_approve=true  → 自動で完了          │      │
 │  │   FAIL → fix_scope ルーティングで再実行      │      │
 │  │   same_fail_count >= 3 → abort              │      │
 │  └─────────────────────────────────────────────┘      │

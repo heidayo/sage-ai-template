@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,6 +19,65 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check Gate 1-4 prerequisites
+        id: prerequisites
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const gateWorkflows = [
+              'sage-structural-gate',
+              'sage-functional-gate',
+              'sage-security-gate',
+              'sage-architecture-gate',
+            ];
+            const headSha = context.payload.pull_request?.head?.sha || context.sha;
+            const results = [];
+            let failed = false;
+
+            for (const name of gateWorkflows) {
+              try {
+                const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  head_sha: headSha,
+                  per_page: 5,
+                });
+
+                const match = runs.workflow_runs.find(r =>
+                  r.name && r.name.toLowerCase().includes(name.replace('sage-', '').replace('-gate', ''))
+                );
+
+                if (!match) {
+                  results.push({ name, status: 'not_found' });
+                } else if (match.conclusion === 'failure') {
+                  results.push({ name, status: 'failure' });
+                  failed = true;
+                } else if (match.conclusion === 'success') {
+                  results.push({ name, status: 'success' });
+                } else {
+                  results.push({ name, status: match.conclusion || match.status || 'unknown' });
+                }
+              } catch (err) {
+                if (err.status === 403 || err.message?.includes('rate limit')) {
+                  core.warning(`Rate limit hit checking ${name}, skipping prerequisite check`);
+                  results.push({ name, status: 'rate_limited' });
+                } else {
+                  core.warning(`Error checking ${name}: ${err.message}`);
+                  results.push({ name, status: 'error' });
+                }
+              }
+            }
+
+            const summary = results.map(r => `${r.name}: ${r.status}`).join(', ');
+            core.info(`Gate prerequisites: ${summary}`);
+            core.setOutput('summary', summary);
+            core.setOutput('failed', String(failed));
+
+            if (failed) {
+              core.setFailed('One or more Gate 1-4 workflows have failed. Fix them before release.');
+            }
 
       - name: Release readiness check
         id: release
@@ -43,14 +103,29 @@ jobs:
           script: |
             const marker = '<!-- sage-release-gate -->';
             const errors = Number('${{ steps.release.outputs.errors }}' || '0');
-            const icon = errors === 0 ? '✅' : '❌';
-            const status = errors === 0 ? 'PASS' : 'FAIL';
+            const prereqFailed = '${{ steps.prerequisites.outputs.failed }}' === 'true';
+            const prereqSummary = '${{ steps.prerequisites.outputs.summary }}' || '';
+
+            const hasFail = errors > 0 || prereqFailed;
+            const icon = hasFail ? '❌' : '✅';
+            const status = hasFail ? 'FAIL' : 'PASS';
+
+            // Build prerequisite status lines
+            const prereqLines = prereqSummary.split(', ').filter(Boolean).map(entry => {
+              const [name, state] = entry.split(': ');
+              if (state === 'success') return `  - ✅ ${name}: PASS`;
+              if (state === 'failure') return `  - ❌ ${name}: FAIL`;
+              if (state === 'not_found' || state === 'skipped') return `  - ⏭️ ${name}: SKIPPED`;
+              return `  - ⏭️ ${name}: ${state.toUpperCase()}`;
+            });
 
             const body = [
               marker,
               `## ${icon} SAGE Gate 5 (Release): ${status}`,
               '',
-              `- Issues: **${errors}**`,
+              `- Release issues: **${errors}**`,
+              `- Prerequisites: **${prereqFailed ? 'FAIL' : 'PASS'}**`,
+              ...prereqLines,
               `- Commit: \`${context.sha.slice(0, 7)}\``,
               `- Updated: ${new Date().toISOString()}`,
               '',

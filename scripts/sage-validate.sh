@@ -9,7 +9,7 @@ echo "=== SAGE Validation ==="
 echo ""
 
 # --- CLAUDE.md Section Check ---
-echo "[1/6] CLAUDE.md 必須セクション検証..."
+echo "[1/7] CLAUDE.md 必須セクション検証..."
 REQUIRED_SECTIONS=(
   "Project Overview"
   "Instruction Priority"
@@ -39,7 +39,7 @@ fi
 echo ""
 
 # --- specs/_template.md Field Check ---
-echo "[2/6] テンプレート必須フィールド検証..."
+echo "[2/7] テンプレート必須フィールド検証..."
 
 if [ -f specs/_template.md ]; then
   REQUIRED_SPEC_FIELDS=("スコープ外" "受け入れ条件" "異常系" "契約" "リスク" "PLAN-ID")
@@ -85,7 +85,7 @@ fi
 echo ""
 
 # --- Directory Structure Check ---
-echo "[3/6] ディレクトリ構造検証..."
+echo "[3/7] ディレクトリ構造検証..."
 REQUIRED_DIRS=("specs" "plans" "tasks" "sage" ".sage" "docs" "scripts")
 for dir in "${REQUIRED_DIRS[@]}"; do
   if [ -d "$dir" ]; then
@@ -98,7 +98,7 @@ done
 echo ""
 
 # --- Document Integrity Check ---
-echo "[4/6] ドキュメント整合性チェック..."
+echo "[4/7] ドキュメント整合性チェック..."
 
 # SPEC-0002: Error Context Template
 if grep -q "Error Context Template" CLAUDE.md 2>/dev/null; then
@@ -134,7 +134,7 @@ fi
 echo ""
 
 # --- Vibe Branch Check ---
-echo "[5/6] ブランチ規約チェック..."
+echo "[5/7] ブランチ規約チェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
 if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
   echo "  ERROR: vibe/* ブランチから直接マージ禁止。staging経由 + SPEC作成後にmainへ"
@@ -145,7 +145,7 @@ fi
 echo ""
 
 # --- Check 6: Noise Diff Check ---
-echo "[6/6] ノイズ差分チェック..."
+echo "[6/7] ノイズ差分チェック..."
 # CI環境では HEAD~1 比較、ローカルではステージング済みファイル比較
 if [ -n "${CI:-}" ]; then
   DIFF_CMD="git diff HEAD~1 --check"
@@ -160,6 +160,48 @@ if [ -n "$NOISE" ]; then
   ERRORS=$((ERRORS + 1))
 else
   echo "  OK: ノイズ差分なし"
+fi
+echo ""
+
+# --- Check 7: AI Control Plane Security Check ---
+echo "[7/7] AI Control Plane セキュリティチェック..."
+
+# Secret patterns (lightweight subset of sage-doctor.sh)
+SECRET_PATTERN='(api[_-]?key|secret[_-]?key|access[_-]?token|password|credential)\s*[:=]\s*["'"'"']?[A-Za-z0-9+/=_-]{8,}'
+AWS_PATTERN='(AKIA|ASIA)[A-Z0-9]{16}'
+JWT_PATTERN='eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.'
+GITHUB_TOKEN_PATTERN='gh[pousr]_[A-Za-z0-9_]{20,}'
+
+SECURITY_SCAN_FILES=()
+[ -f CLAUDE.md ] && SECURITY_SCAN_FILES+=("CLAUDE.md")
+if [ -d ".claude/prompts" ]; then
+  while IFS= read -r f; do
+    SECURITY_SCAN_FILES+=("$f")
+  done < <(find .claude/prompts -type f 2>/dev/null)
+fi
+
+SECRET_FOUND=false
+for file in "${SECURITY_SCAN_FILES[@]}"; do
+  for pattern in "$SECRET_PATTERN" "$AWS_PATTERN" "$JWT_PATTERN" "$GITHUB_TOKEN_PATTERN"; do
+    if grep -qEi "$pattern" "$file" 2>/dev/null; then
+      echo "  FAIL: Secret pattern detected in $file"
+      ERRORS=$((ERRORS + 1))
+      SECRET_FOUND=true
+      break
+    fi
+  done
+done
+if [ "$SECRET_FOUND" = false ]; then
+  echo "  OK: AI制御プレーンファイルにシークレットなし"
+fi
+
+# Permission check
+if [ -f ".claude/settings.json" ]; then
+  if grep -qE '"allow"\s*:\s*\[\s*"\*"' .claude/settings.json 2>/dev/null; then
+    echo "  WARN: .claude/settings.json に過度に許可的な allow: [\"*\"] が設定されています"
+  else
+    echo "  OK: .claude/settings.json パーミッション適切"
+  fi
 fi
 echo ""
 

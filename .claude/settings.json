@@ -6,11 +6,44 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash templates/hooks/block-dangerous-commands.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'SAGE: File modification detected'"
+            "command": "bash templates/hooks/protect-sage-files.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash templates/hooks/check-file-scope.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash templates/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash templates/hooks/session-stop.sh"
           }
         ]
       }

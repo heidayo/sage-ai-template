@@ -46,6 +46,7 @@ graph TB
     end
 
     subgraph L4["🔴 L4: Enforcement"]
+        H4["Claude Code Hooks"]
         H1["commit-msg hook"]
         H2["CI Gate"]
         H3["Quality Gates"]
@@ -78,7 +79,7 @@ graph TB
 | 🟢 **L1** | **Foundation** | CLAUDE.md / AGENTS.md。AIが最初に読む「憲法」 | **毎セッション自動** |
 | 🟡 **L2** | **Context-Aware** | `.claude/rules/`。パス別の詳細ルール | **該当ファイル操作時のみ** |
 | 🔵 **L3** | **On-Demand** | `.claude/skills/`。ワークフロー + 自動採点 + ハーネス | **`/sage-spec` `/sage-harness` 等で呼んだ時のみ** |
-| 🔴 **L4** | **Enforcement** | commit-msg hook + CI Gate + Quality Gates | **コミット・PR時に機械強制** |
+| 🔴 **L4** | **Enforcement** | Claude Code hooks + commit-msg hook + CI Gate + Quality Gates | **セッション中＋コミット・PR時に機械強制** |
 
 ---
 
@@ -171,7 +172,9 @@ your-project/
 ├── 📐 plans/                 ← PLAN テンプレート
 ├── ✂️  tasks/                 ← TASK テンプレート
 ├── 📜 sage/                  ← ガバナンス文書
+├── 📜 templates/hooks/     ← Claude Code hooks（5スクリプト）
 ├── 🔴 .git/hooks/commit-msg  ← TASK-ID 強制
+├── ⚙️  .sage/install-state.yaml ← インストール状態記録
 └── ⚙️  scripts/               ← ID生成・検証
 ```
 
@@ -267,13 +270,21 @@ graph LR
 │       │   └── references/         # SPEC/PLAN採点基準・知識ベース
 │       └── 🔵 sage-harness/        # /sage-harness → 自律開発オーケストレーター
 │
+├── 📜 templates/                    # テンプレート・フック
+│   └── 📜 hooks/                   # Claude Code hooks（5スクリプト）
+│
 ├── 📝 specs/                       # SPEC-XXXX 仕様書
 ├── 📐 plans/                       # PLAN-XXXX 実装計画
 ├── ✂️  tasks/                       # TASK-XXXX タスク定義
 ├── 📜 sage/                        # ガバナンス文書（人間の承認が必要）
 ├── ⚙️  scripts/                     # ID生成・検証・公開スクリプト
+│   ├── sage-doctor.sh              # SAGE健全性チェック
+│   ├── sage-repair.sh              # ファイル修復
+│   └── sage-report.sh              # 採用メトリクス
 ├── 🔴 .git/hooks/                  # commit-msg hook（TASK-ID強制）
 ├── 🔧 .sage/                       # ランタイム設定・実行ログ
+│   ├── install-state.yaml          # インストール状態記録
+│   └── metrics/                    # 採用メトリクスデータ
 └── 🔴 .github/                     # CI/CDワークフロー
 ```
 
@@ -428,8 +439,8 @@ graph LR
 | Phase | 内容 | 状態 |
 |-------|------|:----:|
 | 🟢 **A: Foundation** | 仕様テンプレ・タスクテンプレ・基本CI・境界定義 | ✅ 自動 |
-| 🟡 **B: Guardrails** | architecture check・security scan・レビュールール | 📋 手動 |
-| 🔵 **C: Multi-Agent** | 実装/テスト/レビューAI 3分離・`/sage-harness` 自律ループ | 📋 手動 |
+| 🟡 **B: Guardrails** | architecture check・security scan・レビュールール・hooks profile設定 | 📋 手動 |
+| 🔵 **C: Multi-Agent** | 実装/テスト/レビューAI 3分離・`/sage-harness` 自律ループ・doctor/repair/report | 📋 手動 |
 | 🟣 **D: Learning System** | 実行履歴分析・失敗パターン蓄積・テンプレ改善 | 📋 手動 |
 
 詳細は [sage/adoption-phases.md](sage/adoption-phases.md) を参照。
@@ -453,6 +464,15 @@ bash scripts/sage-validate.sh
 
 # SAGE を公開（管理者）
 bash scripts/sage-publish.sh 0.3.0
+
+# SAGE健全性チェック
+bash scripts/sage-doctor.sh
+
+# ファイル修復
+bash scripts/sage-repair.sh
+
+# 採用メトリクス
+bash scripts/sage-report.sh
 ```
 
 ---

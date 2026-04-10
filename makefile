@@ -1,4 +1,4 @@
-.PHONY: help validate trace-check id-gen adopt
+.PHONY: help validate trace-check id-gen adopt doctor repair report
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -16,6 +16,15 @@ id-gen: ## Generate next SPEC/PLAN/TASK ID (usage: make id-gen TYPE=spec)
 
 adopt: ## Apply SAGE Phase A to current repository (non-destructive)
 	@bash scripts/sage-adopt.sh
+
+doctor: ## Run SAGE health check (file integrity + security scan)
+	@bash scripts/sage-doctor.sh
+
+repair: ## Repair MISSING/MISMATCH managed files
+	@bash scripts/sage-repair.sh
+
+report: ## Show SAGE system health report
+	@bash scripts/sage-report.sh
 
 # --- Development Commands (customize per project) ---
 
