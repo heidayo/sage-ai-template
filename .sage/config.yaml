@@ -53,6 +53,8 @@ run_log_schema:
       structural: "pass | fail"
       functional: "pass | fail | skipped"
       security: "pass | fail"
+      architecture: "pass | fail"
+      release: "pass | fail | skipped"
     error_log: ""
 
 # --- ID Schema ---
@@ -134,5 +136,5 @@ hooks:
 
 # --- Auto Update ---
 auto_update:
-  installer_url: "https://gist.githubusercontent.com/YOUR_USER/GIST_ID/raw/install.sh"
+  installer_url: "https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh"
   check_interval: "daily"

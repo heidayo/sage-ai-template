@@ -11,14 +11,14 @@ Core principle: **Specifications are the single source of truth. Code is an arti
 
 ## 2. Instruction Priority
 
-Follow instructions in this order:
+For **Claude Code sessions**, follow instructions in this order:
 
-1. **CLAUDE.md** (this file) — highest authority
+1. **CLAUDE.md** (this file) — highest authority for Claude Code
 2. **sage/governance.md** — lifecycle, agent roles, principles
 3. **docs/rules.md** — architectural constraints
 4. **User instructions** — runtime directives
 
-If conflicts occur, follow this priority chain. CLAUDE.md always wins.
+`AGENTS.md` is the Codex-specific counterpart. The two documents must stay semantically aligned.
 
 ## 3. SAGE Lifecycle Protocol
 
@@ -63,7 +63,7 @@ All changes MUST follow this 7-phase lifecycle. Skipping phases is prohibited.
 - [ ] Gate status: PASS(✅) / FAIL(❌) / SKIPPED(⏭️) — configure checks in `.sage/config.yaml` `project_checks`
 
 ### Merge phase exit criteria
-- [ ] All Gates (1-5) passed or SKIPPED (unconfigured checks)
+- [ ] All Gates (1-5) passed or SKIPPED (Gate 5 is conditional for main/production PRs)
 - [ ] All review comments resolved
 - [ ] SPEC-ID, PLAN-ID, TASK-ID are in the PR body
 - [ ] Run log (RUN-ID) is recorded in .sage/runs/
@@ -246,7 +246,7 @@ This file (`CLAUDE.md`) defines repository-wide development rules.
 
 - AI agents MUST NOT modify this file unless explicitly instructed by a human
 - Changes must be intentional and reviewed carefully
-- This file is the highest-authority instruction source for all AI agents
+- This file is the highest-authority instruction source for Claude Code agents
 
 <!-- === SAGE Development System (auto-injected) === -->
 ## SAGE Development System
@@ -259,6 +259,10 @@ This file (`CLAUDE.md`) defines repository-wide development rules.
 - SPEC/PLAN completion triggers auto-scoring (100 points required before implementation).
 - Governance docs in `sage/` — do not modify without human approval.
 - Run `bash scripts/sage-update-check.sh` at session start (1日1回).
+- CI Gates enforce quality with 3-state: PASS(✅) / FAIL(❌) / SKIPPED(⏭️). Configure in `.sage/config.yaml` `project_checks`.
+- Claude Code hooks provide runtime protection: dangerous command block, SAGE file protection, File Scope check.
+- Hook profile in `.sage/config.yaml` `hooks.profile`: minimal(Phase A) / standard(Phase B) / strict(Phase C+).
+- Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
 
 Auto-update rules:
 - Update check failure → warning only, never block development
@@ -266,5 +270,5 @@ Auto-update rules:
 
 Project-specific rules: add your own files to `.claude/rules/` (do not edit `specs-rules.md` etc. — they are overwritten on update).
 
-Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance)
+Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (runtime guards)
 <!-- === End SAGE === -->

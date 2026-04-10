@@ -40,9 +40,21 @@ WARN_COUNT=0
 OK_COUNT=0
 RESULTS=()
 
+json_escape() {
+  if command -v python3 &>/dev/null; then
+    python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
+  else
+    printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  fi
+}
+
 add_result() {
   local level="$1" check="$2" message="$3"
-  RESULTS+=("{\"level\":\"$level\",\"check\":\"$check\",\"message\":\"$message\"}")
+  local level_json check_json message_json
+  level_json=$(json_escape "$level")
+  check_json=$(json_escape "$check")
+  message_json=$(json_escape "$message")
+  RESULTS+=("{\"level\":${level_json},\"check\":${check_json},\"message\":${message_json}}")
   case "$level" in
     FAIL|MISSING) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
     WARN) WARN_COUNT=$((WARN_COUNT + 1)) ;;
@@ -238,12 +250,14 @@ EOF
 fi
 
 # Record to doctor-history.jsonl
-mkdir -p .sage/metrics
-HISTORY_ENTRY=$(cat <<EOF
+if [ "$CHECK_ONLY" = false ]; then
+  mkdir -p .sage/metrics
+  HISTORY_ENTRY=$(cat <<EOF
 {"timestamp":"$(date -u +"%Y-%m-%dT%H:%M:%SZ")","ok":$OK_COUNT,"warn":$WARN_COUNT,"fail":$FAIL_COUNT,"total":$TOTAL}
 EOF
 )
-echo "$HISTORY_ENTRY" >> .sage/metrics/doctor-history.jsonl
+  echo "$HISTORY_ENTRY" >> .sage/metrics/doctor-history.jsonl
+fi
 
 # JSON output
 if [ "$JSON_OUTPUT" = true ]; then

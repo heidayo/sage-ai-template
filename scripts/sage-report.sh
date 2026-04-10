@@ -76,6 +76,7 @@ echo ""
 if [ "$SESSION_COUNT" -lt 10 ]; then
   echo "  Status: INSUFFICIENT DATA"
   echo "  (Need at least 10 sessions for health assessment)"
+  echo "  Historical FAIL events are recorded, but strict-mode readiness is not assessed yet."
   exit 0
 fi
 
@@ -90,13 +91,16 @@ if [ "$TOTAL_FAIL" -eq 0 ]; then
   exit 0
 fi
 
+if [ "$RECENT_FAIL" -eq 0 ]; then
+  echo "  Status: WARN (historical failures only)"
+  echo ""
+  echo "  READY FOR STRICT"
+  echo "  (No failures in last 14 days with >= 10 sessions)"
+  exit 0
+fi
+
 if [ "$TOTAL_FAIL" -gt 0 ]; then
   echo "  Status: WARN (recurring failures)"
   echo ""
-  # Still check 14-day window
-  if [ "$RECENT_FAIL" -eq 0 ] && [ "$SESSION_COUNT" -ge 10 ]; then
-    echo "  READY FOR STRICT"
-    echo "  (No failures in last 14 days with >= 10 sessions)"
-  fi
   exit 1
 fi

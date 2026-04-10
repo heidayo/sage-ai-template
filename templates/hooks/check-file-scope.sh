@@ -4,7 +4,7 @@
 # Purpose:  PreToolUse hook (Edit|Write matcher) — enforce TASK File Scope
 # Profile:  standard+ (warn on stderr, exit 0), strict (block with exit 2)
 # Behavior: Reads JSON from stdin with tool_input.file_path.
-#           Finds active TASK (status 実行中 in tasks/*.md), extracts File Scope.
+#           Finds active TASKs (status In Progress / 実行中 in tasks/*.md), extracts File Scope.
 #           If file_path is outside scope: warn (standard) or block (strict).
 #           If no active TASK found: skip check, exit 0.
 #           On empty stdin or parse error: exit 0
@@ -18,9 +18,56 @@ if [ -f ".sage/config.yaml" ]; then
   [ -z "$PROFILE" ] && PROFILE="standard"
 fi
 
-if [ "$PROFILE" = "minimal" ]; then
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
   exit 0
 fi
+
+task_status() {
+  awk -F'|' '/^\|[[:space:]]*ステータス[[:space:]]*\|/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3; exit}' "$1" 2>/dev/null || true
+}
+
+task_is_active() {
+  local status
+  status="$(task_status "$1")"
+  case "$status" in
+    "In Progress"|"実行中")
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+append_scope_from_task() {
+  local task_file="$1"
+  local in_scope=false
+
+  while IFS= read -r line; do
+    if echo "$line" | grep -qiE '^#{1,3}\s+file.?scope'; then
+      in_scope=true
+      continue
+    fi
+
+    if [ "$in_scope" = true ] && echo "$line" | grep -qE '^#{1,3}\s+'; then
+      break
+    fi
+
+    if [ "$in_scope" = true ]; then
+      local item extracted
+      item=$(echo "$line" | sed -n 's/^[[:space:]]*[-*][[:space:]]*//p' 2>/dev/null || true)
+      [ -z "$item" ] && continue
+
+      extracted=$(echo "$item" | sed -E 's/^[^:]+:[[:space:]]*//' | tr -d '`' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)
+      case "$extracted" in
+        ""|"[パス]"|"[path]")
+          continue
+          ;;
+      esac
+      SCOPE_PATHS+=("$extracted")
+    fi
+  done < "$task_file"
+}
 
 # --- Read stdin (JSON) ---
 INPUT=""
@@ -44,9 +91,9 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
-# --- Find active TASK (status 実行中) ---
-ACTIVE_TASK=""
-SCOPE_PATHS=""
+# --- Find active TASKs (status In Progress / 実行中) ---
+ACTIVE_TASKS=()
+SCOPE_PATHS=()
 
 if [ ! -d "tasks" ]; then
   echo "No active TASKs found, skipping scope check." >&2
@@ -56,46 +103,21 @@ fi
 for task_file in tasks/*.md; do
   [ -f "$task_file" ] || continue
 
-  if grep -q '実行中' "$task_file" 2>/dev/null; then
-    ACTIVE_TASK="$task_file"
-    break
+  if task_is_active "$task_file"; then
+    ACTIVE_TASKS+=("$task_file")
   fi
 done
 
-if [ -z "$ACTIVE_TASK" ]; then
+if [ "${#ACTIVE_TASKS[@]}" -eq 0 ]; then
   echo "No active TASK found, skipping scope check." >&2
   exit 0
 fi
 
-# --- Extract File Scope from active TASK ---
-# Look for "File Scope" or "file_scope" section and collect paths
-# Typical format:
-#   ## File Scope
-#   - src/foo/bar.ts
-#   - tests/foo/
-IN_SCOPE=false
-while IFS= read -r line; do
-  # Detect File Scope header (various formats)
-  if echo "$line" | grep -qiE '^#{1,3}\s+file.?scope'; then
-    IN_SCOPE=true
-    continue
-  fi
+for active_task in "${ACTIVE_TASKS[@]}"; do
+  append_scope_from_task "$active_task"
+done
 
-  # Stop at next header
-  if [ "$IN_SCOPE" = true ] && echo "$line" | grep -qE '^#{1,3}\s+'; then
-    break
-  fi
-
-  if [ "$IN_SCOPE" = true ]; then
-    # Extract path from list items: "- path" or "* path" or "  - path"
-    EXTRACTED=$(echo "$line" | sed -n 's/^[[:space:]]*[-*][[:space:]]*\(`\?\)\([^`]*\)\(`\?\)$/\2/p' 2>/dev/null || true)
-    if [ -n "$EXTRACTED" ]; then
-      SCOPE_PATHS="$SCOPE_PATHS|$EXTRACTED"
-    fi
-  fi
-done < "$ACTIVE_TASK"
-
-if [ -z "$SCOPE_PATHS" ]; then
+if [ "${#SCOPE_PATHS[@]}" -eq 0 ]; then
   # No File Scope defined in TASK — skip check
   exit 0
 fi
@@ -111,29 +133,32 @@ if [[ "$NORM_PATH" == /* ]]; then
   NORM_PATH="${NORM_PATH#$PWD_PREFIX}"
 fi
 
-IFS='|' read -ra PATHS <<< "$SCOPE_PATHS"
-for scope_path in "${PATHS[@]}"; do
-  [ -z "$scope_path" ] && continue
-  # Strip backticks, leading/trailing whitespace
-  scope_path=$(echo "$scope_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+for scope_path in "${SCOPE_PATHS[@]}"; do
   [ -z "$scope_path" ] && continue
 
-  # Check if file_path starts with or matches the scope path
-  if [[ "$NORM_PATH" == "$scope_path"* ]] || [[ "$NORM_PATH" == "$scope_path" ]]; then
-    # Within scope
+  if [[ "$scope_path" == */ ]]; then
+    if [[ "$NORM_PATH" == "$scope_path"* ]]; then
+      exit 0
+    fi
+  elif [[ "$NORM_PATH" == "$scope_path" ]] || [[ "$NORM_PATH" == "$scope_path/"* ]]; then
     exit 0
   fi
 done
 
 # --- Out of scope ---
-TASK_ID=$(basename "$ACTIVE_TASK" .md)
+TASK_IDS=()
+for active_task in "${ACTIVE_TASKS[@]}"; do
+  TASK_IDS+=("$(basename "$active_task" .md)")
+done
+TASK_LABEL=$(IFS=', '; echo "${TASK_IDS[*]}")
+ALLOWED_PATHS=$(printf '%s\n' "${SCOPE_PATHS[@]}" | awk 'NF && !seen[$0]++' | paste -sd ', ' -)
 
 if [ "$PROFILE" = "strict" ]; then
-  echo "BLOCKED: '$NORM_PATH' is outside File Scope for $TASK_ID." >&2
-  echo "Allowed paths: ${SCOPE_PATHS//|/, }" >&2
+  echo "BLOCKED: '$NORM_PATH' is outside File Scope for ${TASK_LABEL}." >&2
+  echo "Allowed paths: $ALLOWED_PATHS" >&2
   exit 2
 else
-  echo "WARNING: '$NORM_PATH' is outside File Scope for $TASK_ID." >&2
-  echo "Allowed paths: ${SCOPE_PATHS//|/, }" >&2
+  echo "WARNING: '$NORM_PATH' is outside File Scope for ${TASK_LABEL}." >&2
+  echo "Allowed paths: $ALLOWED_PATHS" >&2
   exit 0
 fi

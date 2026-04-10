@@ -2,7 +2,7 @@
 # =============================================================================
 # TASK-0040: session-stop.sh
 # Purpose:  Stop hook (no stdin) — record session metrics
-# Profile:  minimal+ (runs for all profiles)
+# Profile:  minimal+ (runs for all profiles except "none")
 # Behavior: Appends 1 JSON line to .sage/metrics/sessions.jsonl
 #           Schema: {"timestamp":"ISO8601","files_changed":N,"files":["path1",...]}
 #           Gets changed files from: git diff --name-only HEAD
@@ -18,8 +18,10 @@ if [ -f ".sage/config.yaml" ]; then
   [ -z "$PROFILE" ] && PROFILE="minimal"
 fi
 
-# minimal+ means all profiles run this hook
-# No profile skip needed.
+# minimal+ means all profiles run this hook except "none"
+if [ "$PROFILE" = "none" ]; then
+  exit 0
+fi
 
 # --- Ensure metrics directory exists ---
 mkdir -p .sage/metrics 2>/dev/null || true

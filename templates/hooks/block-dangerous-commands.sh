@@ -2,7 +2,7 @@
 # =============================================================================
 # TASK-0036: block-dangerous-commands.sh
 # Purpose:  PreToolUse hook (Bash matcher) — block dangerous shell commands
-# Profile:  standard+ (skipped if profile is "minimal")
+# Profile:  standard+ (skipped if profile is "minimal" or "none")
 # Behavior: Reads JSON from stdin with tool_name and tool_input.command.
 #           Blocks patterns: --no-verify, git push --force/-f, rm -rf /|~|.
 #           Exit 0 = allow/warn, Exit 2 = block
@@ -16,7 +16,7 @@ if [ -f ".sage/config.yaml" ]; then
   [ -z "$PROFILE" ] && PROFILE="standard"
 fi
 
-if [ "$PROFILE" = "minimal" ]; then
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
   exit 0
 fi
 
@@ -55,7 +55,7 @@ if echo "$COMMAND" | grep -qE '\-\-no-verify'; then
 fi
 
 # Pattern: git push --force or git push -f (destructive force push)
-if echo "$COMMAND" | grep -qE 'git\s+push\s+.*(\-\-force|\-f)'; then
+if echo "$COMMAND" | grep -qE 'git[[:space:]]+push' && echo "$COMMAND" | grep -qE '(^|[[:space:]])(--force|-f)($|[[:space:]])'; then
   echo "BLOCKED: Force push detected (git push --force/-f)." >&2
   echo "Suggestion: Use 'git push --force-with-lease' for safer force pushing." >&2
   exit 2

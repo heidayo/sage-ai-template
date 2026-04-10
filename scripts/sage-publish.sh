@@ -25,6 +25,10 @@ increment_version() {
   esac
 }
 
+validate_semver() {
+  echo "$1" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
 # --- 引数チェック ---
 if [ $# -lt 1 ]; then
   echo "Usage: bash scripts/sage-publish.sh <version|major|minor|patch>"
@@ -44,6 +48,16 @@ if [ $# -lt 1 ]; then
 fi
 
 OLD_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.0.0")
+ROLLBACK_VERSION=""
+
+rollback_version_file() {
+  if [ -n "$ROLLBACK_VERSION" ]; then
+    echo "$ROLLBACK_VERSION" > "$VERSION_FILE"
+    echo "  ROLLBACK: .sage-version を $ROLLBACK_VERSION に戻しました。" >&2
+  fi
+}
+
+trap rollback_version_file EXIT
 
 # major / minor / patch なら自動インクリメント、それ以外は直接指定
 case "$1" in
@@ -60,6 +74,11 @@ case "$1" in
     ;;
 esac
 
+if ! validate_semver "$NEW_VERSION"; then
+  echo "Error: バージョン '$NEW_VERSION' は semver (X.Y.Z) 形式で指定してください。"
+  exit 1
+fi
+
 # --- バージョン確認 ---
 if [ "$NEW_VERSION" = "$OLD_VERSION" ]; then
   echo "Error: バージョン $NEW_VERSION は現在と同じです。新しいバージョンを指定してください。"
@@ -73,6 +92,7 @@ echo ""
 
 # --- Step 1: バージョン更新 ---
 echo "[1/3] バージョン更新..."
+ROLLBACK_VERSION="$OLD_VERSION"
 echo "$NEW_VERSION" > "$VERSION_FILE"
 echo "  OK: .sage-version = $NEW_VERSION"
 
@@ -98,6 +118,7 @@ if [ ! -f "$GIST_ID_FILE" ]; then
   echo "    gh gist edit GIST_ID install.sh"
   echo ""
   echo "  install.sh の再生成は完了しています。配布してください。"
+  ROLLBACK_VERSION=""
   exit 0
 fi
 
@@ -120,6 +141,7 @@ fi
 # Gist 更新実行
 if gh gist edit "$GIST_ID" "$ROOT/install.sh" 2>/dev/null; then
   echo "  OK: Gist $GIST_ID を更新しました"
+  ROLLBACK_VERSION=""
 else
   echo "  Error: Gist の更新に失敗しました。"
   echo "  以下を確認してください:"
@@ -136,5 +158,5 @@ echo "========================================="
 echo "  SAGE v${NEW_VERSION} — Published"
 echo "========================================="
 echo ""
-echo "各プロジェクトは次回セッション開始時に自動更新されます。"
+echo "各プロジェクトは次回セッション開始時に更新通知を表示します。"
 echo "（.sage/config.yaml の installer_url が設定されている場合）"

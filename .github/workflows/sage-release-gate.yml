@@ -18,11 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Check Gate 1-4 prerequisites
         id: prerequisites
-        uses: actions/github-script@v7
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -35,6 +35,7 @@ jobs:
             const headSha = context.payload.pull_request?.head?.sha || context.sha;
             const results = [];
             let failed = false;
+            let blocked = false;
 
             for (const name of gateWorkflows) {
               try {
@@ -61,11 +62,13 @@ jobs:
                 }
               } catch (err) {
                 if (err.status === 403 || err.message?.includes('rate limit')) {
-                  core.warning(`Rate limit hit checking ${name}, skipping prerequisite check`);
+                  core.warning(`Rate limit hit checking ${name}, blocking release gate`);
                   results.push({ name, status: 'rate_limited' });
+                  blocked = true;
                 } else {
                   core.warning(`Error checking ${name}: ${err.message}`);
                   results.push({ name, status: 'error' });
+                  blocked = true;
                 }
               }
             }
@@ -74,9 +77,13 @@ jobs:
             core.info(`Gate prerequisites: ${summary}`);
             core.setOutput('summary', summary);
             core.setOutput('failed', String(failed));
+            core.setOutput('blocked', String(blocked));
 
-            if (failed) {
-              core.setFailed('One or more Gate 1-4 workflows have failed. Fix them before release.');
+            if (failed || blocked) {
+              const reason = blocked
+                ? 'Release gate blocked because prerequisite workflow status could not be verified.'
+                : 'One or more Gate 1-4 workflows have failed. Fix them before release.';
+              core.setFailed(reason);
             }
 
       - name: Release readiness check
@@ -97,24 +104,26 @@ jobs:
 
       - name: Comment result on PR
         if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const marker = '<!-- sage-release-gate -->';
             const errors = Number('${{ steps.release.outputs.errors }}' || '0');
             const prereqFailed = '${{ steps.prerequisites.outputs.failed }}' === 'true';
+            const prereqBlocked = '${{ steps.prerequisites.outputs.blocked }}' === 'true';
             const prereqSummary = '${{ steps.prerequisites.outputs.summary }}' || '';
 
-            const hasFail = errors > 0 || prereqFailed;
+            const hasFail = errors > 0 || prereqFailed || prereqBlocked;
             const icon = hasFail ? '❌' : '✅';
-            const status = hasFail ? 'FAIL' : 'PASS';
+            const status = prereqBlocked ? 'BLOCKED' : (hasFail ? 'FAIL' : 'PASS');
 
             // Build prerequisite status lines
             const prereqLines = prereqSummary.split(', ').filter(Boolean).map(entry => {
               const [name, state] = entry.split(': ');
               if (state === 'success') return `  - ✅ ${name}: PASS`;
               if (state === 'failure') return `  - ❌ ${name}: FAIL`;
+              if (state === 'rate_limited' || state === 'error') return `  - ❌ ${name}: ${state.toUpperCase()}`;
               if (state === 'not_found' || state === 'skipped') return `  - ⏭️ ${name}: SKIPPED`;
               return `  - ⏭️ ${name}: ${state.toUpperCase()}`;
             });
@@ -124,7 +133,7 @@ jobs:
               `## ${icon} SAGE Gate 5 (Release): ${status}`,
               '',
               `- Release issues: **${errors}**`,
-              `- Prerequisites: **${prereqFailed ? 'FAIL' : 'PASS'}**`,
+              `- Prerequisites: **${prereqBlocked ? 'BLOCKED' : (prereqFailed ? 'FAIL' : 'PASS')}**`,
               ...prereqLines,
               `- Commit: \`${context.sha.slice(0, 7)}\``,
               `- Updated: ${new Date().toISOString()}`,

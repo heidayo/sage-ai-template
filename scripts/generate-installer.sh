@@ -101,6 +101,10 @@ embed_file "TMPL_SKILL_PLAN" "$ROOT/templates/skills/sage-plan/SKILL.md"
 echo ""
 embed_file "TMPL_SKILL_REVIEW" "$ROOT/templates/skills/sage-review/SKILL.md"
 echo ""
+embed_file "TMPL_SKILL_REVIEW_RUBRIC" "$ROOT/templates/skills/sage-review/references/review-scoring-rubric.md"
+echo ""
+embed_file "TMPL_SKILL_HARNESS" "$ROOT/templates/skills/sage-harness/SKILL.md"
+echo ""
 embed_file "TMPL_SKILL_EVALUATE" "$ROOT/templates/skills/sage-evaluate/SKILL.md"
 echo ""
 embed_file "TMPL_SKILL_EVALUATE_RUBRIC" "$ROOT/templates/skills/sage-evaluate/references/scoring-rubric.md"
@@ -354,7 +358,7 @@ echo ""
 
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
-mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-evaluate/references
+mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness
 echo "  OK"
 
 # --- [2/9] Templates & governance ---
@@ -420,6 +424,8 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new ".claude/skills/sage-spec/SKILL.md" "$TMPL_SKILL_SPEC"
   write_file_if_new ".claude/skills/sage-plan/SKILL.md" "$TMPL_SKILL_PLAN"
   write_file_if_new ".claude/skills/sage-review/SKILL.md" "$TMPL_SKILL_REVIEW"
+  write_file_if_new ".claude/skills/sage-review/references/review-scoring-rubric.md" "$TMPL_SKILL_REVIEW_RUBRIC"
+  write_file_if_new ".claude/skills/sage-harness/SKILL.md" "$TMPL_SKILL_HARNESS"
   write_file_if_new ".claude/skills/sage-evaluate/SKILL.md" "$TMPL_SKILL_EVALUATE"
   write_file_if_new ".claude/skills/sage-evaluate/references/scoring-rubric.md" "$TMPL_SKILL_EVALUATE_RUBRIC"
   write_file_if_new ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
@@ -427,6 +433,8 @@ else
   update_file ".claude/skills/sage-spec/SKILL.md" "$TMPL_SKILL_SPEC"
   update_file ".claude/skills/sage-plan/SKILL.md" "$TMPL_SKILL_PLAN"
   update_file ".claude/skills/sage-review/SKILL.md" "$TMPL_SKILL_REVIEW"
+  update_file ".claude/skills/sage-review/references/review-scoring-rubric.md" "$TMPL_SKILL_REVIEW_RUBRIC"
+  update_file ".claude/skills/sage-harness/SKILL.md" "$TMPL_SKILL_HARNESS"
   update_file ".claude/skills/sage-evaluate/SKILL.md" "$TMPL_SKILL_EVALUATE"
   update_file ".claude/skills/sage-evaluate/references/scoring-rubric.md" "$TMPL_SKILL_EVALUATE_RUBRIC"
   update_file ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
@@ -533,6 +541,8 @@ STATEHEADER
     ".claude/skills/sage-spec/SKILL.md"
     ".claude/skills/sage-plan/SKILL.md"
     ".claude/skills/sage-review/SKILL.md"
+    ".claude/skills/sage-review/references/review-scoring-rubric.md"
+    ".claude/skills/sage-harness/SKILL.md"
     ".claude/skills/sage-evaluate/SKILL.md"
     ".claude/skills/sage-evaluate/references/scoring-rubric.md"
     ".claude/skills/sage-evaluate/references/knowledge-base.md"

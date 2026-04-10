@@ -19,7 +19,7 @@ echo ""
 # 1. ディレクトリ作成
 # -----------------------------------------------
 echo "[1/8] ディレクトリ作成..."
-mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-evaluate/references
+mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness
 echo "  OK: specs/ plans/ tasks/ sage/ .sage/ docs/ scripts/ .claude/rules/ .claude/skills/"
 
 # -----------------------------------------------
@@ -93,12 +93,27 @@ done
 # -----------------------------------------------
 echo ""
 echo "[4/8] .claude/skills/ コピー..."
-for skill in sage-spec sage-plan sage-review; do
+for skill in sage-spec sage-plan sage-review sage-harness; do
   target=".claude/skills/$skill/SKILL.md"
   source="$TEMPLATE_DIR/templates/skills/$skill/SKILL.md"
   if [ -f "$target" ]; then
     echo "  SKIP: $target (already exists)"
   elif [ -f "$source" ]; then
+    cp "$source" "$target"
+    echo "  COPY: $target"
+  else
+    echo "  SKIP: $target (source not found)"
+  fi
+done
+
+# sage-review references
+for f in references/review-scoring-rubric.md; do
+  target=".claude/skills/sage-review/$f"
+  source="$TEMPLATE_DIR/templates/skills/sage-review/$f"
+  if [ -f "$target" ]; then
+    echo "  SKIP: $target (already exists)"
+  elif [ -f "$source" ]; then
+    mkdir -p "$(dirname "$target")"
     cp "$source" "$target"
     echo "  COPY: $target"
   else
@@ -283,7 +298,7 @@ echo "導入されたもの:"
 echo "  - specs/, plans/, tasks/  テンプレート"
 echo "  - sage/                   ガバナンス文書"
 echo "  - .claude/rules/          パス別ルール（5ファイル）"
-echo "  - .claude/skills/         ワークフロー（/sage-spec, /sage-plan, /sage-review）"
+echo "  - .claude/skills/         ワークフロー（/sage-spec, /sage-plan, /sage-review, /sage-evaluate, /sage-harness）"
 echo "  - CLAUDE.md               AIが自動でSAGEを守るルール（最小ブートストラップ）"
 echo "  - AGENTS.md               Codex用ルール"
 echo "  - commit-msg hook         TASK-IDなしコミット防止"
