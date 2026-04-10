@@ -385,12 +385,6 @@ graph TD
 
 ---
 
-## テンプレート管理者向け
-
-Gist 設定・バージョン公開・リリースフローについては [docs/maintainer-guide.md](docs/maintainer-guide.md) を参照。
-
----
-
 ## 導入フェーズ
 
 `install.sh` は Phase A を自動セットアップします。
