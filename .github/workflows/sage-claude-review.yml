@@ -65,9 +65,11 @@ jobs:
             NOT this format:
             - ❌ Vibe Merge: 該当なし  (WRONG — ❌ implies failure)
 
-            For Gate status: only report the CURRENT state of CI checks.
-            Do NOT mix results from previous runs with current results.
-            If a gate was failing but has been fixed and is now passing, report it as PASS.
+            IMPORTANT: Do NOT report CI Gate status (Gate 1-5 pass/fail).
+            Gate status is reported by the gate workflows themselves.
+            Your job is code review only — spec alignment, responsibility,
+            file scope, complexity, test adequacy, safety, anti-patterns.
+            Never include a "Gate状況分析" section in your output.
 
             Provide feedback in Japanese.
           timeout_minutes: 10
