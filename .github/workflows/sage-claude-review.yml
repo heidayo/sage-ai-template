@@ -49,5 +49,27 @@ jobs:
 
             Reference: CLAUDE.md, sage/governance.md, sage/anti-patterns.md
 
+            ## Output format rules (MUST follow)
+
+            For each check item, use these icons consistently:
+            - ✅ = PASS (no issue found)
+            - ❌ = FAIL (issue found, must fix)
+            - ⏭️ = SKIP (not applicable to this PR)
+
+            NEVER use ❌ to mean "not detected" or "not applicable".
+            ❌ means ONLY "a problem was found".
+
+            For Anti-Patterns section, use this format:
+            - ✅ Vibe Merge: 該当なし
+            - ❌ Big Bang Prompt: 検出 — 25ファイルが単一コミットで変更
+            NOT this format:
+            - ❌ Vibe Merge: 該当なし  (WRONG — ❌ implies failure)
+
+            IMPORTANT: Do NOT report CI Gate status (Gate 1-5 pass/fail).
+            Gate status is reported by the gate workflows themselves.
+            Your job is code review only — spec alignment, responsibility,
+            file scope, complexity, test adequacy, safety, anti-patterns.
+            Never include a "Gate状況分析" section in your output.
+
             Provide feedback in Japanese.
           timeout_minutes: 10
