@@ -6,7 +6,7 @@
 |-----------|------|
 | PLAN-ID   | PLAN-0006 |
 | SPEC-ID   | SPEC-0006 |
-| ステータス | Draft |
+| ステータス | Completed |
 | 作成日    | 2026-04-11 |
 | 担当Agent | Planning Agent |
 
@@ -65,7 +65,7 @@ Phase A → B は順序依存（config がないと hook がレーンを判定�
 | TASK-ID | 責務 | 対象ファイル | 担当Agent | 見積 | 依存TASK | 並列可否 |
 |---------|------|-------------|----------|------|---------|---------|
 | TASK-0055 | `.sage/config.yaml` に `lanes` セクション追加 | `.sage/config.yaml` | Implementation | 30m | - | Yes |
-| TASK-0056 | `sage/governance.md` のバイブコーディング章を3レーン構成に更新 | `sage/governance.md` | Implementation | 30m | - | Yes |
+| TASK-0056 | `sage/governance.md` のバイブコーディング章を4レーン構成に更新 | `sage/governance.md` | Implementation | 30m | - | Yes |
 | TASK-0057 | `pre-commit-task-id.sh` を拡張: lite レーン（`fix/*` 等）で TASK-ID 必須化 | `templates/pre-commit-task-id.sh` | Implementation | 45m | TASK-0055 | No |
 | TASK-0058 | `sage-validate.sh` に昇格条件チェック追加 | `scripts/sage-validate.sh` | Implementation | 45m | TASK-0055 | No |
 | TASK-0059 | `sage-promote.sh` 新規作成: 昇格プロトコルスクリプト | `scripts/sage-promote.sh` | Implementation | 1h | TASK-0055 | Yes (TASK-0057と並列可) |
@@ -125,7 +125,7 @@ lanes:
 
 ### TASK-0056: governance.md 更新
 
-現在のバイブコーディング章（L221-243）を拡充し、3レーン構成を記述:
+現在のバイブコーディング章（L221-243）を拡充し、4レーン構成を記述:
 
 - explore / lite / standard / promotion の定義
 - 各レーンの適用条件と必須ゲート

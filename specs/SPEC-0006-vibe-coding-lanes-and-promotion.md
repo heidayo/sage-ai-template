@@ -5,7 +5,7 @@
 | フィールド | 内容 |
 |-----------|------|
 | SPEC-ID   | SPEC-0006 |
-| ステータス | Draft |
+| ステータス | Implemented |
 | 作成日    | 2026-04-11 |
 | 更新日    | 2026-04-11 |
 | 担当Agent | Spec Agent |
@@ -32,7 +32,7 @@
 
 ## スコープ（含む）
 
-- 3レーン定義の導入（explore / lite / standard）
+- 4レーン定義の導入（explore / lite / standard / promotion）
 - `lite` レーンの適用条件・必須ゲートの定義
 - `vibe/*` ブランチからの昇格プロトコル（Promotion Gate）の制度化
 - Retro-SPEC ドラフト自動生成の仕組み
@@ -53,7 +53,7 @@
 
 ### 機能要件
 
-- [FR-01] `.sage/config.yaml` に `lanes` セクションを追加し、`explore` / `lite` / `standard` の3レーンを定義できる
+- [FR-01] `.sage/config.yaml` に `lanes` セクションを追加し、`explore` / `lite` / `standard` / `promotion` の4レーンを定義できる
 - [FR-02] `lite` レーンの適用条件を設定可能にする:
   - 変更ファイル数上限（デフォルト: 3）
   - 公開契約（API/DB/イベント）変更の禁止
@@ -86,13 +86,13 @@
 
 ## 受け入れ条件（Acceptance Criteria）
 
-- [ ] AC-01: `.sage/config.yaml` に `lanes` セクションが存在し、`explore` / `lite` / `standard` / `promotion` の4レーンが定義されている
-- [ ] AC-02: `fix/*` ブランチで TASK-ID なしのコミットが pre-commit hook でブロックされる
-- [ ] AC-03: `vibe/*` ブランチで TASK-ID なしのコミットが引き続き許可される
-- [ ] AC-04: `bash scripts/sage-promote.sh vibe/my-feature` を実行すると `promote/my-feature` ブランチが作成され、Retro-SPEC ドラフトが `specs/` に生成される
-- [ ] AC-05: `promote/*` ブランチで Retro-SPEC が存在しない場合、`sage-validate.sh` が FAIL を返す
-- [ ] AC-06: `promote/*` ブランチのコミットに TASK-ID が含まれていない場合、pre-commit hook がブロックする
-- [ ] AC-07: Retro-SPEC ドラフトが `specs/_template.md` の必須フィールドを全て含み、人間確認が必要な箇所を `TBD` / `TODO` で明示する
+- [x] AC-01: `.sage/config.yaml` に `lanes` セクションが存在し、`explore` / `lite` / `standard` / `promotion` の4レーンが定義されている
+- [x] AC-02: `fix/*` ブランチで TASK-ID なしのコミットが pre-commit hook でブロックされる
+- [x] AC-03: `vibe/*` ブランチで TASK-ID なしのコミットが引き続き許可される
+- [x] AC-04: `bash scripts/sage-promote.sh vibe/my-feature` を実行すると `promote/my-feature` ブランチが作成され、Retro-SPEC ドラフトが `specs/` に生成される
+- [x] AC-05: `promote/*` ブランチで Retro-SPEC が存在しない場合、`sage-validate.sh` が FAIL を返す
+- [x] AC-06: `promote/*` ブランチのコミットに TASK-ID が含まれていない場合、pre-commit hook がブロックする
+- [x] AC-07: Retro-SPEC ドラフトが `specs/_template.md` の必須フィールドを全て含み、人間確認が必要な箇所を `TBD` / `TODO` で明示する
 
 ## 異常系
 
@@ -111,7 +111,7 @@
 
 - リスク1: `lite` レーンが乱用され、本来 `standard` であるべき変更が `lite` で通される → 軽減策: `lite` の適用条件（ファイル数上限、契約変更禁止）を hook で強制する
 - リスク2: Retro-SPEC の品質が低く、形式的に通過するだけになる → 軽減策: ドラフトは人間承認必須とし、`sage-evaluate` で採点する
-- リスク3: 3レーン導入で認知負荷が増える → 軽減策: ブランチ名でレーンを自動判定し、開発者が明示的にレーンを選択する必要をなくす
+- リスク3: 4レーン導入で認知負荷が増える → 軽減策: ブランチ名でレーンを自動判定し、開発者が明示的にレーンを選択する必要をなくす
 
 ## 実装メモ（Implementation Agent向け）
 
