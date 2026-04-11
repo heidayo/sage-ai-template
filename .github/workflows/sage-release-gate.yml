@@ -37,6 +37,14 @@ jobs:
             let failed = false;
             let blocked = false;
 
+            // Gates that use paths filters — they may not trigger on every PR.
+            // When a gate is not triggered (not_found), it is legitimately SKIPPED
+            // because the relevant code paths were not changed.
+            const pathFilteredGates = new Set([
+              'sage-functional-gate',    // paths: [src/**, tests/**]
+              'sage-architecture-gate',  // paths: [src/**]
+            ]);
+
             for (const name of gateWorkflows) {
               try {
                 const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
@@ -51,12 +59,27 @@ jobs:
                 );
 
                 if (!match) {
-                  results.push({ name, status: 'not_found' });
+                  if (pathFilteredGates.has(name)) {
+                    // Gate uses paths filter and was not triggered — legitimate SKIPPED
+                    results.push({ name, status: 'skipped_by_paths' });
+                  } else {
+                    // Gate should always run but was not found — treat as failure
+                    results.push({ name, status: 'not_found' });
+                    failed = true;
+                  }
                 } else if (match.conclusion === 'failure') {
                   results.push({ name, status: 'failure' });
                   failed = true;
                 } else if (match.conclusion === 'success') {
                   results.push({ name, status: 'success' });
+                } else if (match.conclusion === 'skipped') {
+                  if (pathFilteredGates.has(name)) {
+                    results.push({ name, status: 'skipped_by_paths' });
+                  } else {
+                    // Non-path-filtered gate was skipped — should not happen, treat as blocked
+                    results.push({ name, status: 'skipped_unexpected' });
+                    blocked = true;
+                  }
                 } else {
                   results.push({ name, status: match.conclusion || match.status || 'unknown' });
                 }
@@ -123,9 +146,11 @@ jobs:
               const [name, state] = entry.split(': ');
               if (state === 'success') return `  - ✅ ${name}: PASS`;
               if (state === 'failure') return `  - ❌ ${name}: FAIL`;
+              if (state === 'not_found') return `  - ❌ ${name}: NOT FOUND (expected to run)`;
+              if (state === 'skipped_unexpected') return `  - ❌ ${name}: SKIPPED (unexpected)`;
+              if (state === 'skipped_by_paths') return `  - ⏭️ ${name}: SKIPPED (no matching paths changed)`;
               if (state === 'rate_limited' || state === 'error') return `  - ❌ ${name}: ${state.toUpperCase()}`;
-              if (state === 'not_found' || state === 'skipped') return `  - ⏭️ ${name}: SKIPPED`;
-              return `  - ⏭️ ${name}: ${state.toUpperCase()}`;
+              return `  - ⏳ ${name}: ${state.toUpperCase()}`;
             });
 
             const body = [

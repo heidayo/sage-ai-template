@@ -86,7 +86,7 @@
 
 ## 受け入れ条件（Acceptance Criteria）
 
-- [ ] AC-01: `.sage/config.yaml` に `lanes` セクションが存在し、`explore` / `lite` / `standard` の3レーンが定義されている
+- [ ] AC-01: `.sage/config.yaml` に `lanes` セクションが存在し、`explore` / `lite` / `standard` / `promotion` の4レーンが定義されている
 - [ ] AC-02: `fix/*` ブランチで TASK-ID なしのコミットが pre-commit hook でブロックされる
 - [ ] AC-03: `vibe/*` ブランチで TASK-ID なしのコミットが引き続き許可される
 - [ ] AC-04: `bash scripts/sage-promote.sh vibe/my-feature` を実行すると `promote/my-feature` ブランチが作成され、Retro-SPEC ドラフトが `specs/` に生成される
