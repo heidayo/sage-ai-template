@@ -219,7 +219,28 @@ Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
 | Test case names | Japanese |
 | Agent reasoning (internal) | Any |
 
+## Development Lanes
+
+Lane is auto-detected from branch name. Follow the lane rules:
+
+| Lane | Branch | SPEC needed? | TASK-ID needed? | Gates |
+|------|--------|-------------|----------------|-------|
+| 🟢 explore | `vibe/*` | No | No | None |
+| 🟡 lite | `fix/*` `chore/*` `docs/*` | No | Yes | Gate 1+3 |
+| 🔵 standard | `feature/*` others | Yes | Yes | Gate 1-4 |
+| 🔴 promotion | `promote/*` | Retro-SPEC | Yes | Gate 1-4 |
+
+**Lane-specific behavior for AI agents:**
+- On `vibe/*`: Skip the Pre-Implementation Checklist. Write code freely. No SPEC or TASK-ID required.
+- On `fix/*`, `chore/*`, `docs/*`: TASK-ID required in commits. SPEC not required. Max 3 files, no contract changes.
+- On `feature/*` or other branches: Full SAGE lifecycle required (see checklist below).
+- On `promote/*`: Retro-SPEC must exist and be approved. Use `/sage-promote` to set up.
+
+To promote explore code to production: `/sage-promote` or `bash scripts/sage-promote.sh vibe/<name>`
+
 ## Pre-Implementation Checklist
+
+**Applies to standard lane only** (`feature/*` and other non-explore/lite branches).
 
 Before writing any code, confirm:
 
@@ -254,7 +275,9 @@ This file (`CLAUDE.md`) defines repository-wide development rules.
 - Before writing ANY code, check `specs/` for an existing SPEC. No SPEC = no code.
 - Only modify files listed in the active TASK's File Scope.
 - Every commit must include a TASK-ID (enforced by pre-commit hook).
-- Prototypes go on `vibe/*` branches (no SPEC needed).
+- Prototypes go on `vibe/*` branches (no SPEC needed). To promote to main: `bash scripts/sage-promote.sh vibe/<name>`.
+- Development lanes: explore (`vibe/*`, no gates) → lite (`fix/*/chore/*/docs/*`, TASK-ID + Gate 1+3) → standard (`feature/*`, full SPEC + Gate 1-4).
+- `vibe/*` → `main` direct merge is **prohibited**. Use `promote/*` branch with Retro-SPEC.
 - For detailed workflows: `/sage-spec`, `/sage-plan`, `/sage-review`, `/sage-evaluate`
 - SPEC/PLAN completion triggers auto-scoring (100 points required before implementation).
 - Governance docs in `sage/` — do not modify without human approval.

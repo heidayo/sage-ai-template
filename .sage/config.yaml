@@ -134,6 +134,40 @@ hooks:
   #   minimal → standard: make report shows SESSIONS >= 10 and STATUS: HEALTHY
   #   standard → strict:  make report shows 2 weeks continuous HEALTHY
 
+# --- Lanes (SPEC-0006: Vibe Coding Lanes & Promotion) ---
+# Branch-name-based automatic lane selection.
+# Each lane defines required gates and constraints.
+lanes:
+  explore:
+    branch_pattern: "vibe/*"
+    task_id_required: false
+    spec_required: false
+    gates: []
+    # No enforcement — free exploration
+  lite:
+    branch_pattern: "fix/*,chore/*,docs/*"
+    task_id_required: true
+    spec_required: false
+    max_files: 3
+    contract_change_allowed: false  # API/DB/event schema changes prohibited
+    gates: [structural, security]
+    # Gate 1 (lint/format/type) + Gate 3 (secret/vuln) + targeted tests
+  standard:
+    branch_pattern: "feature/*,*"
+    task_id_required: true
+    spec_required: true
+    gates: [structural, functional, security, architecture]
+    # Full 7-phase lifecycle
+  promotion:
+    branch_pattern: "promote/*"
+    task_id_required: true
+    retro_spec_required: true
+    gates: [structural, functional, security, architecture]
+    # vibe/* → promote/* conversion with Retro-SPEC
+
+# Lane override: set max commits before retro-spec warns about accuracy
+promotion_max_commits: 50
+
 # --- Auto Update ---
 auto_update:
   installer_url: "https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh"

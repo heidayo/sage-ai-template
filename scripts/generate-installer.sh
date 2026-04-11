@@ -111,6 +111,9 @@ embed_file "TMPL_SKILL_EVALUATE_RUBRIC" "$ROOT/templates/skills/sage-evaluate/re
 echo ""
 embed_file "TMPL_SKILL_EVALUATE_KB" "$ROOT/templates/skills/sage-evaluate/references/knowledge-base.md"
 echo ""
+# SPEC-0006: Promotion skill
+embed_file "TMPL_SKILL_PROMOTE" "$ROOT/templates/skills/sage-promote/SKILL.md"
+echo ""
 embed_file "TMPL_VALIDATE" "$ROOT/scripts/sage-validate.sh"
 echo ""
 embed_file "TMPL_ID_GEN" "$ROOT/scripts/sage-id-gen.sh"
@@ -118,6 +121,11 @@ echo ""
 embed_file "TMPL_TRACE_CHECK" "$ROOT/scripts/sage-trace-check.sh"
 echo ""
 embed_file "TMPL_UPDATE_CHECK" "$ROOT/scripts/sage-update-check.sh"
+echo ""
+# SPEC-0006: Promotion scripts
+embed_file "TMPL_PROMOTE" "$ROOT/scripts/sage-promote.sh"
+echo ""
+embed_file "TMPL_RETRO_SPEC" "$ROOT/scripts/sage-retro-spec.sh"
 echo ""
 
 # Hook templates (SPEC-0003)
@@ -358,7 +366,7 @@ echo ""
 
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
-mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness
+mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
 echo "  OK"
 
 # --- [2/9] Templates & governance ---
@@ -380,6 +388,8 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   write_file_if_new "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
   write_file_if_new "scripts/sage-update-check.sh" "$TMPL_UPDATE_CHECK" && chmod +x "scripts/sage-update-check.sh"
+  write_file_if_new "scripts/sage-promote.sh" "$TMPL_PROMOTE" && chmod +x "scripts/sage-promote.sh"
+  write_file_if_new "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
 else
   # Update mode: テンプレートとガバナンスはSAGE管理なので上書き
   update_file "specs/_template.md" "$TMPL_SPEC"
@@ -395,6 +405,8 @@ else
   update_file "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   update_file "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
   update_file "scripts/sage-update-check.sh" "$TMPL_UPDATE_CHECK" && chmod +x "scripts/sage-update-check.sh"
+  update_file "scripts/sage-promote.sh" "$TMPL_PROMOTE" && chmod +x "scripts/sage-promote.sh"
+  update_file "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   # failures.md, config.yaml はプロジェクト固有データが入るので更新しない
   echo "  KEEP: sage/failures.md (project data)"
   echo "  KEEP: .sage/config.yaml (project settings)"
@@ -429,6 +441,7 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new ".claude/skills/sage-evaluate/SKILL.md" "$TMPL_SKILL_EVALUATE"
   write_file_if_new ".claude/skills/sage-evaluate/references/scoring-rubric.md" "$TMPL_SKILL_EVALUATE_RUBRIC"
   write_file_if_new ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
+  write_file_if_new ".claude/skills/sage-promote/SKILL.md" "$TMPL_SKILL_PROMOTE"
 else
   update_file ".claude/skills/sage-spec/SKILL.md" "$TMPL_SKILL_SPEC"
   update_file ".claude/skills/sage-plan/SKILL.md" "$TMPL_SKILL_PLAN"
@@ -438,6 +451,7 @@ else
   update_file ".claude/skills/sage-evaluate/SKILL.md" "$TMPL_SKILL_EVALUATE"
   update_file ".claude/skills/sage-evaluate/references/scoring-rubric.md" "$TMPL_SKILL_EVALUATE_RUBRIC"
   update_file ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
+  update_file ".claude/skills/sage-promote/SKILL.md" "$TMPL_SKILL_PROMOTE"
 fi
 
 # --- [5/9] CLAUDE.md ---
@@ -533,6 +547,8 @@ STATEHEADER
     "scripts/sage-id-gen.sh"
     "scripts/sage-trace-check.sh"
     "scripts/sage-update-check.sh"
+    "scripts/sage-promote.sh"
+    "scripts/sage-retro-spec.sh"
     ".claude/rules/specs-rules.md"
     ".claude/rules/plans-rules.md"
     ".claude/rules/tasks-rules.md"
@@ -546,6 +562,7 @@ STATEHEADER
     ".claude/skills/sage-evaluate/SKILL.md"
     ".claude/skills/sage-evaluate/references/scoring-rubric.md"
     ".claude/skills/sage-evaluate/references/knowledge-base.md"
+    ".claude/skills/sage-promote/SKILL.md"
     "templates/hooks/block-dangerous-commands.sh"
     "templates/hooks/protect-sage-files.sh"
     "templates/hooks/check-file-scope.sh"

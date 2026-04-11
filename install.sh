@@ -551,31 +551,115 @@ SAGEにおける人間の責務:
 
 ---
 
-## 8. バイブコーディングとSDDの使い分け
+## 8. 開発レーンとバイブコーディング
 
-SAGEは「仕様なしに実装しない」を原則とするが、探索フェーズでは例外を認める。
+SAGEは「仕様なしに実装しない」を原則とするが、変更のリスクと規模に応じて4つのレーンを用意する。
+レーンはブランチ命名規約で自動判定される。開発者が明示的にレーンを選ぶ必要はない。
 
-### バイブコーディング（探索用）が許される場面
+### 8.1 レーン定義
+
+| レーン | ブランチパターン | TASK-ID | SPEC | 必須Gate | 用途 |
+|-------|----------------|---------|------|---------|------|
+| **explore** | `vibe/*` | 不要 | 不要 | なし | プロトタイプ・PoC・技術検証・UI探索 |
+| **lite** | `fix/*`, `chore/*`, `docs/*` | 必須 | 不要 | Gate 1 + 3 + 対象テスト | 低リスク修正（typo fix, 依存更新, ドキュメント修正） |
+| **standard** | `feature/*`, その他 | 必須 | 必須 | Gate 1-4 | 本番機能開発・アーキテクチャ変更 |
+| **promotion** | `promote/*` | 必須 | Retro-SPEC | Gate 1-4 | explore 成果の昇格と本番統合前の管理 |
+
+#### explore レーン（バイブコーディング）が許される場面
 - プロトタイピング・PoC
 - 新技術のフィージビリティ確認
 - UIの見た目確認・デザイン探索
 - 小規模ユーティリティの試作
 
-### SDD（本番実装用）が必須の場面
+#### lite レーンの適用条件
+以下を**すべて**満たす場合に限り lite レーンで開発できる:
+- 変更ファイル数が3以下
+- 公開契約（API/DB/イベントスキーマ）の変更を含まない
+- セキュリティ要件の変更を含まない
+
+条件を超える場合は standard レーンに切り替えること。
+
+#### standard レーン（SDD）が必須の場面
 - 本番システムへのデプロイ
 - チーム開発・並列エージェント開発
 - 複雑なアーキテクチャ変更
 - セキュリティ・コンプライアンス要件
 
-### 移行ルール
-バイブコーディングで作ったものを本番に持ち込む場合は、
-**必ず事後でもSPECを書き、品質ゲートを通す**こと。
+### 8.2 昇格プロトコル（Promotion Gate）
+
+explore レーンの成果物を本番に持ち込む場合、以下の昇格プロトコルに従う。
 「探索で書いたコードをそのまま本番に入れる」はアンチパターンとして扱う。
 
-### ブランチ規約
-- `vibe/*` ブランチから `main` への直接マージ禁止
-- `vibe/*` → `staging` → （SPEC作成後） → `main` のフローを強制
-- CIで `vibe/*` ブランチからの直接マージを検出・警告する
+#### 昇格手順
+
+```
+vibe/my-feature
+    │
+    ▼  bash scripts/sage-promote.sh vibe/my-feature
+promote/my-feature  ← 新しい管理ブランチ（探索履歴をそのまま正規履歴にしない）
+    │
+    ├─ 1. Retro-SPEC ドラフト自動生成（diff + commit log から）
+    ├─ 2. TASK-ID 付与
+    ├─ 3. 人間が Retro-SPEC を確認・承認
+    ├─ 4. Gate 1-4 通過
+    └─ 5. main へマージ可能
+```
+
+#### 昇格ルール
+- `vibe/*` ブランチから `main` への直接マージは**禁止**
+- `promote/*` ブランチには Retro-SPEC が必須（`sage-validate.sh` で検証）
+- Retro-SPEC はドラフト自動生成 + **人間承認で正式化**（自動承認しない）
+- 50コミット超の `vibe/*` ブランチは Retro-SPEC の精度が下がるため、手動SPEC作成を推奨
+
+### 8.3 Retro-SPEC（事後仕様）
+
+Retro-SPEC は「探索で得た知見を仕様に変換する」仕組みである。
+完全な自動生成ではなく、以下のソースからドラフトを起こし、人間が承認する。
+
+| 入力ソース | 用途 |
+|-----------|------|
+| `git diff main...HEAD` | 変更差分 → スコープ（含む）の候補 |
+| `git log --oneline main..HEAD` | コミット履歴 → 背景・目的の候補 |
+| 変更ファイル一覧 | 影響レイヤの推定 |
+| テスト実行結果 | 受け入れ条件の候補 |
+
+#### 生成コマンド
+```bash
+bash scripts/sage-retro-spec.sh [branch-name]
+```
+
+### 8.4 ブランチ規約
+
+| ブランチ | 行き先 | 条件 |
+|---------|--------|------|
+| `vibe/*` | `promote/*` | `sage-promote.sh` で昇格 |
+| `fix/*`, `chore/*`, `docs/*` | `main` | TASK-ID + Gate 1 + 3 |
+| `feature/*` | `main` | TASK-ID + SPEC + Gate 1-4 |
+| `promote/*` | `main` | Retro-SPEC承認 + Gate 1-4 |
+
+- `vibe/*` → `main` 直接マージ禁止（CIで検出・ブロック）
+- `promote/*` → `main` は Retro-SPEC 承認後のみ
+
+### 8.5 操作環境別の対応
+
+SAGEのレーン・昇格プロトコルは、以下の3環境すべてで動作する:
+
+| 操作 | 🖥️ ターミナル | 💬 デスクトップアプリ | 🌐 ブラウザアプリ |
+|------|-------------|-------------------|----------------|
+| レーン確認 | `session-start` hook が自動表示 | `session-start` hook が自動表示 | `session-start` hook が自動表示 |
+| ブランチ作成 | `git checkout -b vibe/...` | チャットで「vibe で○○を試したい」 | チャットで「vibe で○○を試したい」 |
+| 昇格 | `bash scripts/sage-promote.sh` | `/sage-promote` またはチャット | `/sage-promote` またはチャット |
+| Retro-SPEC 生成 | `bash scripts/sage-retro-spec.sh` | `/sage-promote` 内で自動実行 | `/sage-promote` 内で自動実行 |
+| Retro-SPEC 補完 | 手動でTBDを埋める | AIがdiffからTBDを自動補完 → 人間承認 | AIがdiffからTBDを自動補完 → 人間承認 |
+| Gate 実行 | `bash scripts/sage-validate.sh` | AIが自動実行・結果報告 | AIが自動実行・結果報告 |
+
+#### ターミナルとアプリの責務分離
+
+- **スクリプト** (`scripts/sage-*.sh`): 実際の処理ロジック。どの環境からも呼び出し可能
+- **スキル** (`/sage-promote` 等): Claude Code アプリ上の対話的ワークフロー。スクリプトを内部で呼び出す
+- **hook** (`session-start`): セッション開始時の自動コンテキスト注入。全環境共通
+
+スクリプトが単一実装（Single Source of Truth）となり、スキルはそのラッパーとして機能する。
 
 __EOF_TMPL_GOVERNANCE__
 
@@ -1070,6 +1154,12 @@ SPEC-ID → PLAN-ID → TASK-ID → AGENT-ID → RUN-ID → MERGE-ID
 3. **すべてのエージェント実行** に RUN-ID を記録
 4. **すべての失敗** に FAIL-ID を記録
 
+## Historical Gap Policy
+
+- 過去の `PLAN-ID` / `TASK-ID` / `done-def-*` が欠損していた場合、後から補完する artifact は `historical placeholder` または `retrospective placeholder` と明記する
+- この補完は **参照切れの解消** を目的とし、当時の実行履歴や真正な承認チェーンを遡及的に証明するものではない
+- 現在進行中の開発では placeholder 補完に依存せず、実装前に SPEC / PLAN / TASK / Done Definition を作成する
+
 ## コミットメッセージ形式
 
 ```
@@ -1236,6 +1326,40 @@ hooks:
   #   minimal → standard: make report shows SESSIONS >= 10 and STATUS: HEALTHY
   #   standard → strict:  make report shows 2 weeks continuous HEALTHY
 
+# --- Lanes (SPEC-0006: Vibe Coding Lanes & Promotion) ---
+# Branch-name-based automatic lane selection.
+# Each lane defines required gates and constraints.
+lanes:
+  explore:
+    branch_pattern: "vibe/*"
+    task_id_required: false
+    spec_required: false
+    gates: []
+    # No enforcement — free exploration
+  lite:
+    branch_pattern: "fix/*,chore/*,docs/*"
+    task_id_required: true
+    spec_required: false
+    max_files: 3
+    contract_change_allowed: false  # API/DB/event schema changes prohibited
+    gates: [structural, security]
+    # Gate 1 (lint/format/type) + Gate 3 (secret/vuln) + targeted tests
+  standard:
+    branch_pattern: "feature/*,*"
+    task_id_required: true
+    spec_required: true
+    gates: [structural, functional, security, architecture]
+    # Full 7-phase lifecycle
+  promotion:
+    branch_pattern: "promote/*"
+    task_id_required: true
+    retro_spec_required: true
+    gates: [structural, functional, security, architecture]
+    # vibe/* → promote/* conversion with Retro-SPEC
+
+# Lane override: set max commits before retro-spec warns about accuracy
+promotion_max_commits: 50
+
 # --- Auto Update ---
 auto_update:
   installer_url: "https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh"
@@ -1248,10 +1372,12 @@ read -r -d '' TMPL_CLAUDE_SNIPPET <<'__EOF_TMPL_CLAUDE_SNIPPET__' || true
 <!-- === SAGE Development System (auto-injected) === -->
 ## SAGE Development System
 
-- Before writing ANY code, check `specs/` for an existing SPEC. No SPEC = no code.
+- Before writing code on the standard lane, check `specs/` for an existing SPEC. No SPEC = no code.
 - Only modify files listed in the active TASK's File Scope.
 - Every commit must include a TASK-ID (enforced by pre-commit hook).
-- Prototypes go on `vibe/*` branches (no SPEC needed).
+- Prototypes go on `vibe/*` branches (no SPEC needed). To promote to main: `/sage-promote` or `bash scripts/sage-promote.sh vibe/<name>`.
+- Development lanes: explore (`vibe/*`, no gates) | lite (`fix/*` / `chore/*` / `docs/*`, TASK-ID + max 3 files + no contract changes + Gate 1+3) | standard (`feature/*`, full SPEC + Gate 1-4) | promotion (`promote/*`, Retro-SPEC + TASK-ID + Gate 1-4).
+- `vibe/*` → `main` direct merge is prohibited. Use `promote/*` with Retro-SPEC.
 - For detailed workflows: `/sage-spec`, `/sage-plan`, `/sage-review`, `/sage-evaluate`
 - SPEC/PLAN completion triggers auto-scoring (100 points required before implementation).
 - Governance docs in `sage/` — do not modify without human approval.
@@ -1277,12 +1403,14 @@ read -r -d '' TMPL_AGENTS_SNIPPET <<'__EOF_TMPL_AGENTS_SNIPPET__' || true
 <!-- === SAGE Development System (auto-injected) === -->
 # SAGE Workflow
 
-- Check `specs/` before writing ANY code. No SPEC = no code.
+- Check `specs/` before writing code on the standard lane. No SPEC = no code.
 - Create SPECs using `specs/_template.md`. Minimum: scope, out-of-scope, 3 acceptance criteria.
 - Create tasks in `tasks/` with explicit File Scope (which files you may modify).
 - Only modify files in the TASK's File Scope.
 - Every commit must include a TASK-ID (e.g., `TASK-0001: add login endpoint`).
-- Prototypes go on `vibe/*` branches (no SPEC needed).
+- Prototypes go on `vibe/*` branches (no SPEC needed). To promote to main: `bash scripts/sage-promote.sh vibe/<name>`.
+- Development lanes: explore (`vibe/*`, no gates) | lite (`fix/*` / `chore/*` / `docs/*`, TASK-ID + max 3 files + no contract changes + Gate 1+3) | standard (`feature/*`, full SPEC + Gate 1-4) | promotion (`promote/*`, Retro-SPEC + TASK-ID + Gate 1-4).
+- `vibe/*` → `main` direct merge is prohibited. Use `promote/*` with Retro-SPEC.
 - Do not modify `sage/` without human approval.
 
 Prohibited:
@@ -1305,6 +1433,7 @@ read -r -d '' TMPL_COMMIT_HOOK <<'__EOF_TMPL_COMMIT_HOOK__' || true
 #!/bin/bash
 # SAGE pre-commit hook: Require TASK-ID in commit messages
 # Installed by sage-adopt.sh
+# Lanes: explore (vibe/*) = exempt, lite/standard/promotion = required
 
 COMMIT_MSG_FILE="$1"
 COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
@@ -1314,19 +1443,71 @@ if echo "$COMMIT_MSG" | grep -qE "^(Merge|Revert|fixup!|squash!)"; then
   exit 0
 fi
 
-# Allow vibe/* branch commits (no SPEC required for prototypes)
+# Detect current branch
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+# --- Lane: explore (vibe/*) — TASK-ID not required ---
 if echo "$BRANCH" | grep -qE "^vibe/"; then
   exit 0
 fi
 
-# Check for TASK-ID pattern
+# --- Lane: lite (fix/*, chore/*, docs/*) — TASK-ID required + constraints ---
+if echo "$BRANCH" | grep -qE "^(fix|chore|docs)/"; then
+  # Enforce max file count (default 3)
+  MAX_FILES=3
+  if [ -f ".sage/config.yaml" ]; then
+    CONFIG_MAX=$(grep -A5 'lite:' .sage/config.yaml 2>/dev/null | grep 'max_files:' | awk '{print $2}' || echo "")
+    [ -n "$CONFIG_MAX" ] && MAX_FILES="$CONFIG_MAX"
+  fi
+
+  CHANGED_FILE_COUNT=$(git diff --cached --name-only | wc -l | tr -d ' ')
+  if [ "$CHANGED_FILE_COUNT" -gt "$MAX_FILES" ]; then
+    echo ""
+    echo "  SAGE: lite lane allows max $MAX_FILES files, but $CHANGED_FILE_COUNT staged"
+    echo "  Switch to a feature/* branch for larger changes."
+    echo ""
+    exit 1
+  fi
+
+  # Enforce no contract changes (API/DB/event schema)
+  CONTRACT_CHANGES=$(git diff --cached --name-only | grep -cE "(openapi|swagger|schema|migration|\.proto|\.graphql|\.avsc)" || echo "0")
+  if [ "$CONTRACT_CHANGES" -gt 0 ]; then
+    echo ""
+    echo "  SAGE: lite lane prohibits contract changes (API/DB/event schema)"
+    echo "  Detected $CONTRACT_CHANGES contract file(s) in staging."
+    echo "  Switch to a feature/* branch for contract changes."
+    echo ""
+    exit 1
+  fi
+fi
+
+# --- Lane: promotion (promote/*) — TASK-ID required ---
+# --- Lane: standard (feature/*, others) — TASK-ID required ---
+
+# All non-explore lanes require TASK-ID
 if ! echo "$COMMIT_MSG" | grep -qE "TASK-[0-9]{4}"; then
+  # Determine lane for helpful error message
+  LANE="standard"
+  if echo "$BRANCH" | grep -qE "^(fix|chore|docs)/"; then
+    LANE="lite"
+  elif echo "$BRANCH" | grep -qE "^promote/"; then
+    LANE="promotion"
+  fi
+
   echo ""
   echo "  SAGE: commit message must include a TASK-ID"
+  echo "  Current lane: $LANE (branch: $BRANCH)"
   echo "  Example: TASK-0001: add login endpoint"
   echo ""
-  echo "  If this is a prototype, use a vibe/* branch."
+  if [ "$LANE" = "lite" ]; then
+    echo "  Lite lane still requires TASK-ID for traceability."
+    echo "  Generate one with: bash scripts/sage-id-gen.sh task"
+  elif [ "$LANE" = "promotion" ]; then
+    echo "  Promotion lane requires TASK-ID + Retro-SPEC."
+    echo "  Run: bash scripts/sage-promote.sh <vibe-branch>"
+  else
+    echo "  If this is a prototype, use a vibe/* branch."
+  fi
   echo ""
   exit 1
 fi
@@ -3183,6 +3364,105 @@ CLAUDE.md（中央司令塔）→ `.claude/rules/`（パス別詳細）
 
 __EOF_TMPL_SKILL_EVALUATE_KB__
 
+read -r -d '' TMPL_SKILL_PROMOTE <<'__EOF_TMPL_SKILL_PROMOTE__' || true
+---
+name: sage-promote
+description: "Promote a vibe/* branch to production-ready code with Retro-SPEC. Use when the user says: 本番に持っていきたい, promote, 昇格, vibe から本番へ, このコードを正式にしたい"
+---
+
+# SAGE Promotion Workflow
+
+## When to use
+
+- User wants to move explore (vibe/*) code to production
+- User says "promote", "昇格", "本番に持っていきたい", "このコードを正式にしたい"
+- User is on a `vibe/*` branch and wants to merge to main
+
+## Process
+
+### 1. Verify current state
+
+Check the current branch:
+```bash
+git rev-parse --abbrev-ref HEAD
+```
+
+If NOT on a `vibe/*` branch, ask the user which vibe branch to promote.
+
+### 2. Run the promotion script
+
+```bash
+bash scripts/sage-promote.sh vibe/<branch-name>
+```
+
+This will:
+- Create a `promote/<feature-name>` branch
+- Generate a Retro-SPEC draft in `specs/`
+- Assign a TASK-ID
+
+### 3. AI-assisted Retro-SPEC completion
+
+After the draft is generated, **read the Retro-SPEC file** and help the user fill in TBD sections:
+
+1. Read the generated Retro-SPEC:
+   ```bash
+   cat specs/RETRO-SPEC-*.md
+   ```
+
+2. Read the diff to understand changes:
+   ```bash
+   git diff main...HEAD --stat
+   git log --oneline main..HEAD
+   ```
+
+3. For each TBD section, **propose content based on the diff and commit history**:
+   - **背景・目的**: Summarize what the commits accomplished
+   - **スコープ外**: Infer from what was NOT changed
+   - **要件**: Extract functional requirements from the actual implementation
+   - **受け入れ条件**: Propose testable criteria based on the changes
+   - **異常系**: Identify error handling in the code
+   - **リスク**: Assess based on change scope and complexity
+
+4. Present the completed Retro-SPEC to the user for approval.
+
+### 4. Gate execution
+
+After the user approves the Retro-SPEC:
+
+1. Run structural checks (Gate 1):
+   ```bash
+   # Use project_checks from .sage/config.yaml if configured
+   ```
+
+2. Run validation:
+   ```bash
+   bash scripts/sage-validate.sh
+   ```
+
+3. Report gate results to the user.
+
+### 5. Completion
+
+Summarize:
+- Branch: `promote/<name>`
+- SPEC-ID: assigned
+- TASK-ID: assigned
+- Gate results: PASS/FAIL
+- Next step: Create PR from `promote/<name>` → `main`
+
+## Important rules
+
+- NEVER merge `vibe/*` directly to `main`. Always go through `promote/*`.
+- Retro-SPEC is a **draft** — the user must approve it before proceeding.
+- If the vibe branch has 50+ commits, warn that Retro-SPEC accuracy may be low.
+- The AI fills in TBD sections but the human has final say.
+
+## Lane context
+
+This skill transitions code from the **explore lane** (no governance) to the **standard lane** (full governance). The key value is that the user gets to keep their exploration velocity while ensuring production quality.
+
+__EOF_TMPL_SKILL_PROMOTE__
+
 read -r -d '' TMPL_VALIDATE <<'__EOF_TMPL_VALIDATE__' || true
 #!/bin/bash
 # sage-validate.sh — SAGE構造検証スクリプト
@@ -3319,13 +3599,80 @@ else
 fi
 echo ""
 
-# --- Vibe Branch Check ---
-echo "[5/7] ブランチ規約チェック..."
+# --- Branch & Lane Check ---
+echo "[5/7] ブランチ規約・レーンチェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
+
+# Detect lane from branch name
+DETECTED_LANE="standard"
 if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
-  echo "  ERROR: vibe/* ブランチから直接マージ禁止。staging経由 + SPEC作成後にmainへ"
+  DETECTED_LANE="explore"
+elif [[ "$CURRENT_BRANCH" == fix/* || "$CURRENT_BRANCH" == chore/* || "$CURRENT_BRANCH" == docs/* ]]; then
+  DETECTED_LANE="lite"
+elif [[ "$CURRENT_BRANCH" == promote/* ]]; then
+  DETECTED_LANE="promotion"
+fi
+echo "  Lane: $DETECTED_LANE (branch: ${CURRENT_BRANCH:-unknown})"
+
+# Check 1: vibe/* direct merge to main is prohibited
+if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
+  echo "  ERROR: vibe/* ブランチから直接マージ禁止"
+  echo "  昇格するには: bash scripts/sage-promote.sh $CURRENT_BRANCH"
   ERRORS=$((ERRORS + 1))
-else
+fi
+
+# Check 2: promote/* requires a branch-matching Retro-SPEC + TASK-ID
+if [[ "$CURRENT_BRANCH" == promote/* ]]; then
+  PROMOTE_NAME="${CURRENT_BRANCH#promote/}"
+  # Sanitize branch name the same way sage-retro-spec.sh does
+  SAFE_PROMOTE_NAME=$(echo "$PROMOTE_NAME" | tr '/' '-' | tr ' ' '-')
+
+  # Look for a retro-spec file matching this specific branch name
+  RETRO_SPEC_FILE="specs/RETRO-SPEC-${SAFE_PROMOTE_NAME}.md"
+  if [ -f "$RETRO_SPEC_FILE" ]; then
+    echo "  OK: Retro-SPEC found: $RETRO_SPEC_FILE"
+
+    # Check for TBD/TODO — these must be resolved before merge
+    TBD_COUNT=$(grep -cE "^[^>]*TBD" "$RETRO_SPEC_FILE" 2>/dev/null || echo "0")
+    if [ "$TBD_COUNT" -gt 0 ]; then
+      echo "  ERROR: Retro-SPEC に TBD が $TBD_COUNT 件残っています。全て埋めてください"
+      ERRORS=$((ERRORS + 1))
+    else
+      echo "  OK: Retro-SPEC に未記入項目なし"
+    fi
+  else
+    echo "  ERROR: promote/* ブランチには Retro-SPEC が必要です"
+    echo "  期待ファイル: $RETRO_SPEC_FILE"
+    echo "  生成するには: bash scripts/sage-retro-spec.sh $CURRENT_BRANCH"
+    ERRORS=$((ERRORS + 1))
+  fi
+
+  # Check 3: only promotion-lane commits need TASK-ID; inherited vibe/* commits stay exempt
+  SOURCE_SHA=""
+  if [ -f "$RETRO_SPEC_FILE" ]; then
+    SOURCE_SHA=$(awk -F'|' '/^\| 昇格元SHA / {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3; exit}' "$RETRO_SPEC_FILE" 2>/dev/null || true)
+  fi
+
+  if [ -n "$SOURCE_SHA" ] && git rev-parse --verify "$SOURCE_SHA" > /dev/null 2>&1; then
+    PROMOTION_COMMITS=$(git log --oneline "${SOURCE_SHA}..${CURRENT_BRANCH}" 2>/dev/null || true)
+    if [ -z "$PROMOTION_COMMITS" ]; then
+      echo "  OK: 昇格後コミットなし（TASK-ID チェック対象なし）"
+    else
+      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "TASK-[0-9]{4}" || echo "0")
+      if [ "$COMMITS_WITHOUT_TASKID" -gt 0 ]; then
+        echo "  ERROR: promote/* ブランチの昇格後コミットに TASK-ID なしが ${COMMITS_WITHOUT_TASKID} 件あります"
+        ERRORS=$((ERRORS + 1))
+      else
+        echo "  OK: 昇格後コミットは全て TASK-ID あり"
+      fi
+    fi
+  else
+    echo "  WARN: 昇格元SHAを特定できないため、promote/* の TASK-ID チェックをスキップしました"
+  fi
+fi
+
+# Check 3: non-vibe, non-promote branches pass normally
+if [[ "$DETECTED_LANE" != "explore" && "$DETECTED_LANE" != "promotion" ]]; then
   echo "  OK: ブランチ規約準拠 (${CURRENT_BRANCH:-unknown})"
 fi
 echo ""
@@ -3566,6 +3913,367 @@ echo "install.sh を確認してから手動で更新してください。"
 echo "推奨: bash install.sh --update"
 
 __EOF_TMPL_UPDATE_CHECK__
+
+read -r -d '' TMPL_PROMOTE <<'__EOF_TMPL_PROMOTE__' || true
+#!/bin/bash
+# sage-promote.sh — Promote a vibe/* branch to a managed promote/* branch
+# SPEC-0006: Vibe Coding Lanes & Promotion Protocol
+#
+# Usage: bash scripts/sage-promote.sh vibe/my-feature
+#
+# This script:
+# 1. Validates the source branch is a vibe/* branch
+# 2. Creates a promote/{feature-name} branch
+# 3. Generates a Retro-SPEC draft via sage-retro-spec.sh
+# 4. Generates a TASK-ID for the promotion work
+# 5. Prints next steps for the developer
+
+set -euo pipefail
+
+# --- Argument validation ---
+if [ $# -lt 1 ]; then
+  echo ""
+  echo "  Usage: bash scripts/sage-promote.sh <vibe-branch>"
+  echo "  Example: bash scripts/sage-promote.sh vibe/my-feature"
+  echo ""
+  exit 1
+fi
+
+SOURCE_BRANCH="$1"
+
+# Validate source is a vibe/* branch
+if [[ "$SOURCE_BRANCH" != vibe/* ]]; then
+  echo ""
+  echo "  ERROR: Source branch must be a vibe/* branch"
+  echo "  Got: $SOURCE_BRANCH"
+  echo ""
+  exit 1
+fi
+
+# Extract feature name
+FEATURE_NAME="${SOURCE_BRANCH#vibe/}"
+PROMOTE_BRANCH="promote/$FEATURE_NAME"
+
+echo "=== SAGE Promotion Protocol ==="
+echo ""
+echo "  Source:  $SOURCE_BRANCH (explore lane)"
+echo "  Target:  $PROMOTE_BRANCH (promotion lane)"
+echo ""
+
+# --- Check source branch exists ---
+if ! git rev-parse --verify "$SOURCE_BRANCH" > /dev/null 2>&1; then
+  echo "  ERROR: Branch '$SOURCE_BRANCH' does not exist"
+  exit 1
+fi
+
+SOURCE_SHA=$(git rev-parse "$SOURCE_BRANCH")
+
+# --- Check commit count for accuracy warning ---
+COMMIT_COUNT=$(git rev-list --count main.."$SOURCE_BRANCH" 2>/dev/null || echo "0")
+echo "  Commits to promote: $COMMIT_COUNT"
+
+# Read threshold from config (default 50)
+MAX_COMMITS=50
+if [ -f .sage/config.yaml ]; then
+  CONFIG_MAX=$(grep "promotion_max_commits:" .sage/config.yaml 2>/dev/null | awk '{print $2}' || echo "")
+  if [ -n "$CONFIG_MAX" ]; then
+    MAX_COMMITS="$CONFIG_MAX"
+  fi
+fi
+
+if [ "$COMMIT_COUNT" -gt "$MAX_COMMITS" ]; then
+  echo ""
+  echo "  WARNING: $COMMIT_COUNT commits exceeds threshold ($MAX_COMMITS)"
+  echo "  Retro-SPEC accuracy may be low. Consider writing SPEC manually."
+  echo ""
+  # Non-interactive mode (e.g., Claude Code desktop/browser): continue with warning
+  # Interactive mode (terminal): prompt for confirmation
+  if [ -t 0 ]; then
+    read -p "  Continue anyway? [y/N] " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "  Aborted."
+      exit 0
+    fi
+  else
+    echo "  Non-interactive mode: continuing with warning."
+    echo "  Review the generated Retro-SPEC carefully for accuracy."
+  fi
+fi
+
+# --- Create promote branch ---
+echo ""
+echo "[1/4] Creating promote branch..."
+if git rev-parse --verify "$PROMOTE_BRANCH" > /dev/null 2>&1; then
+  echo "  Branch '$PROMOTE_BRANCH' already exists. Checking it out."
+  git checkout "$PROMOTE_BRANCH"
+else
+  git checkout -b "$PROMOTE_BRANCH" "$SOURCE_BRANCH"
+  echo "  Created: $PROMOTE_BRANCH"
+fi
+
+# --- Generate Retro-SPEC ---
+echo ""
+echo "[2/4] Generating Retro-SPEC draft..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/sage-retro-spec.sh" ]; then
+  SAGE_PROMOTION_SOURCE_BRANCH="$SOURCE_BRANCH" \
+  SAGE_PROMOTION_SOURCE_SHA="$SOURCE_SHA" \
+    bash "$SCRIPT_DIR/sage-retro-spec.sh" "$PROMOTE_BRANCH"
+else
+  echo "  WARNING: sage-retro-spec.sh not found. Skipping Retro-SPEC generation."
+  echo "  Please create a SPEC manually in specs/"
+fi
+
+# --- Generate TASK-ID ---
+echo ""
+echo "[3/4] Generating TASK-ID..."
+if [ -f "$SCRIPT_DIR/sage-id-gen.sh" ]; then
+  TASK_ID=$(bash "$SCRIPT_DIR/sage-id-gen.sh" task 2>/dev/null || echo "TASK-XXXX")
+  echo "  Assigned: $TASK_ID"
+else
+  TASK_ID="TASK-XXXX"
+  echo "  WARNING: sage-id-gen.sh not found. Please assign TASK-ID manually."
+fi
+
+# --- Print next steps ---
+echo ""
+echo "[4/4] Promotion setup complete!"
+echo ""
+echo "=== Next Steps ==="
+echo ""
+echo "  1. Review the Retro-SPEC draft in specs/"
+echo "     - Fill in any TBD sections"
+echo "     - Verify acceptance criteria are testable"
+echo "     - Get human approval"
+echo ""
+echo "  2. Add tests for the promoted code"
+echo ""
+echo "  3. Commit with TASK-ID: $TASK_ID"
+echo "     Example: git commit -m \"$TASK_ID: promote $FEATURE_NAME with Retro-SPEC\""
+echo ""
+echo "  4. Run quality gates:"
+echo "     bash scripts/sage-validate.sh"
+echo ""
+echo "  5. Create PR from $PROMOTE_BRANCH → main"
+echo "     Include SPEC-ID, PLAN-ID, $TASK_ID in PR body"
+echo ""
+echo "=== End Promotion Protocol ==="
+
+__EOF_TMPL_PROMOTE__
+
+read -r -d '' TMPL_RETRO_SPEC <<'__EOF_TMPL_RETRO_SPEC__' || true
+#!/bin/bash
+# sage-retro-spec.sh — Generate a Retro-SPEC draft from branch diff and commit history
+# SPEC-0006: Vibe Coding Lanes & Promotion Protocol
+#
+# Usage: bash scripts/sage-retro-spec.sh [branch-name]
+#        (defaults to current branch)
+#
+# Input sources:
+#   1. git diff main...HEAD — change diff
+#   2. git log --oneline main..HEAD — commit history
+#   3. Changed file list — layer estimation
+#
+# Output: specs/RETRO-SPEC-{feature-name}.md (draft for human review)
+
+set -euo pipefail
+
+# --- Determine branch ---
+if [ $# -ge 1 ]; then
+  BRANCH="$1"
+else
+  BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+fi
+
+# Extract feature name from branch
+FEATURE_NAME="$BRANCH"
+FEATURE_NAME="${FEATURE_NAME#vibe/}"
+FEATURE_NAME="${FEATURE_NAME#promote/}"
+FEATURE_NAME="${FEATURE_NAME#feature/}"
+
+# Sanitize for filename
+SAFE_NAME=$(echo "$FEATURE_NAME" | tr '/' '-' | tr ' ' '-')
+SOURCE_BRANCH="${SAGE_PROMOTION_SOURCE_BRANCH:-$BRANCH}"
+SOURCE_SHA="${SAGE_PROMOTION_SOURCE_SHA:-$(git rev-parse "$BRANCH" 2>/dev/null || echo "")}"
+
+echo "=== SAGE Retro-SPEC Generator ==="
+echo ""
+echo "  Branch: $BRANCH"
+echo "  Feature: $FEATURE_NAME"
+echo ""
+
+# --- Determine base branch ---
+BASE_BRANCH="main"
+if ! git rev-parse --verify "$BASE_BRANCH" > /dev/null 2>&1; then
+  BASE_BRANCH="master"
+  if ! git rev-parse --verify "$BASE_BRANCH" > /dev/null 2>&1; then
+    echo "  ERROR: Neither 'main' nor 'master' branch found"
+    exit 1
+  fi
+fi
+
+# --- Gather data ---
+echo "[1/5] Gathering commit history..."
+COMMIT_LOG=$(git log --oneline "$BASE_BRANCH".."$BRANCH" 2>/dev/null || git log --oneline -20)
+COMMIT_COUNT=$(echo "$COMMIT_LOG" | wc -l | tr -d ' ')
+echo "  Found $COMMIT_COUNT commits"
+
+echo "[2/5] Gathering changed files..."
+CHANGED_FILES=$(git diff --name-only "$BASE_BRANCH"..."$BRANCH" 2>/dev/null || git diff --name-only HEAD~5)
+FILE_COUNT=$(echo "$CHANGED_FILES" | grep -c . || echo "0")
+echo "  Found $FILE_COUNT changed files"
+
+echo "[3/5] Analyzing diff stats..."
+DIFF_STAT=$(git diff --stat "$BASE_BRANCH"..."$BRANCH" 2>/dev/null | tail -1 || echo "unknown")
+
+echo "[4/5] Estimating affected layers..."
+# Layer estimation from file paths
+LAYERS=""
+if echo "$CHANGED_FILES" | grep -qE "^(src/)?controller" 2>/dev/null; then LAYERS="$LAYERS\n- controller"; fi
+if echo "$CHANGED_FILES" | grep -qE "^(src/)?usecase|^(src/)?service|^(src/)?application" 2>/dev/null; then LAYERS="$LAYERS\n- usecase"; fi
+if echo "$CHANGED_FILES" | grep -qE "^(src/)?domain|^(src/)?model|^(src/)?entity" 2>/dev/null; then LAYERS="$LAYERS\n- domain"; fi
+if echo "$CHANGED_FILES" | grep -qE "^(src/)?infra|^(src/)?repository|^(src/)?adapter|^(src/)?db" 2>/dev/null; then LAYERS="$LAYERS\n- infrastructure"; fi
+if echo "$CHANGED_FILES" | grep -qE "^(src/)?(component|page|view|ui|frontend)" 2>/dev/null; then LAYERS="$LAYERS\n- frontend"; fi
+if echo "$CHANGED_FILES" | grep -qE "^test|^spec|__test__" 2>/dev/null; then LAYERS="$LAYERS\n- test"; fi
+if echo "$CHANGED_FILES" | grep -qE "^script|^\.github|^infra|Dockerfile|docker-compose" 2>/dev/null; then LAYERS="$LAYERS\n- infra/ops"; fi
+if [ -z "$LAYERS" ]; then LAYERS="\n- TBD (could not auto-detect layers)"; fi
+
+# --- Generate SPEC-ID ---
+echo "[5/5] Generating SPEC-ID..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/sage-id-gen.sh" ]; then
+  SPEC_ID=$(bash "$SCRIPT_DIR/sage-id-gen.sh" spec 2>/dev/null || echo "SPEC-XXXX")
+else
+  SPEC_ID="SPEC-XXXX"
+fi
+
+# --- Build scope bullets from changed files ---
+SCOPE_BULLETS=""
+while IFS= read -r file; do
+  if [ -n "$file" ]; then
+    SCOPE_BULLETS="$SCOPE_BULLETS\n- \`$file\`"
+  fi
+done <<< "$CHANGED_FILES"
+
+# --- Build commit summary ---
+COMMIT_SUMMARY=""
+while IFS= read -r line; do
+  if [ -n "$line" ]; then
+    COMMIT_SUMMARY="$COMMIT_SUMMARY\n- $line"
+  fi
+done <<< "$(echo "$COMMIT_LOG" | head -20)"
+if [ "$COMMIT_COUNT" -gt 20 ]; then
+  COMMIT_SUMMARY="$COMMIT_SUMMARY\n- ... and $((COMMIT_COUNT - 20)) more commits"
+fi
+
+# --- Generate output ---
+OUTPUT_FILE="specs/RETRO-SPEC-${SAFE_NAME}.md"
+TODAY=$(date +%Y-%m-%d)
+
+cat > "$OUTPUT_FILE" << HEREDOC
+# ${SPEC_ID}: [Retro-SPEC] ${FEATURE_NAME}
+
+> **This is a Retro-SPEC draft generated from explore branch \`${SOURCE_BRANCH}\`.**
+> **Human review and approval required before merge.**
+
+## メタデータ
+
+| フィールド | 内容 |
+|-----------|------|
+| SPEC-ID   | ${SPEC_ID} |
+| ステータス | Draft (Retro-SPEC — 要人間承認) |
+| 作成日    | ${TODAY} |
+| 更新日    | ${TODAY} |
+| 担当Agent | Retro-SPEC Generator (sage-retro-spec.sh) |
+| 依存SPEC  | none |
+| 権限レベル | TBD |
+| 元ブランチ | ${SOURCE_BRANCH} |
+| 昇格元SHA | ${SOURCE_SHA:-TBD} |
+
+## 背景・目的
+
+**TBD — 以下のコミット履歴から目的を記述してください:**
+$(echo -e "$COMMIT_SUMMARY")
+
+## 対象ユーザー
+
+TBD — この変更が影響するユーザー・システムを記述してください。
+
+## スコープ（含む）
+
+変更された ${FILE_COUNT} ファイル:
+$(echo -e "$SCOPE_BULLETS")
+
+## スコープ外（明示的に除外）
+
+TBD — 意図的に除外した範囲を記述してください。「なし」は不可。
+
+- TBD
+
+## 要件
+
+### 機能要件
+- [FR-01] TBD — 変更差分から機能要件を抽出してください
+
+### 非機能要件
+- [NFR-01] TBD
+
+### セキュリティ要件
+- [SEC-01] TBD（「該当なし」の場合は理由を付記）
+
+### 運用要件
+- [OPS-01] TBD
+
+## 受け入れ条件（Acceptance Criteria）
+
+- [ ] AC-01: TBD — テストまたはコマンドで検証可能な条件（最低3件）
+- [ ] AC-02: TBD
+- [ ] AC-03: TBD
+
+## 異常系
+
+- TBD — 最低1件定義すること
+
+## 契約
+
+- API: TBD
+- DB: TBD
+- イベント: TBD
+
+## リスク
+
+- TBD — 最低1件
+
+## 実装メモ（Implementation Agent向け）
+
+### 変更統計
+\`\`\`
+${DIFF_STAT}
+\`\`\`
+
+### 推定影響レイヤ
+$(echo -e "$LAYERS")
+
+### コミット履歴（参考）
+$(echo -e "$COMMIT_SUMMARY")
+
+## 関連ID
+
+- PLAN-ID: （計画フェーズで記入）
+- TASK-ID: （分割フェーズで記入）
+HEREDOC
+
+echo ""
+echo "  Generated: $OUTPUT_FILE"
+echo "  SPEC-ID:   $SPEC_ID"
+echo ""
+echo "  IMPORTANT: This is a DRAFT. Review and fill in all TBD sections."
+echo "  Run 'grep -c TBD $OUTPUT_FILE' to check remaining items."
+echo ""
+echo "=== Retro-SPEC Generation Complete ==="
+
+__EOF_TMPL_RETRO_SPEC__
 
 read -r -d '' TMPL_HOOK_BLOCK_DANGEROUS <<'__EOF_TMPL_HOOK_BLOCK_DANGEROUS__' || true
 #!/usr/bin/env bash
@@ -3996,6 +4704,32 @@ task_status() {
 }
 
 echo "=== SAGE Session Context ==="
+echo ""
+
+# --- 0. Lane Detection ---
+echo "--- Current Lane ---"
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+LANE="standard"
+LANE_EMOJI="🔵"
+LANE_DESC="Full SAGE lifecycle: SPEC + PLAN + TASK required. Gates 1-4."
+
+if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
+  LANE="explore"
+  LANE_EMOJI="🟢"
+  LANE_DESC="Free exploration. No SPEC, no TASK-ID, no gates required. To promote: bash scripts/sage-promote.sh $CURRENT_BRANCH"
+elif [[ "$CURRENT_BRANCH" == fix/* || "$CURRENT_BRANCH" == chore/* || "$CURRENT_BRANCH" == docs/* ]]; then
+  LANE="lite"
+  LANE_EMOJI="🟡"
+  LANE_DESC="Lightweight changes. TASK-ID required, SPEC not required. Gates 1+3. Max 3 files, no contract changes."
+elif [[ "$CURRENT_BRANCH" == promote/* ]]; then
+  LANE="promotion"
+  LANE_EMOJI="🔴"
+  LANE_DESC="Promotion from explore. Retro-SPEC + TASK-ID required. Gates 1-4."
+fi
+
+echo "  Branch: $CURRENT_BRANCH"
+echo "  Lane:   $LANE_EMOJI $LANE"
+echo "  Rules:  $LANE_DESC"
 echo ""
 
 # --- 1. Latest 3 RUN logs ---
@@ -4449,7 +5183,7 @@ echo ""
 
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
-mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness
+mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
 echo "  OK"
 
 # --- [2/9] Templates & governance ---
@@ -4471,6 +5205,8 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   write_file_if_new "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
   write_file_if_new "scripts/sage-update-check.sh" "$TMPL_UPDATE_CHECK" && chmod +x "scripts/sage-update-check.sh"
+  write_file_if_new "scripts/sage-promote.sh" "$TMPL_PROMOTE" && chmod +x "scripts/sage-promote.sh"
+  write_file_if_new "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
 else
   # Update mode: テンプレートとガバナンスはSAGE管理なので上書き
   update_file "specs/_template.md" "$TMPL_SPEC"
@@ -4486,6 +5222,8 @@ else
   update_file "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   update_file "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
   update_file "scripts/sage-update-check.sh" "$TMPL_UPDATE_CHECK" && chmod +x "scripts/sage-update-check.sh"
+  update_file "scripts/sage-promote.sh" "$TMPL_PROMOTE" && chmod +x "scripts/sage-promote.sh"
+  update_file "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   # failures.md, config.yaml はプロジェクト固有データが入るので更新しない
   echo "  KEEP: sage/failures.md (project data)"
   echo "  KEEP: .sage/config.yaml (project settings)"
@@ -4520,6 +5258,7 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new ".claude/skills/sage-evaluate/SKILL.md" "$TMPL_SKILL_EVALUATE"
   write_file_if_new ".claude/skills/sage-evaluate/references/scoring-rubric.md" "$TMPL_SKILL_EVALUATE_RUBRIC"
   write_file_if_new ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
+  write_file_if_new ".claude/skills/sage-promote/SKILL.md" "$TMPL_SKILL_PROMOTE"
 else
   update_file ".claude/skills/sage-spec/SKILL.md" "$TMPL_SKILL_SPEC"
   update_file ".claude/skills/sage-plan/SKILL.md" "$TMPL_SKILL_PLAN"
@@ -4529,6 +5268,7 @@ else
   update_file ".claude/skills/sage-evaluate/SKILL.md" "$TMPL_SKILL_EVALUATE"
   update_file ".claude/skills/sage-evaluate/references/scoring-rubric.md" "$TMPL_SKILL_EVALUATE_RUBRIC"
   update_file ".claude/skills/sage-evaluate/references/knowledge-base.md" "$TMPL_SKILL_EVALUATE_KB"
+  update_file ".claude/skills/sage-promote/SKILL.md" "$TMPL_SKILL_PROMOTE"
 fi
 
 # --- [5/9] CLAUDE.md ---
@@ -4624,6 +5364,8 @@ STATEHEADER
     "scripts/sage-id-gen.sh"
     "scripts/sage-trace-check.sh"
     "scripts/sage-update-check.sh"
+    "scripts/sage-promote.sh"
+    "scripts/sage-retro-spec.sh"
     ".claude/rules/specs-rules.md"
     ".claude/rules/plans-rules.md"
     ".claude/rules/tasks-rules.md"
@@ -4637,6 +5379,7 @@ STATEHEADER
     ".claude/skills/sage-evaluate/SKILL.md"
     ".claude/skills/sage-evaluate/references/scoring-rubric.md"
     ".claude/skills/sage-evaluate/references/knowledge-base.md"
+    ".claude/skills/sage-promote/SKILL.md"
     "templates/hooks/block-dangerous-commands.sh"
     "templates/hooks/protect-sage-files.sh"
     "templates/hooks/check-file-scope.sh"

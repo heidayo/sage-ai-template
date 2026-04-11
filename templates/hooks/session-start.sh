@@ -30,6 +30,32 @@ task_status() {
 echo "=== SAGE Session Context ==="
 echo ""
 
+# --- 0. Lane Detection ---
+echo "--- Current Lane ---"
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+LANE="standard"
+LANE_EMOJI="🔵"
+LANE_DESC="Full SAGE lifecycle: SPEC + PLAN + TASK required. Gates 1-4."
+
+if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
+  LANE="explore"
+  LANE_EMOJI="🟢"
+  LANE_DESC="Free exploration. No SPEC, no TASK-ID, no gates required. To promote: bash scripts/sage-promote.sh $CURRENT_BRANCH"
+elif [[ "$CURRENT_BRANCH" == fix/* || "$CURRENT_BRANCH" == chore/* || "$CURRENT_BRANCH" == docs/* ]]; then
+  LANE="lite"
+  LANE_EMOJI="🟡"
+  LANE_DESC="Lightweight changes. TASK-ID required, SPEC not required. Gates 1+3. Max 3 files, no contract changes."
+elif [[ "$CURRENT_BRANCH" == promote/* ]]; then
+  LANE="promotion"
+  LANE_EMOJI="🔴"
+  LANE_DESC="Promotion from explore. Retro-SPEC + TASK-ID required. Gates 1-4."
+fi
+
+echo "  Branch: $CURRENT_BRANCH"
+echo "  Lane:   $LANE_EMOJI $LANE"
+echo "  Rules:  $LANE_DESC"
+echo ""
+
 # --- 1. Latest 3 RUN logs ---
 echo "--- Recent RUN Logs ---"
 if [ -d ".sage/runs" ] && ls .sage/runs/*.json &>/dev/null 2>&1; then

@@ -2,10 +2,12 @@
 <!-- === SAGE Development System (auto-injected) === -->
 ## SAGE Development System
 
-- Before writing ANY code, check `specs/` for an existing SPEC. No SPEC = no code.
+- Before writing code on the standard lane, check `specs/` for an existing SPEC. No SPEC = no code.
 - Only modify files listed in the active TASK's File Scope.
 - Every commit must include a TASK-ID (enforced by pre-commit hook).
-- Prototypes go on `vibe/*` branches (no SPEC needed).
+- Prototypes go on `vibe/*` branches (no SPEC needed). To promote to main: `/sage-promote` or `bash scripts/sage-promote.sh vibe/<name>`.
+- Development lanes: explore (`vibe/*`, no gates) | lite (`fix/*` / `chore/*` / `docs/*`, TASK-ID + max 3 files + no contract changes + Gate 1+3) | standard (`feature/*`, full SPEC + Gate 1-4) | promotion (`promote/*`, Retro-SPEC + TASK-ID + Gate 1-4).
+- `vibe/*` → `main` direct merge is prohibited. Use `promote/*` with Retro-SPEC.
 - For detailed workflows: `/sage-spec`, `/sage-plan`, `/sage-review`, `/sage-evaluate`
 - SPEC/PLAN completion triggers auto-scoring (100 points required before implementation).
 - Governance docs in `sage/` — do not modify without human approval.
