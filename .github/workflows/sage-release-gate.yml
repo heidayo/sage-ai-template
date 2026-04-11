@@ -41,6 +41,7 @@ jobs:
             // When a gate is not triggered (not_found), it is legitimately SKIPPED
             // because the relevant code paths were not changed.
             const pathFilteredGates = new Set([
+              'sage-structural-gate',    // paths-ignore: [*.md, docs/**, sage/**, specs/**, plans/**, tasks/**]
               'sage-functional-gate',    // paths: [src/**, tests/**]
               'sage-architecture-gate',  // paths: [src/**]
             ]);
