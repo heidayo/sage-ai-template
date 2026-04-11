@@ -200,7 +200,26 @@ Gate results are automatically recorded as PR comments.
 | Test case names | Japanese |
 | Agent reasoning (internal) | Any |
 
+## Development Lanes
+
+Lane is auto-detected from branch name. Follow the lane rules:
+
+| Lane | Branch | SPEC needed? | TASK-ID needed? | Gates |
+|------|--------|-------------|----------------|-------|
+| 🟢 explore | `vibe/*` | No | No | None |
+| 🟡 lite | `fix/*` `chore/*` `docs/*` | No | Yes | Gate 1+3 |
+| 🔵 standard | `feature/*` others | Yes | Yes | Gate 1-4 |
+| 🔴 promotion | `promote/*` | Retro-SPEC | Yes | Gate 1-4 |
+
+**Lane-specific behavior for AI agents:**
+- On `vibe/*`: Skip the Pre-Implementation Checklist. Write code freely. No SPEC or TASK-ID required.
+- On `fix/*`, `chore/*`, `docs/*`: TASK-ID required in commits. SPEC not required. Max 3 files, no contract changes.
+- On `feature/*` or other branches: Full SAGE lifecycle required (see checklist below).
+- On `promote/*`: Retro-SPEC must exist and be approved. Use `bash scripts/sage-promote.sh vibe/<name>`.
+
 ## Pre-Implementation Checklist
+
+**Applies to standard lane only** (`feature/*` and other non-explore/lite branches).
 
 Before writing any code, confirm:
 
@@ -237,7 +256,9 @@ This file (`AGENTS.md`) defines repository-wide development rules.
 - Create tasks in `tasks/` with explicit File Scope (which files you may modify).
 - Only modify files in the TASK's File Scope.
 - Every commit must include a TASK-ID (e.g., `TASK-0001: add login endpoint`).
-- Prototypes go on `vibe/*` branches (no SPEC needed).
+- Prototypes go on `vibe/*` branches (no SPEC needed). To promote to main: `bash scripts/sage-promote.sh vibe/<name>`.
+- Development lanes: explore (`vibe/*`, no gates) → lite (`fix/*/chore/*/docs/*`, TASK-ID + Gate 1+3) → standard (`feature/*`, full SPEC + Gate 1-4).
+- `vibe/*` → `main` direct merge is **prohibited**. Use `promote/*` branch with Retro-SPEC.
 - Do not modify `sage/` without human approval.
 
 Prohibited:

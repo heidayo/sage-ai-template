@@ -234,6 +234,85 @@ graph LR
 
 ---
 
+## 開発レーン（Lanes）
+
+変更のリスクと規模に応じて4つのレーンを用意。ブランチ名で**自動判定**される。
+
+```mermaid
+graph LR
+    subgraph EXPLORE["🟢 explore"]
+        V["vibe/*<br/>TASK-ID不要・Gate免除"]
+    end
+
+    subgraph LITE["🟡 lite"]
+        F["fix/* chore/* docs/*<br/>TASK-ID必須・Gate 1+3"]
+    end
+
+    subgraph STANDARD["🔵 standard"]
+        FE["feature/* その他<br/>TASK-ID+SPEC必須・Gate 1-4"]
+    end
+
+    V -->|"sage-promote.sh"| P["promote/*<br/>昇格プロトコル"]
+    P --> FE
+
+    style EXPLORE fill:#d4edda,stroke:#28a745,color:#000
+    style LITE fill:#fff3cd,stroke:#ffc107,color:#000
+    style STANDARD fill:#cce5ff,stroke:#007bff,color:#000
+    style P fill:#f8d7da,stroke:#dc3545,color:#000
+```
+
+| レーン | ブランチ | TASK-ID | SPEC | 必須Gate | 用途 |
+|-------|---------|---------|------|---------|------|
+| 🟢 **explore** | `vibe/*` | 不要 | 不要 | なし | プロトタイプ・PoC・技術検証 |
+| 🟡 **lite** | `fix/*` `chore/*` `docs/*` | 必須 | 不要 | Gate 1 + 3 | typo fix・依存更新・ドキュメント修正 |
+| 🔵 **standard** | `feature/*` その他 | 必須 | 必須 | Gate 1-4 | 本番機能開発 |
+| 🔴 **promotion** | `promote/*` | 必須 | Retro-SPEC | Gate 1-4 | explore 成果の昇格と本番統合前の管理 |
+
+### 昇格プロトコル（explore → promotion → standard）
+
+探索で得た成果を本番に持ち込むには、昇格プロトコルを通す。
+操作環境に応じて3つの方法がある:
+
+| 環境 | 操作方法 |
+|------|---------|
+| 🖥️ **ターミナル** | `bash scripts/sage-promote.sh vibe/my-feature` |
+| 💬 **デスクトップアプリ** (Claude Code) | `/sage-promote` またはチャットで「本番に持っていきたい」 |
+| 🌐 **ブラウザアプリ** (Claude Code) | `/sage-promote` またはチャットで「昇格して」 |
+
+```mermaid
+sequenceDiagram
+    participant Dev as 👤 開発者
+    participant AI as 🤖 Claude Code
+    participant SAGE as 📜 SAGE
+
+    Dev->>AI: 「vibe/auth-poc を本番に持っていきたい」
+    AI->>SAGE: sage-promote.sh 実行
+    SAGE-->>AI: promote/* ブランチ作成 + Retro-SPEC ドラフト
+    AI->>AI: diff + commit log から TBD を自動補完
+    AI->>Dev: 「Retro-SPEC を確認してください」
+    Dev->>AI: 「OK」
+    AI->>SAGE: Gate 1-4 実行
+    SAGE-->>AI: ALL PASSED ✅
+    AI->>Dev: 「PR の準備ができました」
+```
+
+`vibe/*` → `main` への直接マージは禁止。必ず `promote/*` を経由する。
+
+### セッション開始時の自動レーン通知
+
+どの環境でも、セッション開始時に `session-start` hook が現在のレーンを自動表示する:
+
+```
+--- Current Lane ---
+  Branch: vibe/auth-poc
+  Lane:   🟢 explore
+  Rules:  Free exploration. No SPEC, no TASK-ID, no gates required.
+```
+
+AIはこの情報を読み取り、レーンに応じた行動を自動で切り替える。
+
+---
+
 ## 核心思想
 
 | # | 原則 | 説明 |
@@ -437,6 +516,12 @@ bash scripts/sage-repair.sh
 
 # 採用メトリクス
 bash scripts/sage-report.sh
+
+# vibe/* ブランチを本番用に昇格
+bash scripts/sage-promote.sh vibe/my-feature
+
+# Retro-SPEC ドラフト生成（昇格時に自動実行される）
+bash scripts/sage-retro-spec.sh
 ```
 
 ---

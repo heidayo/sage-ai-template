@@ -133,13 +133,80 @@ else
 fi
 echo ""
 
-# --- Vibe Branch Check ---
-echo "[5/7] ブランチ規約チェック..."
+# --- Branch & Lane Check ---
+echo "[5/7] ブランチ規約・レーンチェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
+
+# Detect lane from branch name
+DETECTED_LANE="standard"
 if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
-  echo "  ERROR: vibe/* ブランチから直接マージ禁止。staging経由 + SPEC作成後にmainへ"
+  DETECTED_LANE="explore"
+elif [[ "$CURRENT_BRANCH" == fix/* || "$CURRENT_BRANCH" == chore/* || "$CURRENT_BRANCH" == docs/* ]]; then
+  DETECTED_LANE="lite"
+elif [[ "$CURRENT_BRANCH" == promote/* ]]; then
+  DETECTED_LANE="promotion"
+fi
+echo "  Lane: $DETECTED_LANE (branch: ${CURRENT_BRANCH:-unknown})"
+
+# Check 1: vibe/* direct merge to main is prohibited
+if [[ "$CURRENT_BRANCH" == vibe/* ]]; then
+  echo "  ERROR: vibe/* ブランチから直接マージ禁止"
+  echo "  昇格するには: bash scripts/sage-promote.sh $CURRENT_BRANCH"
   ERRORS=$((ERRORS + 1))
-else
+fi
+
+# Check 2: promote/* requires a branch-matching Retro-SPEC + TASK-ID
+if [[ "$CURRENT_BRANCH" == promote/* ]]; then
+  PROMOTE_NAME="${CURRENT_BRANCH#promote/}"
+  # Sanitize branch name the same way sage-retro-spec.sh does
+  SAFE_PROMOTE_NAME=$(echo "$PROMOTE_NAME" | tr '/' '-' | tr ' ' '-')
+
+  # Look for a retro-spec file matching this specific branch name
+  RETRO_SPEC_FILE="specs/RETRO-SPEC-${SAFE_PROMOTE_NAME}.md"
+  if [ -f "$RETRO_SPEC_FILE" ]; then
+    echo "  OK: Retro-SPEC found: $RETRO_SPEC_FILE"
+
+    # Check for TBD/TODO — these must be resolved before merge
+    TBD_COUNT=$(grep -cE "^[^>]*TBD" "$RETRO_SPEC_FILE" 2>/dev/null || echo "0")
+    if [ "$TBD_COUNT" -gt 0 ]; then
+      echo "  ERROR: Retro-SPEC に TBD が $TBD_COUNT 件残っています。全て埋めてください"
+      ERRORS=$((ERRORS + 1))
+    else
+      echo "  OK: Retro-SPEC に未記入項目なし"
+    fi
+  else
+    echo "  ERROR: promote/* ブランチには Retro-SPEC が必要です"
+    echo "  期待ファイル: $RETRO_SPEC_FILE"
+    echo "  生成するには: bash scripts/sage-retro-spec.sh $CURRENT_BRANCH"
+    ERRORS=$((ERRORS + 1))
+  fi
+
+  # Check 3: only promotion-lane commits need TASK-ID; inherited vibe/* commits stay exempt
+  SOURCE_SHA=""
+  if [ -f "$RETRO_SPEC_FILE" ]; then
+    SOURCE_SHA=$(awk -F'|' '/^\| 昇格元SHA / {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3; exit}' "$RETRO_SPEC_FILE" 2>/dev/null || true)
+  fi
+
+  if [ -n "$SOURCE_SHA" ] && git rev-parse --verify "$SOURCE_SHA" > /dev/null 2>&1; then
+    PROMOTION_COMMITS=$(git log --oneline "${SOURCE_SHA}..${CURRENT_BRANCH}" 2>/dev/null || true)
+    if [ -z "$PROMOTION_COMMITS" ]; then
+      echo "  OK: 昇格後コミットなし（TASK-ID チェック対象なし）"
+    else
+      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "TASK-[0-9]{4}" || echo "0")
+      if [ "$COMMITS_WITHOUT_TASKID" -gt 0 ]; then
+        echo "  ERROR: promote/* ブランチの昇格後コミットに TASK-ID なしが ${COMMITS_WITHOUT_TASKID} 件あります"
+        ERRORS=$((ERRORS + 1))
+      else
+        echo "  OK: 昇格後コミットは全て TASK-ID あり"
+      fi
+    fi
+  else
+    echo "  WARN: 昇格元SHAを特定できないため、promote/* の TASK-ID チェックをスキップしました"
+  fi
+fi
+
+# Check 3: non-vibe, non-promote branches pass normally
+if [[ "$DETECTED_LANE" != "explore" && "$DETECTED_LANE" != "promotion" ]]; then
   echo "  OK: ブランチ規約準拠 (${CURRENT_BRANCH:-unknown})"
 fi
 echo ""
