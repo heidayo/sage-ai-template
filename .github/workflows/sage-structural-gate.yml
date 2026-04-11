@@ -24,6 +24,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Validate the PR head commit directly to avoid shallow merge-ref
+          # false positives in git diff-tree --check.
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Keep the direct parent so git diff-tree can inspect only the
+          # current commit instead of treating HEAD as a synthetic root.
+          fetch-depth: 2
 
       # --- Lint ---
       # Uncomment and configure for your language:
