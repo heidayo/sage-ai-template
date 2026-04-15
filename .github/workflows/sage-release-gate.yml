@@ -1,7 +1,14 @@
 name: "SAGE Gate 5: Release"
 
 on:
-  pull_request:
+  # Trigger after any Gate 1-4 workflow completes (not concurrently)
+  workflow_run:
+    workflows:
+      - "SAGE Gate 1: Structural"
+      - "SAGE Gate 2: Functional"
+      - "SAGE Gate 3: Security"
+      - "SAGE Gate 4: Architecture"
+    types: [completed]
     branches: [main, production]
 
 permissions:
@@ -10,17 +17,47 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Use head_sha to deduplicate: only one Gate 5 run per commit
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: true
 
 jobs:
   release:
+    # Only run for PRs (not direct pushes)
+    if: github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Find associated PR
+        id: find_pr
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const headSha = context.payload.workflow_run.head_sha;
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 10,
+            });
+            const pr = prs.find(p => p.head.sha === headSha);
+            if (!pr) {
+              core.info(`No open PR found for SHA ${headSha}, skipping`);
+              core.setOutput('found', 'false');
+              return;
+            }
+            core.setOutput('found', 'true');
+            core.setOutput('pr_number', String(pr.number));
+            core.setOutput('head_sha', headSha);
+
       - name: Checkout
+        if: steps.find_pr.outputs.found == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ steps.find_pr.outputs.head_sha }}
 
       - name: Check Gate 1-4 prerequisites
+        if: steps.find_pr.outputs.found == 'true'
         id: prerequisites
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
@@ -32,10 +69,11 @@ jobs:
               'sage-security-gate',
               'sage-architecture-gate',
             ];
-            const headSha = context.payload.pull_request?.head?.sha || context.sha;
+            const headSha = '${{ steps.find_pr.outputs.head_sha }}';
             const results = [];
             let failed = false;
             let blocked = false;
+            let pending = false;
 
             // Gates that use paths filters — they may not trigger on every PR.
             // When a gate is not triggered (not_found), it is legitimately SKIPPED
@@ -61,13 +99,15 @@ jobs:
 
                 if (!match) {
                   if (pathFilteredGates.has(name)) {
-                    // Gate uses paths filter and was not triggered — legitimate SKIPPED
                     results.push({ name, status: 'skipped_by_paths' });
                   } else {
-                    // Gate should always run but was not found — treat as failure
                     results.push({ name, status: 'not_found' });
                     failed = true;
                   }
+                } else if (match.status !== 'completed') {
+                  // Still running — Gate 5 will re-trigger when this gate completes
+                  results.push({ name, status: 'in_progress' });
+                  pending = true;
                 } else if (match.conclusion === 'failure') {
                   results.push({ name, status: 'failure' });
                   failed = true;
@@ -77,7 +117,6 @@ jobs:
                   if (pathFilteredGates.has(name)) {
                     results.push({ name, status: 'skipped_by_paths' });
                   } else {
-                    // Non-path-filtered gate was skipped — should not happen, treat as blocked
                     results.push({ name, status: 'skipped_unexpected' });
                     blocked = true;
                   }
@@ -102,8 +141,11 @@ jobs:
             core.setOutput('summary', summary);
             core.setOutput('failed', String(failed));
             core.setOutput('blocked', String(blocked));
+            core.setOutput('pending', String(pending));
 
-            if (failed || blocked) {
+            if (pending) {
+              core.info('Some gates still in progress — Gate 5 will re-run when they complete.');
+            } else if (failed || blocked) {
               const reason = blocked
                 ? 'Release gate blocked because prerequisite workflow status could not be verified.'
                 : 'One or more Gate 1-4 workflows have failed. Fix them before release.';
@@ -111,6 +153,7 @@ jobs:
             }
 
       - name: Release readiness check
+        if: steps.find_pr.outputs.found == 'true' && steps.prerequisites.outputs.pending != 'true'
         id: release
         run: |
           set -euo pipefail
@@ -127,16 +170,53 @@ jobs:
           echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
 
       - name: Comment result on PR
-        if: always() && github.event_name == 'pull_request'
+        if: always() && steps.find_pr.outputs.found == 'true'
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const marker = '<!-- sage-release-gate -->';
+            const prNumber = Number('${{ steps.find_pr.outputs.pr_number }}');
+            const headSha = '${{ steps.find_pr.outputs.head_sha }}';
             const errors = Number('${{ steps.release.outputs.errors }}' || '0');
             const prereqFailed = '${{ steps.prerequisites.outputs.failed }}' === 'true';
             const prereqBlocked = '${{ steps.prerequisites.outputs.blocked }}' === 'true';
+            const prereqPending = '${{ steps.prerequisites.outputs.pending }}' === 'true';
             const prereqSummary = '${{ steps.prerequisites.outputs.summary }}' || '';
+
+            // If gates are still pending, post a waiting message and exit
+            if (prereqPending) {
+              const body = [
+                marker,
+                `## ⏳ SAGE Gate 5 (Release): WAITING`,
+                '',
+                `- Prerequisites: **WAITING** (some Gate 1-4 workflows still running)`,
+                ...prereqSummary.split(', ').filter(Boolean).map(entry => {
+                  const [name, state] = entry.split(': ');
+                  if (state === 'success') return `  - ✅ ${name}: PASS`;
+                  if (state === 'in_progress') return `  - ⏳ ${name}: IN PROGRESS`;
+                  if (state === 'skipped_by_paths') return `  - ⏭️ ${name}: SKIPPED (no matching paths changed)`;
+                  return `  - ⏳ ${name}: ${state.toUpperCase()}`;
+                }),
+                `- Commit: \`${headSha.slice(0, 7)}\``,
+                `- Updated: ${new Date().toISOString()}`,
+                '',
+                '> Gate 5 will automatically re-evaluate when remaining gates complete.',
+              ].join('\n');
+
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNumber, per_page: 100,
+              });
+              const existing = comments.find(c => (c.body || '').includes(marker));
+              const params = { owner: context.repo.owner, repo: context.repo.repo, body };
+              if (existing) {
+                await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+              } else {
+                await github.rest.issues.createComment({ ...params, issue_number: prNumber });
+              }
+              return;
+            }
 
             const hasFail = errors > 0 || prereqFailed || prereqBlocked;
             const icon = hasFail ? '❌' : '✅';
@@ -161,7 +241,7 @@ jobs:
               `- Release issues: **${errors}**`,
               `- Prerequisites: **${prereqBlocked ? 'BLOCKED' : (prereqFailed ? 'FAIL' : 'PASS')}**`,
               ...prereqLines,
-              `- Commit: \`${context.sha.slice(0, 7)}\``,
+              `- Commit: \`${headSha.slice(0, 7)}\``,
               `- Updated: ${new Date().toISOString()}`,
               '',
               '### Release Checklist',
@@ -174,7 +254,7 @@ jobs:
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
+              issue_number: prNumber,
               per_page: 100,
             });
 
@@ -184,5 +264,5 @@ jobs:
             if (existing) {
               await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
             } else {
-              await github.rest.issues.createComment({ ...params, issue_number: context.payload.pull_request.number });
+              await github.rest.issues.createComment({ ...params, issue_number: prNumber });
             }
