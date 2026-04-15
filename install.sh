@@ -358,6 +358,8 @@ AIは仕様を解釈・実装・検査するが、仕様なき意思決定主体
 ### 原則7: 品質は生成ではなく検証で守る
 AI出力を信用しない。通すべき検証を増やす。
 
+AI出力は非決定的であり（同一プロンプトで異なるコードが生成される確率75%超）、ベンチマーク精度（HumanEval 99%）と実運用バグ率（41%増）の間には大きな乖離がある。AIが「正しい」と主張すること、またはベンチマークスコアは、検証の代替にならない。
+
 ### 原則8: 人間は監督者である
 人間の仕事は、仕様策定、優先順位付け、例外判断、承認、改善である。
 
@@ -819,6 +821,57 @@ git log --oneline -n 1 | grep -qE 'TASK-[0-9]{4}' || echo "WARNING: Invisible De
 
 ---
 
+## AP-07: Hallucination Propagation
+
+**定義**: AI幻覚がテストをすり抜ける。コードとテストが同じ誤った前提を共有する。
+
+**検出シグナル**:
+- テストは通過するが、SPEC受入条件と実装の挙動が矛盾している
+- テストの期待値がSPECに追跡不能（AC-N参照が存在しない）
+- 存在しないパッケージ・APIがコードとテスト双方で使用されている
+
+**CI検出方法**:
+- Review Agent の Test Adequacy 軸で「テスト期待値がSPEC受入条件から導出されているか」を検査
+- テストケースに AC-N 参照がない場合は減点
+
+**防止策**: Test Agent の src/ 参照制限（シグネチャのみ参照可、内部ロジック参照禁止）+ テスト-SPEC 対応の強制
+
+---
+
+## AP-08: Comprehension Debt Accumulation
+
+**定義**: AI生成コードを理解せず受け入れ、保守不能なコードベースが蓄積する。
+
+**検出シグナル**:
+- PRレビューにおいて実装ロジックへの具体的言及がない
+- 複雑な制御フロー（深いネスト、長い関数）に説明コメントがない
+- src-rules の「Code readability and maintainability」チェック項目が遵守されていない
+
+**CI検出方法**:
+- Review Agent の Code Quality 軸（セクション7）で可読性・保守性を検査
+- src-rules の Intentional changes only / Consistency / Readable intent が守られているか確認
+
+**防止策**: src-rules の「Code readability and maintainability」遵守を Review Agent が採点で強制
+
+---
+
+## AP-09: Benchmark Illusion
+
+**定義**: ベンチマーク精度やAI自信度を、実コード品質の根拠とする。
+
+**検出シグナル**:
+- テストを実行せずにAI生成コードを受け入れる
+- 複雑な生成コードを動作確認なしで受け入れる
+- ベンチマーク結果（HumanEval等）を正確性の証拠として引用する
+
+**CI検出方法**:
+- Gate 2（テスト必須通過）で未検証コードのマージを防止
+- ハーネスの `verify_pass_required: true` で全ゲート通過を強制
+
+**防止策**: governance 原則7（品質は生成ではなく検証で守る）+ 全レーン（explore除く）でゲート必須
+
+---
+
 ## 昇格ルール
 
 `sage/failures.md` に記録された失敗が**3回以上繰り返された場合**、このファイルに新しいアンチパターンとして追加する。
@@ -1228,6 +1281,14 @@ metrics:
     measure: "同一TASK-IDに対する再コミット率"
     source: "git log --grep=TASK-ID"
     target: "<= 0.2"
+  code_churn:
+    description: "PR内の追加行/削除行の比率"
+    source: "git diff --numstat origin/main...HEAD"
+    target: "<= 3.0"
+  duplication_rate:
+    description: "コード重複率"
+    source: "duplication_check の出力"
+    target: "<= 5%"
 
 # --- Run Log Schema ---
 run_log_schema:
@@ -1312,6 +1373,12 @@ project_checks:
   #   format: "black --check ."
   #   type_check: "mypy ."
   #   test_command: "pytest --cov=src --cov-report=term-missing"
+  # --- AI生成コード品質チェック（オプション） ---
+  # 有効化条件: Gate 1 が2週間安定運用後 / パッケージマネージャ使用プロジェクト
+  # ロールバック: 誤検知率 > 5% or CI時間増加 > 30秒 → コメントアウトに戻す
+  # hallucination_check: "bash scripts/check-package-existence.sh"
+  # duplication_check: "npx jscpd --threshold 5 src/"
+  # complexity_check: "npx escomplex-cli --maxcc 15 src/"
 
 # --- Hooks (SPEC-0003: Hooks実用化) ---
 # Profile controls which hooks are active.
@@ -1640,6 +1707,18 @@ When writing or modifying source code:
 ## Before starting
 実装開始前に `sage/failures.md` を確認し、過去に同様のパターンで失敗していないか確認すること。
 
+## AI Output Verification
+
+AI生成コードは非決定的であり、幻覚（存在しないパッケージ・APIの生成）を含む可能性がある。コミット前に以下を確認すること:
+
+### 必須（全てのAI生成コード）
+- 全ての import/require が実際に解決できること（プロジェクトをビルド・実行して確認）
+- 「正しそうに見える」を信用しない — テストを実行して確認する
+
+### 条件付き必須
+- 外部SDK/HTTPクライアントを新規追加・変更した場合: 外部APIコールがライブラリの実ドキュメントと一致すること
+- 再現可能なgenerator/promptテンプレートが存在する場合: 同一要件から再生成し、diffを取って不安定な箇所を特定する
+
 ## Code readability and maintainability
 
 コードは正しく動くだけでなく、他の開発者（人間・AI問わず）が読んで理解・保守できることを重視する。コミット前に以下を確認すること:
@@ -1879,6 +1958,9 @@ After implementation. Must be in a SEPARATE session from implementation.
 ### 5. Test Adequacy
 - Normal, boundary, and error cases covered?
 - Coverage above threshold (default 80% per .sage/config.yaml)?
+- テストの期待値はSPECの受入条件から導出されているか？（src/の実装をコピーしていないか = AP-07防止）
+- テストケース名またはコメントにSPEC受入条件への参照があるか？（AC-N形式等）
+- AC-N参照が付いているだけでなく、そのテストの期待値が参照先の受入条件内容と一致しているか確認する
 
 ### 6. Safety
 - No hardcoded secrets or credentials
@@ -1907,6 +1989,9 @@ Reference: `sage/anti-patterns.md`
 - Big Bang Prompt: single commit >20 files without TASK-ID
 - Silent Scope Expansion: changes outside File Scope
 - Invisible Development: no TASK-ID in commits
+- Hallucination Propagation: テストとコードが同じ幻覚を共有（AP-07）
+- Comprehension Debt Accumulation: AI生成コードを理解せず受入（AP-08）
+- Benchmark Illusion: ベンチマークスコアで品質を判断（AP-09）
 
 ## Rules
 - This review MUST be in a separate session from implementation
@@ -2063,6 +2148,7 @@ read -r -d '' TMPL_SKILL_REVIEW_RUBRIC <<'__EOF_TMPL_SKILL_REVIEW_RUBRIC__' || t
 | 過度な結合（変更が複数ファイルに波及する設計） | -3 |
 | 冗長なコード（DRY違反、コピペ） | -2 |
 | 過度に複雑な制御フロー（深いネスト、長い関数） | -2 |
+| コードチャーン比率が過大（追加/削除比 > 3.0、実質変更量に対して差分が大きすぎる） | -2 |
 
 ---
 
@@ -2083,6 +2169,9 @@ read -r -d '' TMPL_SKILL_REVIEW_RUBRIC <<'__EOF_TMPL_SKILL_REVIEW_RUBRIC__' || t
 | カバレッジが閾値未満 | -3 |
 | テストが実装に依存しすぎ（モック過多、内部構造への依存） | -2 |
 | テスト名が不明瞭（何を検証しているか分からない） | -1 |
+| テストの期待値がSPEC受入条件からでなくsrc/実装から導出されている | -4 |
+| テストケースにSPEC受入条件への参照（AC-N等）がない | -2 |
+| AC-N参照はあるが、参照先の受入条件と期待値が一致していない | -2 |
 
 ---
 
@@ -2589,6 +2678,13 @@ findings（test向け）:
 修正指示:
 {previous_review_feedback.instruction のうち target: "test" のもの}
 {ENDIF}
+
+【テスト独立性ルール（AP-07: Hallucination Propagation 防止）】
+- テストの期待値は必ずSPECの受け入れ条件から導出する
+- src/ からは関数シグネチャ（名前・引数・戻り値の型）のみを参照する
+- src/ の内部ロジックを読んで期待値を決定することは禁止
+- 各テストケースにSPEC受入条件への参照を記載する（例: // AC-3: ログイン成功時にJWTを返す）
+- 実装とSPECが矛盾する場合、SPECに従ってテストを書く（実装が間違い）
 
 【ルール】
 - tests/ 内のテストファイルのみ変更する

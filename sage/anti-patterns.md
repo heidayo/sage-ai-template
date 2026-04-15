@@ -112,6 +112,57 @@ git log --oneline -n 1 | grep -qE 'TASK-[0-9]{4}' || echo "WARNING: Invisible De
 
 ---
 
+## AP-07: Hallucination Propagation
+
+**定義**: AI幻覚がテストをすり抜ける。コードとテストが同じ誤った前提を共有する。
+
+**検出シグナル**:
+- テストは通過するが、SPEC受入条件と実装の挙動が矛盾している
+- テストの期待値がSPECに追跡不能（AC-N参照が存在しない）
+- 存在しないパッケージ・APIがコードとテスト双方で使用されている
+
+**CI検出方法**:
+- Review Agent の Test Adequacy 軸で「テスト期待値がSPEC受入条件から導出されているか」を検査
+- テストケースに AC-N 参照がない場合は減点
+
+**防止策**: Test Agent の src/ 参照制限（シグネチャのみ参照可、内部ロジック参照禁止）+ テスト-SPEC 対応の強制
+
+---
+
+## AP-08: Comprehension Debt Accumulation
+
+**定義**: AI生成コードを理解せず受け入れ、保守不能なコードベースが蓄積する。
+
+**検出シグナル**:
+- PRレビューにおいて実装ロジックへの具体的言及がない
+- 複雑な制御フロー（深いネスト、長い関数）に説明コメントがない
+- src-rules の「Code readability and maintainability」チェック項目が遵守されていない
+
+**CI検出方法**:
+- Review Agent の Code Quality 軸（セクション7）で可読性・保守性を検査
+- src-rules の Intentional changes only / Consistency / Readable intent が守られているか確認
+
+**防止策**: src-rules の「Code readability and maintainability」遵守を Review Agent が採点で強制
+
+---
+
+## AP-09: Benchmark Illusion
+
+**定義**: ベンチマーク精度やAI自信度を、実コード品質の根拠とする。
+
+**検出シグナル**:
+- テストを実行せずにAI生成コードを受け入れる
+- 複雑な生成コードを動作確認なしで受け入れる
+- ベンチマーク結果（HumanEval等）を正確性の証拠として引用する
+
+**CI検出方法**:
+- Gate 2（テスト必須通過）で未検証コードのマージを防止
+- ハーネスの `verify_pass_required: true` で全ゲート通過を強制
+
+**防止策**: governance 原則7（品質は生成ではなく検証で守る）+ 全レーン（explore除く）でゲート必須
+
+---
+
 ## 昇格ルール
 
 `sage/failures.md` に記録された失敗が**3回以上繰り返された場合**、このファイルに新しいアンチパターンとして追加する。

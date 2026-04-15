@@ -457,6 +457,13 @@ findings（test向け）:
 {previous_review_feedback.instruction のうち target: "test" のもの}
 {ENDIF}
 
+【テスト独立性ルール（AP-07: Hallucination Propagation 防止）】
+- テストの期待値は必ずSPECの受け入れ条件から導出する
+- src/ からは関数シグネチャ（名前・引数・戻り値の型）のみを参照する
+- src/ の内部ロジックを読んで期待値を決定することは禁止
+- 各テストケースにSPEC受入条件への参照を記載する（例: // AC-3: ログイン成功時にJWTを返す）
+- 実装とSPECが矛盾する場合、SPECに従ってテストを書く（実装が間違い）
+
 【ルール】
 - tests/ 内のテストファイルのみ変更する
 - src/ の変更は禁止（Implementation Agent の責務）

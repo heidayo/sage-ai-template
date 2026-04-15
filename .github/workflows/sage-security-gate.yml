@@ -12,6 +12,9 @@ permissions:
   actions: read
   pull-requests: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -48,7 +51,11 @@ jobs:
         run: |
           set -euo pipefail
           COUNT=$(jq '.Results | map(.Vulnerabilities // []) | flatten | length' trivy-fs.json 2>/dev/null || echo 0)
+          CRITICAL=$(jq '[.Results | map(.Vulnerabilities // []) | flatten | .[] | select(.Severity == "CRITICAL")] | length' trivy-fs.json 2>/dev/null || echo 0)
+          HIGH=$(jq '[.Results | map(.Vulnerabilities // []) | flatten | .[] | select(.Severity == "HIGH")] | length' trivy-fs.json 2>/dev/null || echo 0)
           echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+          echo "critical=${CRITICAL}" >> "$GITHUB_OUTPUT"
+          echo "high=${HIGH}" >> "$GITHUB_OUTPUT"
 
           if [ "$COUNT" -eq 0 ]; then
             echo "No vulnerabilities found." > trivy-summary.md
@@ -58,6 +65,12 @@ jobs:
               | sort_by(.Severity) | reverse | .[]
               | "- [\(.Severity)] \(.PkgName // "unknown") `\(.InstalledVersion // "?")` → `\(.FixedVersion // "none")` (\(.VulnerabilityID))"
             ' trivy-fs.json > trivy-summary.md
+          fi
+
+          # Fail on CRITICAL or HIGH vulnerabilities
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "FAIL: Found ${CRITICAL} CRITICAL and ${HIGH} HIGH vulnerabilities"
+            exit 1
           fi
 
       - name: Upload Trivy report

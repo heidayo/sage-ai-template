@@ -10,6 +10,9 @@ permissions:
   issues: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -51,6 +54,11 @@ jobs:
 
             ## Output format rules (MUST follow)
 
+            At the very end of your review, output a verdict line in this exact format:
+            総合判定: ✅ PASS
+            or
+            総合判定: ❌ FAIL
+
             For each check item, use these icons consistently:
             - ✅ = PASS (no issue found)
             - ❌ = FAIL (issue found, must fix)
@@ -73,3 +81,42 @@ jobs:
 
             Provide feedback in Japanese.
           timeout_minutes: 10
+
+      - name: Check review verdict
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Wait briefly for the review comment to be posted
+            await new Promise(r => setTimeout(r, 5000));
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              per_page: 50,
+            });
+
+            // Find the most recent comment from the Claude review bot
+            const reviewComment = comments
+              .reverse()
+              .find(c =>
+                c.user?.type === 'Bot' &&
+                (c.body || '').includes('総合判定')
+              );
+
+            if (!reviewComment) {
+              core.warning('Review comment not found — skipping verdict check');
+              return;
+            }
+
+            const body = reviewComment.body || '';
+
+            // Check for FAIL verdict
+            if (body.includes('総合判定') && body.includes('❌')) {
+              core.setFailed('SAGE Review Agent verdict: FAIL — see PR comments for details');
+            } else if (body.includes('総合判定') && body.includes('✅')) {
+              core.info('SAGE Review Agent verdict: PASS');
+            } else {
+              core.warning('Could not parse review verdict — check PR comments manually');
+            }
