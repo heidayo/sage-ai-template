@@ -36,6 +36,14 @@ metrics:
     measure: "同一TASK-IDに対する再コミット率"
     source: "git log --grep=TASK-ID"
     target: "<= 0.2"
+  code_churn:
+    description: "PR内の追加行/削除行の比率"
+    source: "git diff --numstat origin/main...HEAD"
+    target: "<= 3.0"
+  duplication_rate:
+    description: "コード重複率"
+    source: "duplication_check の出力"
+    target: "<= 5%"
 
 # --- Run Log Schema ---
 run_log_schema:
@@ -120,6 +128,12 @@ project_checks:
   #   format: "black --check ."
   #   type_check: "mypy ."
   #   test_command: "pytest --cov=src --cov-report=term-missing"
+  # --- AI生成コード品質チェック（オプション） ---
+  # 有効化条件: Gate 1 が2週間安定運用後 / パッケージマネージャ使用プロジェクト
+  # ロールバック: 誤検知率 > 5% or CI時間増加 > 30秒 → コメントアウトに戻す
+  # hallucination_check: "bash scripts/check-package-existence.sh"
+  # duplication_check: "npx jscpd --threshold 5 src/"
+  # complexity_check: "npx escomplex-cli --maxcc 15 src/"
 
 # --- Hooks (SPEC-0003: Hooks実用化) ---
 # Profile controls which hooks are active.

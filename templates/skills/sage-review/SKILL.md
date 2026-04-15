@@ -29,6 +29,9 @@ After implementation. Must be in a SEPARATE session from implementation.
 ### 5. Test Adequacy
 - Normal, boundary, and error cases covered?
 - Coverage above threshold (default 80% per .sage/config.yaml)?
+- テストの期待値はSPECの受入条件から導出されているか？（src/の実装をコピーしていないか = AP-07防止）
+- テストケース名またはコメントにSPEC受入条件への参照があるか？（AC-N形式等）
+- AC-N参照が付いているだけでなく、そのテストの期待値が参照先の受入条件内容と一致しているか確認する
 
 ### 6. Safety
 - No hardcoded secrets or credentials
@@ -57,6 +60,9 @@ Reference: `sage/anti-patterns.md`
 - Big Bang Prompt: single commit >20 files without TASK-ID
 - Silent Scope Expansion: changes outside File Scope
 - Invisible Development: no TASK-ID in commits
+- Hallucination Propagation: テストとコードが同じ幻覚を共有（AP-07）
+- Comprehension Debt Accumulation: AI生成コードを理解せず受入（AP-08）
+- Benchmark Illusion: ベンチマークスコアで品質を判断（AP-09）
 
 ## Rules
 - This review MUST be in a separate session from implementation
