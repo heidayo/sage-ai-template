@@ -16,6 +16,9 @@ permissions:
   pull-requests: write
   actions: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   # Use head_sha to deduplicate: only one Gate 5 run per commit
   group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
