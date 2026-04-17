@@ -49,6 +49,10 @@ metrics:
 run_log_schema:
   format: "yaml"
   location: ".sage/runs/{RUN-ID}.yaml"
+  # SPEC-0008 TASK-0074/0076/0093: the validator (scripts/sage-runlog-validate.sh)
+  # accepts pass|fail|skipped for every gate. Earlier spec text narrowed
+  # security and architecture to pass|fail only; existing RUN logs disagreed
+  # with that narrowing, so the schema now matches data + validator.
   fields:
     run_id: "RUN-XXXX"
     task_id: "TASK-XXXX"
@@ -58,10 +62,10 @@ run_log_schema:
     status: "pass | fail | skipped"
     files_changed: []
     gate_results:
-      structural: "pass | fail"
+      structural: "pass | fail | skipped"
       functional: "pass | fail | skipped"
-      security: "pass | fail"
-      architecture: "pass | fail"
+      security: "pass | fail | skipped"
+      architecture: "pass | fail | skipped"
       release: "pass | fail | skipped"
     error_log: ""
 
