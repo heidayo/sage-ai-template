@@ -88,8 +88,61 @@ fi
 # like -af where f is part of a short-option cluster.
 if echo "$COMMAND" | grep -qE 'git[[:space:]]+add[^|;&]*\.DS_Store' && \
    echo "$COMMAND" | grep -qE '(-[a-zA-Z]*f[a-zA-Z]*|--force)'; then
-  echo "BLOCKED: 'git add -f .DS_Store' would re-track an ignored macOS metadata file." >&2
+  echo "BLOCKED: force-adding .DS_Store would re-track an ignored macOS metadata file." >&2
   echo "Suggestion: .DS_Store is in .gitignore. Do not force-add it." >&2
+  exit 2
+fi
+
+# --- TASK-0089: expanded destructive command patterns ---
+
+# Pattern: find targeting root/home/cwd with -delete (mass file removal)
+if echo "$COMMAND" | grep -qE 'find[[:space:]]+(/|~|\.)[^|]*-delete\b'; then
+  echo "BLOCKED: 'find ... -delete' on root/home/cwd causes mass file removal." >&2
+  echo "Suggestion: Scope the find path narrowly and review matches first." >&2
+  exit 2
+fi
+
+# Pattern: curl piped directly to shell (remote code execution)
+if echo "$COMMAND" | grep -qE 'curl[[:space:]][^|]*\|[[:space:]]*(ba)?sh\b'; then
+  echo "BLOCKED: 'curl ... | bash/sh' executes remote code without inspection." >&2
+  echo "Suggestion: Download the script, review it, then run locally." >&2
+  exit 2
+fi
+
+# Pattern: wget piped directly to shell (remote code execution)
+if echo "$COMMAND" | grep -qE 'wget[[:space:]][^|]*\|[[:space:]]*(ba)?sh\b'; then
+  echo "BLOCKED: 'wget ... | bash/sh' executes remote code without inspection." >&2
+  echo "Suggestion: Download the script, review it, then run locally." >&2
+  exit 2
+fi
+
+# Pattern: python shutil.rmtree (programmatic equivalent of rm -rf)
+# Use .* (not [^;&]) because python -c bodies legitimately contain ; to
+# chain statements inside a single quoted -c argument.
+if echo "$COMMAND" | grep -qE 'python[23]?[[:space:]].*shutil\.rmtree'; then
+  echo "BLOCKED: 'python -c ... shutil.rmtree' is the programmatic rm -rf." >&2
+  echo "Suggestion: Use a scripted approach with explicit path review." >&2
+  exit 2
+fi
+
+# Pattern: dd writing to a block device (disk wipe / bootloader overwrite)
+if echo "$COMMAND" | grep -qE 'dd[[:space:]][^;&]*of=/dev/[a-z]+[0-9]*'; then
+  echo "BLOCKED: 'dd ... of=/dev/<device>' can destroy a disk or partition." >&2
+  echo "Suggestion: If intentional, run outside this automated session." >&2
+  exit 2
+fi
+
+# Pattern: mkfs (filesystem creation wipes the target device)
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])mkfs(\.[a-z0-9]+)?[[:space:]]'; then
+  echo "BLOCKED: 'mkfs' destroys all data on the target device." >&2
+  echo "Suggestion: Filesystem creation is not a reversible operation; confirm manually." >&2
+  exit 2
+fi
+
+# Pattern: recursive chmod with a world-writable mode on a root-like path
+if echo "$COMMAND" | grep -qE 'chmod[[:space:]]+(-R|--recursive)[[:space:]][0-7]{0,2}7[0-7]{0,1}[[:space:]]+(/|/[a-zA-Z])'; then
+  echo "BLOCKED: 'chmod -R <world-writable> /...' opens filesystem-wide permissions." >&2
+  echo "Suggestion: Narrow the target path or pick a safer mode." >&2
   exit 2
 fi
 
