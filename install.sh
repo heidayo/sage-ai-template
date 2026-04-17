@@ -1374,11 +1374,18 @@ project_checks:
   #   format: "gofmt -l . | grep -c . && exit 1 || true"
   #   type_check: "go vet ./..."
   #   test_command: "go test ./... -coverprofile=coverage.out"
+  #   coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
   # Python example:
   #   lint: "ruff check ."
   #   format: "black --check ."
   #   type_check: "mypy ."
   #   test_command: "pytest --cov=src --cov-report=term-missing"
+  #   coverage_command: "coverage report --format=total"
+  # Node example:
+  #   coverage_command: "npx nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"
+  # SPEC-0008 TASK-0070: coverage_command output must contain a parseable
+  # float (0-1 or 0-100). scripts/sage-coverage-parse.sh extracts the first
+  # number it sees. Threshold compared against functional.unit_test_coverage.
   # --- AI生成コード品質チェック（オプション） ---
   # 有効化条件: Gate 1 が2週間安定運用後 / パッケージマネージャ使用プロジェクト
   # ロールバック: 誤検知率 > 5% or CI時間増加 > 30秒 → コメントアウトに戻す
@@ -2374,7 +2381,8 @@ Evaluator / Review Agent の YAML 出力を受け取った後、オーケスト�
 │  │     Bash: テスト実行・lint・カバレッジのみ    │      │
 │  │     出力: review_feedback YAML              │      │
 │  │                                             │      │
-│  │   review_score >= 100 AND 全Gate pass:      │
+│  │   review_score >= review_score_threshold AND│
+│  │   全Gate pass:                               │
 │  │     auto_approve=false → 人間に確認を求める   │      │
 │  │     auto_approve=true  → 自動で完了          │      │
 │  │   FAIL → fix_scope ルーティングで再実行      │      │
@@ -2507,20 +2515,70 @@ eval_feedback:
 
 ### Phase 1 ループ制御
 
+採点は **best-of-N + moving window** 方式 (SPEC-0008 TASK-0083)。
+旧挙動に戻すには `scoring_best_of_n: 1` かつ `scoring_window_size: 1` と config.yaml に設定する。
+
 ```
+score_window = []   # 直近の iteration_score を最大 scoring_window_size 件保持
 iteration = 0
 WHILE iteration < spec_eval_max_iterations:
-  1. Evaluator（Read-Only）を呼び出し → eval_feedback YAML を受け取る
-  2. YAML バリデーション実行（上記「YAML 出力バリデーション」参照）
-  3. eval_feedback.verdict == "PASS" (score >= 100) → Phase 2 へ進む
-  4. eval_feedback.verdict == "FAIL" → Spec Agent 修正呼び出し
-  5. iteration += 1
+
+  # --- best-of-N 採点 ---
+  samples = []                       # (score, eval_feedback) のリスト
+  FOR i = 1 .. scoring_best_of_n:
+    1. Evaluator（Read-Only）を呼び出し → eval_feedback YAML を受け取る
+    2. YAML バリデーション実行（上記「YAML 出力バリデーション」参照）
+    3. 成功時: samples.append((eval_feedback.total_score, eval_feedback))
+       失敗時 (バリデーション不通過など): このサンプルはスキップ
+
+  # --- 有効サンプル欠落チェック (SPEC-0008 TASK-0084) ---
+  IF len(samples) == 0:
+    → status = "aborted"
+    → abort_reason = "evaluator_unavailable"
+    → ユーザーに報告し判断を委ねる
+
+  iteration_score   = max(s.score for s in samples)
+  best_eval_feedback = argmax(s.score for s in samples).eval_feedback
+
+  # --- oscillation 検知 (SPEC-0008 TASK-0084) ---
+  # 同一入力に対する採点の max-min が閾値超なら Evaluator の非決定性が
+  # 高すぎるサイン。再実行より人間判断が必要な状態。
+  IF scoring_best_of_n >= 2:
+    variance = max(s.score for s in samples) - min(s.score for s in samples)
+    IF variance > scoring_variance_abort:
+      → status = "aborted"
+      → abort_reason = "scoring_oscillation"
+      → samples の全スコアと variance をユーザーに提示
+
+  # --- moving window 判定 ---
+  score_window.append(iteration_score)
+  IF len(score_window) > scoring_window_size:
+    score_window.pop_front()     # 先頭を捨てる
+
+  IF len(score_window) >= scoring_window_size
+     AND min(score_window) >= spec_score_threshold:
+    → verdict: PASS → Phase 2 へ進む
+
+  # --- 失敗時は最高スコア sample の fix_instructions を Spec Agent に渡す ---
+  Spec Agent 修正呼び出し(best_eval_feedback.fix_instructions)
+  iteration += 1
 
 上限到達（spec_eval_max_iterations）:
   → status = "aborted"
   → abort_reason = "spec_eval_max"
   → ユーザーに報告し判断を委ねる
 ```
+
+**判定例** (spec_score_threshold=95, scoring_window_size=3, scoring_best_of_n=3, scoring_variance_abort=15):
+- iteration scores `[95, 95, 95]` → window min = 95 ≥ 95 → PASS
+- iteration scores `[94, 95, 96]` → window min = 94 < 95 → 継続 (4 回目へ)
+- iteration scores `[96, 95, 97]` → window min = 95 ≥ 95 → PASS
+- 各 iteration 内で N=3 採点のうち最高値を採用するため、採点ブレが下振れたときの救済になる
+
+**Oscillation 例** (1 iteration 内のサンプル variance):
+- samples `[96, 95, 97]` → variance = 2 ≤ 15 → 継続
+- samples `[100, 80, 90]` → variance = 20 > 15 → abort_reason: `scoring_oscillation` (人間判断へ)
+- samples 空 (全回呼び出しが YAML バリデーション不通過) → abort_reason: `evaluator_unavailable`
 
 ---
 
@@ -2592,8 +2650,8 @@ SPEC と同じ要領で、PLAN + TASK を6軸採点。
 
 ### Phase 2 ループ制御
 
-Phase 1 と同一パターン。上限: `plan_eval_max_iterations` 回。
-上限到達 → `abort_reason = "plan_eval_max"`
+Phase 1 と同一パターン (best-of-N + moving window)。判定に使う閾値は `plan_score_threshold` (デフォルト 95)、上限は `plan_eval_max_iterations` 回。
+上限到達 → `abort_reason = "plan_eval_max"`。
 
 ---
 
@@ -2824,7 +2882,7 @@ review_feedback の `fix_scope` に基づき、オーケストレーターが再
 ### ループ判定
 
 ```
-IF review_result.verdict == "PASS" AND review_result.review_score >= review_score_threshold (100):
+IF review_result.verdict == "PASS" AND review_result.review_score >= review_score_threshold (95):
   → ループ終了、Phase 5 へ
 
 IF review_result.retry_allowed == false:
@@ -2855,6 +2913,8 @@ ELSE:
 
 ### Run Log 作成
 
+Canonical フォーマットは `templates/run-log-template.yaml` を参照。必須フィールドは `scripts/sage-runlog-validate.sh` によって CI で検証される。
+
 ```bash
 bash scripts/sage-id-gen.sh run
 ```
@@ -2862,33 +2922,52 @@ bash scripts/sage-id-gen.sh run
 で RUN-ID を生成し、`.sage/runs/RUN-XXXX.yaml` に以下を書き出す:
 
 ```yaml
+# Required (validator-enforced)
 run_id: RUN-XXXX
+task_id: TASK-XXXX              # primary TASK — harness may cover multiple; list extras in related_tasks
+agent_id: operations            # spec | planning | implementation | review | test | security | operations
+started_at: "2026-04-10T10:00:00Z"
+completed_at: "2026-04-10T10:45:00Z"
+status: pass                    # pass | fail | skipped
+files_changed:
+  - src/...
+  - tests/...
+gate_results:
+  structural: pass              # pass | fail | skipped
+  functional: pass
+  security: pass
+  architecture: pass
+  release: pass
+
+# Optional (validator accepts but does not require)
+error_log: ""
+
+# Harness-specific extensions (validator ignores unknown keys)
 type: harness
 spec_id: SPEC-XXXX
 plan_id: PLAN-XXXX
-task_ids: [TASK-XXXX, TASK-XXXY]
-started_at: "2026-04-10T10:00:00+09:00"
-completed_at: "2026-04-10T10:45:00+09:00"
-status: pass  # pass | fail | aborted
-abort_reason: ""  # max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error
+related_tasks: [TASK-XXXY]      # additional TASKs covered in this run
 iterations: 2
+abort_reason: ""                # one of: max_iterations | same_fail_3x | spec_eval_max |
+                                #         plan_eval_max | human_escalation | yaml_schema_error |
+                                #         scoring_oscillation | evaluator_unavailable
 phases:
   specify:
     status: pass
-    score: 100
-    eval_iterations: 3
+    score: 96                   # threshold 95 per SPEC-0008 TASK-0082
+    eval_iterations: 1
     duration_seconds: 120
   plan:
     status: pass
-    score: 100
-    eval_iterations: 2
+    score: 95
+    eval_iterations: 1
     duration_seconds: 180
   execute_verify:
     - iteration: 1
       implementation_status: completed
       test_status: completed
       review_status: fail
-      review_score: 72
+      review_score: 88            # below threshold -> loop
       review_feedback:
         findings:
           - id: "REV-001"
@@ -2905,13 +2984,10 @@ phases:
       implementation_status: skipped  # fix_scope.implementation が空のためスキップ
       test_status: completed
       review_status: pass
-      review_score: 100
-gate_results:
-  structural: pass
-  functional: pass
-  security: pass
-  architecture: pass
+      review_score: 96              # >= 95 threshold -> PASS
 ```
+
+**Verification**: 書き出した後に `bash scripts/sage-runlog-validate.sh .sage/runs/RUN-XXXX.yaml` を実行し、exit 0 を確認すること。exit 1 の場合は必須フィールドを埋め直す。
 
 ### Failure 自動蓄積
 
@@ -2925,7 +3001,7 @@ gate_results:
 - **Iteration**: {iteration}/{max}
 - **最終スコア**: {last_score}
 - **最終findings**: {last_findingsの要約}
-- **abort_reason**: {max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error}
+- **abort_reason**: {max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error | scoring_oscillation | evaluator_unavailable}
 - **再発回数**: N
 - **対策**: [未解決]
 ```
@@ -2951,9 +3027,12 @@ gate_results:
 ```yaml
 harness:
   max_iterations: 5               # Execute-Verify ループ上限
-  spec_score_threshold: 100        # Phase 1 通過に必要な Evaluator スコア
-  plan_score_threshold: 100        # Phase 2 通過に必要な Evaluator スコア
-  review_score_threshold: 100      # Phase 3-4: Review Agent score to pass
+  spec_score_threshold: 95         # Phase 1 通過に必要な Evaluator スコア
+  plan_score_threshold: 95         # Phase 2 通過に必要な Evaluator スコア
+  review_score_threshold: 95       # Phase 3-4: Review Agent score to pass
+  scoring_window_size: 3           # 直近 N 回の iteration_score の最小値で判定 (SPEC-0008)
+  scoring_best_of_n: 3             # 1 iteration で M 回採点し最高値採用 (1 で旧挙動)
+  scoring_variance_abort: 15       # best-of-N の max-min がこの値超で human escalation
   spec_eval_max_iterations: 10     # Phase 1 Evaluator ループ上限
   plan_eval_max_iterations: 10     # Phase 2 Evaluator ループ上限
   verify_pass_required: true       # 全ゲート通過必須
@@ -3581,7 +3660,7 @@ echo "=== SAGE Validation ==="
 echo ""
 
 # --- CLAUDE.md Section Check ---
-echo "[1/8] CLAUDE.md 必須セクション検証..."
+echo "[1/9] CLAUDE.md 必須セクション検証..."
 REQUIRED_SECTIONS=(
   "Project Overview"
   "Instruction Priority"
@@ -3611,7 +3690,7 @@ fi
 echo ""
 
 # --- specs/_template.md Field Check ---
-echo "[2/8] テンプレート必須フィールド検証..."
+echo "[2/9] テンプレート必須フィールド検証..."
 
 if [ -f specs/_template.md ]; then
   REQUIRED_SPEC_FIELDS=("スコープ外" "受け入れ条件" "異常系" "契約" "リスク" "PLAN-ID")
@@ -3657,7 +3736,7 @@ fi
 echo ""
 
 # --- Directory Structure Check ---
-echo "[3/8] ディレクトリ構造検証..."
+echo "[3/9] ディレクトリ構造検証..."
 REQUIRED_DIRS=("specs" "plans" "tasks" "sage" ".sage" "docs" "scripts")
 for dir in "${REQUIRED_DIRS[@]}"; do
   if [ -d "$dir" ]; then
@@ -3670,7 +3749,7 @@ done
 echo ""
 
 # --- Document Integrity Check ---
-echo "[4/8] ドキュメント整合性チェック..."
+echo "[4/9] ドキュメント整合性チェック..."
 
 # SPEC-0002: Error Context Template
 if grep -q "Error Context Template" CLAUDE.md 2>/dev/null; then
@@ -3706,7 +3785,7 @@ fi
 echo ""
 
 # --- Branch & Lane Check ---
-echo "[5/8] ブランチ規約・レーンチェック..."
+echo "[5/9] ブランチ規約・レーンチェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
 
 # Detect lane from branch name
@@ -3784,7 +3863,7 @@ fi
 echo ""
 
 # --- Check 6: Noise Diff Check ---
-echo "[6/8] ノイズ差分チェック..."
+echo "[6/9] ノイズ差分チェック..."
 # CI環境では直近コミットをルート安全に検査、ローカルではステージング済みファイル比較
 if [ -n "${CI:-}" ]; then
   DIFF_CMD="git diff-tree --check --no-commit-id --root -r HEAD"
@@ -3803,7 +3882,7 @@ fi
 echo ""
 
 # --- Check 7: AI Control Plane Security Check ---
-echo "[7/8] AI Control Plane セキュリティチェック..."
+echo "[7/9] AI Control Plane セキュリティチェック..."
 
 # Secret patterns (lightweight subset of sage-doctor.sh)
 SECRET_PATTERN='(api[_-]?key|secret[_-]?key|access[_-]?token|password|credential)\s*[:=]\s*["'"'"']?[A-Za-z0-9+/=_-]{8,}'
@@ -3845,7 +3924,7 @@ fi
 echo ""
 
 # --- Check 8: .gitignore ↔ tracked consistency (SPEC-0008 TASK-0080) ---
-echo "[8/8] .gitignore / tracked 整合性チェック..."
+echo "[8/9] .gitignore / tracked 整合性チェック..."
 # git ls-files -ci --exclude-standard lists files that are tracked AND would
 # be ignored by standard gitignore rules. The intersection is always a bug:
 # either the file should be removed from the index (git rm --cached) or it
@@ -3859,6 +3938,47 @@ if [ -n "$IGNORED_TRACKED" ]; then
   ERRORS=$((ERRORS + 1))
 else
   echo "  OK: tracked と gitignore の矛盾なし"
+fi
+echo ""
+
+# --- Check 9: installer_url 3-path sync (SPEC-0008 TASK-0081) ---
+# Compare local install.sh sha256 with the Gist-published version. Offline
+# or unreachable Gist => SKIPPED (not a failure). On main (GITHUB_REF_NAME=main)
+# a mismatch is a FAIL; elsewhere the mismatch is a warning.
+echo "[9/9] installer_url 3 経路同期チェック..."
+INSTALLER_URL=$(grep -E '^\s*installer_url:' .sage/config.yaml 2>/dev/null | head -1 | sed -E 's/^[^"]*"([^"]*)".*/\1/')
+if [ -z "$INSTALLER_URL" ]; then
+  echo "  SKIPPED: installer_url not set in .sage/config.yaml"
+elif [ ! -f install.sh ]; then
+  echo "  SKIPPED: local install.sh not found"
+elif ! command -v curl >/dev/null 2>&1; then
+  echo "  SKIPPED: curl not available"
+elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
+  echo "  SKIPPED: sha256 tool not available"
+else
+  LOCAL_SHA=$(shasum -a 256 install.sh 2>/dev/null | awk '{print $1}')
+  [ -z "$LOCAL_SHA" ] && LOCAL_SHA=$(sha256sum install.sh 2>/dev/null | awk '{print $1}')
+  REMOTE_CONTENT=$(curl -fsSL --max-time 10 "$INSTALLER_URL" 2>/dev/null || true)
+  if [ -z "$REMOTE_CONTENT" ]; then
+    echo "  SKIPPED: Gist not reachable (offline or URL 404)"
+  else
+    REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | shasum -a 256 2>/dev/null | awk '{print $1}')
+    [ -z "$REMOTE_SHA" ] && REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | sha256sum 2>/dev/null | awk '{print $1}')
+    if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
+      echo "  OK: local install.sh matches Gist publication (sha256)"
+    else
+      echo "  MISMATCH:"
+      echo "    local  sha256: $LOCAL_SHA"
+      echo "    remote sha256: $REMOTE_SHA"
+      echo "    URL:           $INSTALLER_URL"
+      if [ "${GITHUB_REF_NAME:-}" = "main" ]; then
+        echo "  FAIL: on main branch, mismatch is not allowed"
+        ERRORS=$((ERRORS + 1))
+      else
+        echo "  WARN: not on main, treating as warning (fix with 'bash scripts/sage-publish.sh')"
+      fi
+    fi
+  fi
 fi
 echo ""
 
