@@ -102,6 +102,37 @@ jobs:
             echo "SKIPPED: test_command not configured in $CONFIG"
           fi
 
+      # SPEC-0008 TASK-0070: coverage threshold check.
+      # Runs only when project_checks.coverage_command is configured.
+      # Threshold comes from functional.unit_test_coverage (default 0.80).
+      - name: Check coverage threshold
+        id: coverage
+        run: |
+          CONFIG=".sage/config.yaml"
+          COV_CMD=$(yq -r '.project_checks.coverage_command // ""' "$CONFIG" 2>/dev/null || echo "")
+          THRESHOLD=$(yq -r '.functional.unit_test_coverage // 0.80' "$CONFIG" 2>/dev/null || echo "0.80")
+
+          if [ -z "$COV_CMD" ]; then
+            echo "coverage_configured=false" >> "$GITHUB_OUTPUT"
+            echo "SKIPPED: coverage_command not configured in $CONFIG"
+            exit 0
+          fi
+
+          echo "coverage_configured=true" >> "$GITHUB_OUTPUT"
+          echo "--- Running coverage_command: $COV_CMD ---"
+          COV_OUTPUT=$(bash -c "$COV_CMD" || true)
+          echo "$COV_OUTPUT"
+
+          # Extract and compare via sage-coverage-parse.sh
+          COMPARE_OUT=$(printf '%s' "$COV_OUTPUT" | bash scripts/sage-coverage-parse.sh "$THRESHOLD" 2>&1)
+          COMPARE_RC=$?
+          echo "$COMPARE_OUT"
+          echo "coverage_result=$COMPARE_OUT" >> "$GITHUB_OUTPUT"
+          echo "coverage_rc=$COMPARE_RC" >> "$GITHUB_OUTPUT"
+          if [ "$COMPARE_RC" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Comment result on PR
         if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
@@ -125,11 +156,24 @@ jobs:
               ? '- Tests: **SKIPPED** (test_command not configured in .sage/config.yaml)'
               : `- Tests: **${status === 'success' ? 'PASS' : 'FAIL'}**`;
 
+            const coverageConfigured = '${{ steps.coverage.outputs.coverage_configured }}';
+            const coverageResult = '${{ steps.coverage.outputs.coverage_result }}';
+            const coverageRc = '${{ steps.coverage.outputs.coverage_rc }}';
+            let coverageNote;
+            if (coverageConfigured !== 'true') {
+              coverageNote = '- Coverage: **SKIPPED** (coverage_command not configured in .sage/config.yaml)';
+            } else if (coverageRc === '0') {
+              coverageNote = `- Coverage: **PASS** (${coverageResult})`;
+            } else {
+              coverageNote = `- Coverage: **FAIL** (${coverageResult})`;
+            }
+
             const body = [
               marker,
               `## ${icon} SAGE Gate 2 (Functional): ${label}`,
               '',
               testNote,
+              coverageNote,
               `- Commit: \`${context.sha.slice(0, 7)}\``,
               `- Updated: ${new Date().toISOString()}`,
             ].join('\n');
