@@ -1334,16 +1334,22 @@ anti_pattern_detection:
 # --- Harness Configuration ---
 harness:
   max_iterations: 5               # Execute-Verify loop limit
-  spec_score_threshold: 100        # Phase 1: Evaluator score to proceed
-  plan_score_threshold: 100        # Phase 2: Evaluator score to proceed
-  review_score_threshold: 100      # Phase 3-4: Review Agent score to pass
-  # 100未満 → verdict: FAIL → fix_scope に従いエージェント再実行
+  # SPEC-0008 TASK-0082: threshold 100 -> 95 で LLM 採点ブレに強くする。
+  # ブレ対策は moving window (直近 N 回の最小値で判定) + best-of-N
+  # (1 ラウンド M 回採点の最高値採用) の組合せ。実装は TASK-0083/0084。
+  spec_score_threshold: 95         # Phase 1: Evaluator score to proceed
+  plan_score_threshold: 95         # Phase 2: Evaluator score to proceed
+  review_score_threshold: 95       # Phase 3-4: Review Agent score to pass
+  scoring_window_size: 3           # 直近 N 回ラウンドの最小スコアで判定
+  scoring_best_of_n: 3             # 1 ラウンドあたり M 回採点し最高値採用 (1 で旧挙動)
+  scoring_variance_abort: 15       # best-of-N の max-min がこの値超で human escalation
+  # 閾値未達 → verdict: FAIL → fix_scope に従いエージェント再実行
   # Hard Fail → retry_allowed: false → 即abort
   spec_eval_max_iterations: 10     # Phase 1: Evaluator loop limit
   plan_eval_max_iterations: 10     # Phase 2: Evaluator loop limit
   verify_pass_required: true       # All gates must pass
   enable_browser_verify: false     # Playwright MCP browser verification
-  # abort_reason values: max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error
+  # abort_reason values: max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error | scoring_oscillation | evaluator_unavailable
   # Failure accumulation (Knowledge Management)
   auto_append_failures: true       # Auto-append Verify Fail patterns to sage/failures.md
   same_fail_abort_threshold: 3     # Abort on same CHECK-ID failing 3 times consecutively
@@ -1351,7 +1357,7 @@ harness:
   # Auto-approve mode: SPEC承認後、PLAN→TASK→Execute→Verify→ドキュメント更新まで
   # 人間の介入なしで完走する。SPECの最初の承認のみ人間が行う。
   #   false (default): 各フェーズでEvaluator採点→人間確認→次フェーズ
-  #   true:            SPEC承認後はEvaluator 100点到達で自動的に次フェーズへ進行
+  #   true:            SPEC承認後はEvaluator 閾値到達で自動的に次フェーズへ進行
   auto_approve: false
 
 # --- Project Checks (SPEC-0002: Gate Enforcement) ---
@@ -1388,7 +1394,11 @@ project_checks:
 #   strict   = Phase C+ (+ File Scope check as block)
 #   none     = All hooks disabled
 hooks:
-  profile: minimal
+  # SPEC-0008 TASK-0088: default raised to standard so that dangerous-command
+  # block and SAGE file protection hooks are active on install, not only after
+  # manual upgrade. File Scope check remains warn-only here; strict promotion
+  # (block) is a deferred operator choice.
+  profile: standard
   # Upgrade conditions:
   #   minimal → standard: make report shows SESSIONS >= 10 and STATUS: HEALTHY
   #   standard → strict:  make report shows 2 weeks continuous HEALTHY
@@ -4453,6 +4463,70 @@ fi
 if echo "$COMMAND" | grep -qE 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|(-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*))\s+\.\s*$'; then
   echo "BLOCKED: 'rm -rf .' would destroy the current directory." >&2
   echo "Suggestion: Specify a safe, scoped path instead." >&2
+  exit 2
+fi
+
+# Pattern: git add -f .DS_Store (re-track an ignored macOS metadata file)
+# .DS_Store is in .gitignore; force-adding it reintroduces the ignored/tracked
+# contradiction TASK-0086 removed. Accepts -f, --force, and bundled short flags
+# like -af where f is part of a short-option cluster.
+if echo "$COMMAND" | grep -qE 'git[[:space:]]+add[^|;&]*\.DS_Store' && \
+   echo "$COMMAND" | grep -qE '(-[a-zA-Z]*f[a-zA-Z]*|--force)'; then
+  echo "BLOCKED: force-adding .DS_Store would re-track an ignored macOS metadata file." >&2
+  echo "Suggestion: .DS_Store is in .gitignore. Do not force-add it." >&2
+  exit 2
+fi
+
+# --- TASK-0089: expanded destructive command patterns ---
+
+# Pattern: find targeting root/home/cwd with -delete (mass file removal)
+if echo "$COMMAND" | grep -qE 'find[[:space:]]+(/|~|\.)[^|]*-delete\b'; then
+  echo "BLOCKED: 'find ... -delete' on root/home/cwd causes mass file removal." >&2
+  echo "Suggestion: Scope the find path narrowly and review matches first." >&2
+  exit 2
+fi
+
+# Pattern: curl piped directly to shell (remote code execution)
+if echo "$COMMAND" | grep -qE 'curl[[:space:]][^|]*\|[[:space:]]*(ba)?sh\b'; then
+  echo "BLOCKED: 'curl ... | bash/sh' executes remote code without inspection." >&2
+  echo "Suggestion: Download the script, review it, then run locally." >&2
+  exit 2
+fi
+
+# Pattern: wget piped directly to shell (remote code execution)
+if echo "$COMMAND" | grep -qE 'wget[[:space:]][^|]*\|[[:space:]]*(ba)?sh\b'; then
+  echo "BLOCKED: 'wget ... | bash/sh' executes remote code without inspection." >&2
+  echo "Suggestion: Download the script, review it, then run locally." >&2
+  exit 2
+fi
+
+# Pattern: python shutil.rmtree (programmatic equivalent of rm -rf)
+# Use .* (not [^;&]) because python -c bodies legitimately contain ; to
+# chain statements inside a single quoted -c argument.
+if echo "$COMMAND" | grep -qE 'python[23]?[[:space:]].*shutil\.rmtree'; then
+  echo "BLOCKED: 'python -c ... shutil.rmtree' is the programmatic rm -rf." >&2
+  echo "Suggestion: Use a scripted approach with explicit path review." >&2
+  exit 2
+fi
+
+# Pattern: dd writing to a block device (disk wipe / bootloader overwrite)
+if echo "$COMMAND" | grep -qE 'dd[[:space:]][^;&]*of=/dev/[a-z]+[0-9]*'; then
+  echo "BLOCKED: 'dd ... of=/dev/<device>' can destroy a disk or partition." >&2
+  echo "Suggestion: If intentional, run outside this automated session." >&2
+  exit 2
+fi
+
+# Pattern: mkfs (filesystem creation wipes the target device)
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])mkfs(\.[a-z0-9]+)?[[:space:]]'; then
+  echo "BLOCKED: 'mkfs' destroys all data on the target device." >&2
+  echo "Suggestion: Filesystem creation is not a reversible operation; confirm manually." >&2
+  exit 2
+fi
+
+# Pattern: recursive chmod with a world-writable mode on a root-like path
+if echo "$COMMAND" | grep -qE 'chmod[[:space:]]+(-R|--recursive)[[:space:]][0-7]{0,2}7[0-7]{0,1}[[:space:]]+(/|/[a-zA-Z])'; then
+  echo "BLOCKED: 'chmod -R <world-writable> /...' opens filesystem-wide permissions." >&2
+  echo "Suggestion: Narrow the target path or pick a safer mode." >&2
   exit 2
 fi
 
