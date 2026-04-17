@@ -82,5 +82,16 @@ if echo "$COMMAND" | grep -qE 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|(-[a-zA-Z]*f
   exit 2
 fi
 
+# Pattern: git add -f .DS_Store (re-track an ignored macOS metadata file)
+# .DS_Store is in .gitignore; force-adding it reintroduces the ignored/tracked
+# contradiction TASK-0086 removed. Accepts -f, --force, and bundled short flags
+# like -af where f is part of a short-option cluster.
+if echo "$COMMAND" | grep -qE 'git[[:space:]]+add[^|;&]*\.DS_Store' && \
+   echo "$COMMAND" | grep -qE '(-[a-zA-Z]*f[a-zA-Z]*|--force)'; then
+  echo "BLOCKED: 'git add -f .DS_Store' would re-track an ignored macOS metadata file." >&2
+  echo "Suggestion: .DS_Store is in .gitignore. Do not force-add it." >&2
+  exit 2
+fi
+
 # All checks passed
 exit 0
