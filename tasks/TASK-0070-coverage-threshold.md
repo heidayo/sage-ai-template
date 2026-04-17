@@ -12,7 +12,8 @@
 | 並列可否  | Yes |
 | 依存TASK  | none |
 | 見積     | 2h |
-| sage-managed | true |
+
+sage-managed: true
 
 ## 責務
 
