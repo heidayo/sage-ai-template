@@ -150,6 +150,18 @@ When requesting error resolution, always include these 6 elements:
 - The same agent MUST NOT hold both implementation and security approval
 - The same agent MUST NOT hold both implementation and production deployment decision
 
+### Sub-agent invocation pattern
+
+When using Claude Code's Agent tool for role separation:
+
+- Pass file paths (not file contents) to sub-agents; let them Read internally
+- Always include SPEC/PLAN/TASK file paths and File Scope in the prompt
+- Never combine implementation and review in the same Agent tool call
+- Include previous Verify feedback in re-execution prompts
+
+See `docs/development-flow.md` "サブエージェント呼び出しパターン" for concrete examples.
+See `templates/skills/sage-harness/SKILL.md` for the automated harness workflow.
+
 ## 7. File Scope Rules
 
 | Directory | Permitted Agent |
@@ -272,12 +284,12 @@ This file (`CLAUDE.md`) defines repository-wide development rules.
 <!-- === SAGE Development System (auto-injected) === -->
 ## SAGE Development System
 
-- Before writing ANY code, check `specs/` for an existing SPEC. No SPEC = no code.
+- Before writing code on the standard lane, check `specs/` for an existing SPEC. No SPEC = no code.
 - Only modify files listed in the active TASK's File Scope.
 - Every commit must include a TASK-ID (enforced by pre-commit hook).
-- Prototypes go on `vibe/*` branches (no SPEC needed). To promote to main: `bash scripts/sage-promote.sh vibe/<name>`.
-- Development lanes: explore (`vibe/*`, no gates) → lite (`fix/*/chore/*/docs/*`, TASK-ID + Gate 1+3) → standard (`feature/*`, full SPEC + Gate 1-4).
-- `vibe/*` → `main` direct merge is **prohibited**. Use `promote/*` branch with Retro-SPEC.
+- Prototypes go on `vibe/*` branches (no SPEC needed). To promote to main: `/sage-promote` or `bash scripts/sage-promote.sh vibe/<name>`.
+- Development lanes: explore (`vibe/*`, no gates) | lite (`fix/*` / `chore/*` / `docs/*`, TASK-ID + max 3 files + no contract changes + Gate 1+3) | standard (`feature/*`, full SPEC + Gate 1-4) | promotion (`promote/*`, Retro-SPEC + TASK-ID + Gate 1-4).
+- `vibe/*` → `main` direct merge is prohibited. Use `promote/*` with Retro-SPEC.
 - For detailed workflows: `/sage-spec`, `/sage-plan`, `/sage-review`, `/sage-evaluate`
 - SPEC/PLAN completion triggers auto-scoring (100 points required before implementation).
 - Governance docs in `sage/` — do not modify without human approval.

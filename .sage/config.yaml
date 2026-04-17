@@ -49,6 +49,10 @@ metrics:
 run_log_schema:
   format: "yaml"
   location: ".sage/runs/{RUN-ID}.yaml"
+  # SPEC-0008 TASK-0074/0076/0093: the validator (scripts/sage-runlog-validate.sh)
+  # accepts pass|fail|skipped for every gate. Earlier spec text narrowed
+  # security and architecture to pass|fail only; existing RUN logs disagreed
+  # with that narrowing, so the schema now matches data + validator.
   fields:
     run_id: "RUN-XXXX"
     task_id: "TASK-XXXX"
@@ -58,10 +62,10 @@ run_log_schema:
     status: "pass | fail | skipped"
     files_changed: []
     gate_results:
-      structural: "pass | fail"
+      structural: "pass | fail | skipped"
       functional: "pass | fail | skipped"
-      security: "pass | fail"
-      architecture: "pass | fail"
+      security: "pass | fail | skipped"
+      architecture: "pass | fail | skipped"
       release: "pass | fail | skipped"
     error_log: ""
 
@@ -89,16 +93,22 @@ anti_pattern_detection:
 # --- Harness Configuration ---
 harness:
   max_iterations: 5               # Execute-Verify loop limit
-  spec_score_threshold: 100        # Phase 1: Evaluator score to proceed
-  plan_score_threshold: 100        # Phase 2: Evaluator score to proceed
-  review_score_threshold: 100      # Phase 3-4: Review Agent score to pass
-  # 100未満 → verdict: FAIL → fix_scope に従いエージェント再実行
+  # SPEC-0008 TASK-0082: threshold 100 -> 95 で LLM 採点ブレに強くする。
+  # ブレ対策は moving window (直近 N 回の最小値で判定) + best-of-N
+  # (1 ラウンド M 回採点の最高値採用) の組合せ。実装は TASK-0083/0084。
+  spec_score_threshold: 95         # Phase 1: Evaluator score to proceed
+  plan_score_threshold: 95         # Phase 2: Evaluator score to proceed
+  review_score_threshold: 95       # Phase 3-4: Review Agent score to pass
+  scoring_window_size: 3           # 直近 N 回ラウンドの最小スコアで判定
+  scoring_best_of_n: 3             # 1 ラウンドあたり M 回採点し最高値採用 (1 で旧挙動)
+  scoring_variance_abort: 15       # best-of-N の max-min がこの値超で human escalation
+  # 閾値未達 → verdict: FAIL → fix_scope に従いエージェント再実行
   # Hard Fail → retry_allowed: false → 即abort
   spec_eval_max_iterations: 10     # Phase 1: Evaluator loop limit
   plan_eval_max_iterations: 10     # Phase 2: Evaluator loop limit
   verify_pass_required: true       # All gates must pass
   enable_browser_verify: false     # Playwright MCP browser verification
-  # abort_reason values: max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error
+  # abort_reason values: max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error | scoring_oscillation | evaluator_unavailable
   # Failure accumulation (Knowledge Management)
   auto_append_failures: true       # Auto-append Verify Fail patterns to sage/failures.md
   same_fail_abort_threshold: 3     # Abort on same CHECK-ID failing 3 times consecutively
@@ -106,7 +116,7 @@ harness:
   # Auto-approve mode: SPEC承認後、PLAN→TASK→Execute→Verify→ドキュメント更新まで
   # 人間の介入なしで完走する。SPECの最初の承認のみ人間が行う。
   #   false (default): 各フェーズでEvaluator採点→人間確認→次フェーズ
-  #   true:            SPEC承認後はEvaluator 100点到達で自動的に次フェーズへ進行
+  #   true:            SPEC承認後はEvaluator 閾値到達で自動的に次フェーズへ進行
   auto_approve: false
 
 # --- Project Checks (SPEC-0002: Gate Enforcement) ---
@@ -114,6 +124,18 @@ harness:
 # Uncomment and set commands for your project.
 # If unset, the corresponding gate check will be SKIPPED (not faked as PASS).
 project_checks:
+  # SPEC-0008 TASK-0091: real Go commands for the SPEC-0009 dogfooding sample.
+  # Standard toolchain only (no golangci-lint / nyc / ruff).
+  lint: "go vet ./..."
+  format: 'test -z "$(gofmt -l .)"'
+  type_check: "go build ./..."
+  # TASK-0091 follow-up: tests are in the external package `calculator_test`
+  # (black-box testing per SAGE File Scope). Without -coverpkg, Go measures
+  # coverage only on the test package and reports 0.0%. Covering ./src/...
+  # makes the coverage_command reflect production code.
+  test_command: "go test ./... -coverpkg=./src/... -coverprofile=coverage.out"
+  coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
+  # --- prior examples kept below as reference ---
   # lint: "npm run lint"                    # Gate 1: Lint check
   # format: "npx prettier --check ."       # Gate 1: Format check
   # type_check: "npx tsc --noEmit"         # Gate 1: Type check
@@ -123,11 +145,18 @@ project_checks:
   #   format: "gofmt -l . | grep -c . && exit 1 || true"
   #   type_check: "go vet ./..."
   #   test_command: "go test ./... -coverprofile=coverage.out"
+  #   coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
   # Python example:
   #   lint: "ruff check ."
   #   format: "black --check ."
   #   type_check: "mypy ."
   #   test_command: "pytest --cov=src --cov-report=term-missing"
+  #   coverage_command: "coverage report --format=total"
+  # Node example:
+  #   coverage_command: "npx nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"
+  # SPEC-0008 TASK-0070: coverage_command output must contain a parseable
+  # float (0-1 or 0-100). scripts/sage-coverage-parse.sh extracts the first
+  # number it sees. Threshold compared against functional.unit_test_coverage.
   # --- AI生成コード品質チェック（オプション） ---
   # 有効化条件: Gate 1 が2週間安定運用後 / パッケージマネージャ使用プロジェクト
   # ロールバック: 誤検知率 > 5% or CI時間増加 > 30秒 → コメントアウトに戻す
@@ -143,7 +172,11 @@ project_checks:
 #   strict   = Phase C+ (+ File Scope check as block)
 #   none     = All hooks disabled
 hooks:
-  profile: minimal
+  # SPEC-0008 TASK-0088: default raised to standard so that dangerous-command
+  # block and SAGE file protection hooks are active on install, not only after
+  # manual upgrade. File Scope check remains warn-only here; strict promotion
+  # (block) is a deferred operator choice.
+  profile: standard
   # Upgrade conditions:
   #   minimal → standard: make report shows SESSIONS >= 10 and STATUS: HEALTHY
   #   standard → strict:  make report shows 2 weeks continuous HEALTHY

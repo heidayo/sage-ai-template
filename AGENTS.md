@@ -87,6 +87,20 @@ AI agents MUST NOT:
 - Perform silent scope expansion (adding unspecified changes)
 - Combine multiple responsibilities in a single task
 
+### 4.1 Recommended Workflow: Harness
+
+For autonomous development across the full lifecycle, use the harness orchestrator:
+
+```
+/sage-harness
+[requirements description]
+```
+
+This automatically chains Specify → Plan → Execute → Verify with feedback loops.
+See `templates/skills/sage-harness/SKILL.md` for details.
+
+Harness-specific forbidden shortcuts are defined in `templates/rules/harness-rules.md`.
+
 ## 5. Error Resolution Protocol
 
 When an error occurs:
@@ -189,6 +203,23 @@ Before merge, all 5 gates must pass:
 
 Gate results are automatically recorded as PR comments.
 
+## 9.1 Hooks
+
+Runtime protection via `.claude/settings.json` hooks. These hooks fire only
+under Claude Code; Codex sessions are expected to honor the same rules via
+prompt-level guidance (this document) rather than runtime interception.
+
+| Hook | Blocks | Profile |
+|------|--------|---------|
+| block-dangerous-commands | `--no-verify`, `--force`, `rm -rf` | standard+ |
+| protect-sage-files | AGENTS.md, sage/, .sage/config.yaml changes | standard+ |
+| check-file-scope | TASK File Scope outside edits | standard(warn) / strict(block) |
+| session-start | (info) RUN logs, active TASKs, failures summary | minimal+ |
+| session-stop | (record) session metrics to .sage/metrics/ | minimal+ |
+
+Profile in `.sage/config.yaml` `hooks.profile`: minimal → standard → strict → none.
+Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
+
 ## 10. Language Rules
 
 | Context | Language |
@@ -251,14 +282,14 @@ This file (`AGENTS.md`) defines repository-wide development rules.
 <!-- === SAGE Development System (auto-injected) === -->
 # SAGE Workflow
 
-- Check `specs/` before writing ANY code. No SPEC = no code.
+- Check `specs/` before writing code on the standard lane. No SPEC = no code.
 - Create SPECs using `specs/_template.md`. Minimum: scope, out-of-scope, 3 acceptance criteria.
 - Create tasks in `tasks/` with explicit File Scope (which files you may modify).
 - Only modify files in the TASK's File Scope.
 - Every commit must include a TASK-ID (e.g., `TASK-0001: add login endpoint`).
 - Prototypes go on `vibe/*` branches (no SPEC needed). To promote to main: `bash scripts/sage-promote.sh vibe/<name>`.
-- Development lanes: explore (`vibe/*`, no gates) → lite (`fix/*/chore/*/docs/*`, TASK-ID + Gate 1+3) → standard (`feature/*`, full SPEC + Gate 1-4).
-- `vibe/*` → `main` direct merge is **prohibited**. Use `promote/*` branch with Retro-SPEC.
+- Development lanes: explore (`vibe/*`, no gates) | lite (`fix/*` / `chore/*` / `docs/*`, TASK-ID + max 3 files + no contract changes + Gate 1+3) | standard (`feature/*`, full SPEC + Gate 1-4) | promotion (`promote/*`, Retro-SPEC + TASK-ID + Gate 1-4).
+- `vibe/*` → `main` direct merge is prohibited. Use `promote/*` with Retro-SPEC.
 - Do not modify `sage/` without human approval.
 
 Prohibited:

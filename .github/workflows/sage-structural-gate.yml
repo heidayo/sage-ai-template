@@ -3,12 +3,15 @@ name: "SAGE Gate 1: Structural"
 on:
   pull_request:
     paths-ignore:
-      - '*.md'
       - 'docs/**'
       - 'sage/**'
       - 'specs/**'
       - 'plans/**'
       - 'tasks/**'
+    # CLAUDE.md / AGENTS.md / install.sh / templates/ / .sage/runs/ are
+    # intentionally included so that Sprint 1 checks (doc-drift,
+    # installer-reproduce, runlog-validate) can detect their respective
+    # drift triggers.
 
 permissions:
   contents: read
@@ -159,6 +162,18 @@ jobs:
 
       - name: SAGE structure validation
         run: bash scripts/sage-validate.sh
+
+      # SPEC-0008 Track C: consistency checks wired into Gate 1. Each script
+      # is fail-close by default but SKIPs when its precondition is absent
+      # (template file missing, .claude/ not installed, etc.).
+      - name: RUN log schema validation (TASK-0074)
+        run: bash scripts/sage-runlog-validate.sh
+
+      - name: CLAUDE.md / AGENTS.md drift check (TASK-0077)
+        run: bash scripts/sage-doc-drift.sh
+
+      - name: install.sh reproducibility check (TASK-0078)
+        run: bash scripts/sage-installer-reproduce.sh
 
       - name: Comment result on PR
         if: always() && github.event_name == 'pull_request'

@@ -1,4 +1,4 @@
-.PHONY: help validate trace-check id-gen adopt doctor repair report
+.PHONY: help validate trace-check id-gen adopt doctor repair report check-installer-sync
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -25,6 +25,15 @@ repair: ## Repair MISSING/MISMATCH managed files
 
 report: ## Show SAGE system health report
 	@bash scripts/sage-report.sh
+
+check-installer-sync: ## Compare local install.sh sha256 with published Gist (SPEC-0008 TASK-0081)
+	@URL=$$(grep -E '^\s*installer_url:' .sage/config.yaml | head -1 | sed -E 's/^[^"]*"([^"]*)".*/\1/'); \
+	if [ -z "$$URL" ]; then echo "SKIPPED: installer_url not set"; exit 0; fi; \
+	if ! command -v curl >/dev/null 2>&1; then echo "SKIPPED: curl not available"; exit 0; fi; \
+	LOCAL=$$(shasum -a 256 install.sh 2>/dev/null | awk '{print $$1}'); \
+	REMOTE=$$(curl -fsSL --max-time 10 "$$URL" 2>/dev/null | shasum -a 256 | awk '{print $$1}'); \
+	if [ -z "$$REMOTE" ]; then echo "SKIPPED: Gist not reachable"; exit 0; fi; \
+	if [ "$$LOCAL" = "$$REMOTE" ]; then echo "OK: install.sh matches Gist sha256=$$LOCAL"; else echo "MISMATCH: local=$$LOCAL remote=$$REMOTE"; exit 1; fi
 
 # --- Development Commands (customize per project) ---
 
