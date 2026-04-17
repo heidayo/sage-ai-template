@@ -87,6 +87,20 @@ AI agents MUST NOT:
 - Perform silent scope expansion (adding unspecified changes)
 - Combine multiple responsibilities in a single task
 
+### 4.1 Recommended Workflow: Harness
+
+For autonomous development across the full lifecycle, use the harness orchestrator:
+
+```
+/sage-harness
+[requirements description]
+```
+
+This automatically chains Specify → Plan → Execute → Verify with feedback loops.
+See `templates/skills/sage-harness/SKILL.md` for details.
+
+Harness-specific forbidden shortcuts are defined in `templates/rules/harness-rules.md`.
+
 ## 5. Error Resolution Protocol
 
 When an error occurs:
@@ -188,6 +202,23 @@ Before merge, all 5 gates must pass:
 | 5. Release | migration safety, rollback readiness, monitoring readiness |
 
 Gate results are automatically recorded as PR comments.
+
+## 9.1 Hooks
+
+Runtime protection via `.claude/settings.json` hooks. These hooks fire only
+under Claude Code; Codex sessions are expected to honor the same rules via
+prompt-level guidance (this document) rather than runtime interception.
+
+| Hook | Blocks | Profile |
+|------|--------|---------|
+| block-dangerous-commands | `--no-verify`, `--force`, `rm -rf` | standard+ |
+| protect-sage-files | AGENTS.md, sage/, .sage/config.yaml changes | standard+ |
+| check-file-scope | TASK File Scope outside edits | standard(warn) / strict(block) |
+| session-start | (info) RUN logs, active TASKs, failures summary | minimal+ |
+| session-stop | (record) session metrics to .sage/metrics/ | minimal+ |
+
+Profile in `.sage/config.yaml` `hooks.profile`: minimal → standard → strict → none.
+Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
 
 ## 10. Language Rules
 

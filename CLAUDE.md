@@ -150,6 +150,18 @@ When requesting error resolution, always include these 6 elements:
 - The same agent MUST NOT hold both implementation and security approval
 - The same agent MUST NOT hold both implementation and production deployment decision
 
+### Sub-agent invocation pattern
+
+When using Claude Code's Agent tool for role separation:
+
+- Pass file paths (not file contents) to sub-agents; let them Read internally
+- Always include SPEC/PLAN/TASK file paths and File Scope in the prompt
+- Never combine implementation and review in the same Agent tool call
+- Include previous Verify feedback in re-execution prompts
+
+See `docs/development-flow.md` "サブエージェント呼び出しパターン" for concrete examples.
+See `templates/skills/sage-harness/SKILL.md` for the automated harness workflow.
+
 ## 7. File Scope Rules
 
 | Directory | Permitted Agent |
