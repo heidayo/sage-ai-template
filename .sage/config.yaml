@@ -149,7 +149,11 @@ project_checks:
 #   strict   = Phase C+ (+ File Scope check as block)
 #   none     = All hooks disabled
 hooks:
-  profile: minimal
+  # SPEC-0008 TASK-0088: default raised to standard so that dangerous-command
+  # block and SAGE file protection hooks are active on install, not only after
+  # manual upgrade. File Scope check remains warn-only here; strict promotion
+  # (block) is a deferred operator choice.
+  profile: standard
   # Upgrade conditions:
   #   minimal → standard: make report shows SESSIONS >= 10 and STATUS: HEALTHY
   #   standard → strict:  make report shows 2 weeks continuous HEALTHY
