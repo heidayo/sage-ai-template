@@ -1,0 +1,23 @@
+run_id: RUN-0003
+task_id: TASK-0063
+agent_id: planning
+started_at: "2026-04-11T04:33:00Z"
+completed_at: "2026-04-11T04:33:00Z"
+status: pass
+files_changed:
+  - "README.md"
+  - "sage/governance.md"
+  - "specs/SPEC-0006-vibe-coding-lanes-and-promotion.md"
+  - "plans/PLAN-0006-vibe-coding-lanes-and-promotion.md"
+  - "tasks/TASK-0063-spec0006-readme-governance-alignment.md"
+  - "install.sh"
+gate_results:
+  structural: skipped
+  functional: skipped
+  security: skipped
+  architecture: skipped
+  release: skipped
+error_log: |
+  README と governance は「3つのレーン」と書かれていたが、実装・hook・agent instructions は
+  `promotion` を独立レーンとして扱っていた。
+  利用者向け説明と実装を揃えるため、4レーン表記へ更新し install.sh も再生成した。

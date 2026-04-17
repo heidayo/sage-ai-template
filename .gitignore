@@ -1,5 +1,4 @@
-# SAGE Runtime (not version controlled)
-.sage/runs/
+# SAGE Runtime (mostly not version controlled; RUN logs are tracked as audit trail)
 .sage/metrics/
 .sage/gist-id
 .sage/install-state.yaml

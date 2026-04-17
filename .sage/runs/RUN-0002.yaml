@@ -1,0 +1,21 @@
+run_id: RUN-0002
+task_id: TASK-0062
+agent_id: planning
+started_at: "2026-04-11T04:29:00Z"
+completed_at: "2026-04-11T04:29:00Z"
+status: pass
+files_changed:
+  - "specs/SPEC-0006-vibe-coding-lanes-and-promotion.md"
+  - "plans/PLAN-0006-vibe-coding-lanes-and-promotion.md"
+  - "tasks/TASK-0062-spec0006-wording-alignment.md"
+gate_results:
+  structural: skipped
+  functional: skipped
+  security: skipped
+  architecture: skipped
+  release: skipped
+error_log: |
+  SPEC-0006 の AC-07 は「Retro-SPEC draft に TBD/TODO なし」となっていたが、
+  実装済みの retro-spec generator は人間確認が必要な箇所を TBD で残す設計だった。
+  手動E2E結果に合わせて SPEC / PLAN の期待値を更新し、promotion シナリオを
+  「ドラフト時 FAIL → 補完後 PASS → 昇格後コミットの TASK-ID 検証」へ整合させた。
