@@ -1365,6 +1365,14 @@ harness:
 # Uncomment and set commands for your project.
 # If unset, the corresponding gate check will be SKIPPED (not faked as PASS).
 project_checks:
+  # SPEC-0008 TASK-0091: real Go commands for the SPEC-0009 dogfooding sample.
+  # Standard toolchain only (no golangci-lint / nyc / ruff).
+  lint: "go vet ./..."
+  format: 'test -z "$(gofmt -l .)"'
+  type_check: "go build ./..."
+  test_command: "go test ./... -coverprofile=coverage.out"
+  coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
+  # --- prior examples kept below as reference ---
   # lint: "npm run lint"                    # Gate 1: Lint check
   # format: "npx prettier --check ."       # Gate 1: Format check
   # type_check: "npx tsc --noEmit"         # Gate 1: Type check

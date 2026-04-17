@@ -1,0 +1,94 @@
+run_id: RUN-0004
+task_id: TASK-0093
+agent_id: operations
+started_at: "2026-04-17T00:00:00Z"
+completed_at: "2026-04-17T23:59:59Z"
+status: pass
+files_changed:
+  - "specs/SPEC-0008-enforcement-gap-closure.md"
+  - "specs/SPEC-0009-calculator-api.md"
+  - "plans/PLAN-0008-A-gates-implementation.md"
+  - "plans/PLAN-0008-B-metrics-and-runlog.md"
+  - "plans/PLAN-0008-C-drift-and-sync-ci.md"
+  - "plans/PLAN-0008-D-scoring-loop.md"
+  - "plans/PLAN-0008-E-surface-cleanup.md"
+  - "plans/PLAN-0008-F-dogfooding.md"
+  - "tasks/TASK-0070-coverage-threshold.md"
+  - "tasks/TASK-0071-layer-boundary-check.md"
+  - "tasks/TASK-0072-forbidden-deps-check.md"
+  - "tasks/TASK-0073-claude-review-fail-close.md"
+  - "tasks/TASK-0074-runlog-validator.md"
+  - "tasks/TASK-0075-sage-report-metrics-expansion.md"
+  - "tasks/TASK-0076-runlog-harness-standardization.md"
+  - "tasks/TASK-0077-doc-drift-check.md"
+  - "tasks/TASK-0078-install-sh-reproducibility.md"
+  - "tasks/TASK-0079-templates-claude-copy-verify.md"
+  - "tasks/TASK-0080-gitignore-tracked-consistency.md"
+  - "tasks/TASK-0081-installer-url-sync.md"
+  - "tasks/TASK-0082-scoring-threshold-config.md"
+  - "tasks/TASK-0083-moving-window-best-of-n.md"
+  - "tasks/TASK-0084-oscillation-detection.md"
+  - "tasks/TASK-0085-twin-docs-drift-fill.md"
+  - "tasks/TASK-0086-ds-store-untrack.md"
+  - "tasks/TASK-0087-rename-task-files.md"
+  - "tasks/TASK-0088-hooks-profile-standard-default.md"
+  - "tasks/TASK-0089-dangerous-commands-expansion.md"
+  - "tasks/TASK-0090-go-calculator-sample.md"
+  - "tasks/TASK-0091-project-checks-go-config.md"
+  - "tasks/TASK-0092-spec-0009-writeup.md"
+  - "src/calculator/calc.go"
+  - "src/calculator/server.go"
+  - "tests/calculator/calc_test.go"
+  - "tests/calculator/server_test.go"
+  - "scripts/sage-architecture-check.sh"
+  - "scripts/sage-coverage-parse.sh"
+  - "scripts/sage-doc-drift.sh"
+  - "scripts/sage-installer-reproduce.sh"
+  - "scripts/sage-runlog-validate.sh"
+  - "scripts/sage-templates-sync-check.sh"
+  - "scripts/sage-report.sh"
+  - "scripts/sage-validate.sh"
+  - "templates/run-log-template.yaml"
+  - "templates/hooks/block-dangerous-commands.sh"
+  - "templates/skills/sage-harness/SKILL.md"
+  - ".github/workflows/sage-architecture-gate.yml"
+  - ".github/workflows/sage-claude-review.yml"
+  - ".github/workflows/sage-functional-gate.yml"
+  - ".github/workflows/sage-structural-gate.yml"
+  - ".sage/architecture.yaml"
+  - ".sage/config.yaml"
+  - "AGENTS.md"
+  - "CLAUDE.md"
+  - "Makefile"
+  - "go.mod"
+  - ".gitignore"
+  - "install.sh"
+gate_results:
+  structural: pass
+  functional: skipped
+  security: skipped
+  architecture: pass
+  release: skipped
+error_log: |
+  Local verification summary for SPEC-0008 + SPEC-0009 batch (TASK-0070..0093).
+  Performed on feature/spec-0008-ds-store-untrack, not yet merged.
+
+  Passing locally:
+    - scripts/sage-validate.sh (all 9 checks)
+    - scripts/sage-runlog-validate.sh (this file and RUN-0001..0003)
+    - scripts/sage-doc-drift.sh (pre-marker headers aligned)
+    - scripts/sage-installer-reproduce.sh (post-regen)
+    - scripts/sage-architecture-check.sh (no rules declared -> SKIPPED)
+
+  Intentionally deferred to the real PR CI run:
+    - Gate 2 functional: Go toolchain not available in the dev env
+      used for these edits, so go test/coverage were not measured
+      locally. GitHub Actions runner provides Go 1.22+ via setup-go.
+    - Gate 3 security: Gitleaks/Trivy actions run in GH Actions only.
+    - Gate 5 release: requires the prior four gates to record pass on
+      GitHub Actions for the same SHA; cannot be reproduced offline.
+
+  The Gate 1 structural run now covers sage-validate.sh +
+  runlog-validate + doc-drift + installer-reproduce (TASK-0078 wiring).
+  Gate 4 architecture now covers the traceability grep (pre-existing)
+  plus the .sage/architecture.yaml check added in TASK-0071/0072.
