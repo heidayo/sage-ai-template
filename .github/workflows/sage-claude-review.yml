@@ -116,10 +116,18 @@ jobs:
 
             const body = reviewComment.body || '';
 
-            if (body.includes('総合判定') && body.includes('❌')) {
+            // TASK-0073 follow-up: parse the verdict on the 総合判定 line
+            // specifically. Earlier version matched ❌/✅ anywhere in the body,
+            // which produced false FAILs when the bot's output included ❌
+            // inside unrelated content such as the anti-pattern checklist
+            // (e.g. "❌ Big Bang Prompt: 検出").
+            const verdictLine = body.split('\n').find(l => l.includes('総合判定'));
+            if (!verdictLine) {
+              core.setFailed('SAGE Review Agent did not emit a 総合判定 line. Bot may have deviated from the required format.');
+            } else if (verdictLine.includes('❌')) {
               core.setFailed('SAGE Review Agent verdict: FAIL — see PR comments for details');
-            } else if (body.includes('総合判定') && body.includes('✅')) {
+            } else if (verdictLine.includes('✅')) {
               core.info('SAGE Review Agent verdict: PASS');
             } else {
-              core.setFailed('SAGE Review Agent verdict could not be parsed. Expected 総合判定 with ✅ or ❌. Bot may have deviated from the required format.');
+              core.setFailed('SAGE Review Agent 総合判定 line has no ✅/❌ marker. Bot output format broken.');
             }
