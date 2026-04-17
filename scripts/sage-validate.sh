@@ -9,7 +9,7 @@ echo "=== SAGE Validation ==="
 echo ""
 
 # --- CLAUDE.md Section Check ---
-echo "[1/8] CLAUDE.md 必須セクション検証..."
+echo "[1/9] CLAUDE.md 必須セクション検証..."
 REQUIRED_SECTIONS=(
   "Project Overview"
   "Instruction Priority"
@@ -39,7 +39,7 @@ fi
 echo ""
 
 # --- specs/_template.md Field Check ---
-echo "[2/8] テンプレート必須フィールド検証..."
+echo "[2/9] テンプレート必須フィールド検証..."
 
 if [ -f specs/_template.md ]; then
   REQUIRED_SPEC_FIELDS=("スコープ外" "受け入れ条件" "異常系" "契約" "リスク" "PLAN-ID")
@@ -85,7 +85,7 @@ fi
 echo ""
 
 # --- Directory Structure Check ---
-echo "[3/8] ディレクトリ構造検証..."
+echo "[3/9] ディレクトリ構造検証..."
 REQUIRED_DIRS=("specs" "plans" "tasks" "sage" ".sage" "docs" "scripts")
 for dir in "${REQUIRED_DIRS[@]}"; do
   if [ -d "$dir" ]; then
@@ -98,7 +98,7 @@ done
 echo ""
 
 # --- Document Integrity Check ---
-echo "[4/8] ドキュメント整合性チェック..."
+echo "[4/9] ドキュメント整合性チェック..."
 
 # SPEC-0002: Error Context Template
 if grep -q "Error Context Template" CLAUDE.md 2>/dev/null; then
@@ -134,7 +134,7 @@ fi
 echo ""
 
 # --- Branch & Lane Check ---
-echo "[5/8] ブランチ規約・レーンチェック..."
+echo "[5/9] ブランチ規約・レーンチェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
 
 # Detect lane from branch name
@@ -212,7 +212,7 @@ fi
 echo ""
 
 # --- Check 6: Noise Diff Check ---
-echo "[6/8] ノイズ差分チェック..."
+echo "[6/9] ノイズ差分チェック..."
 # CI環境では直近コミットをルート安全に検査、ローカルではステージング済みファイル比較
 if [ -n "${CI:-}" ]; then
   DIFF_CMD="git diff-tree --check --no-commit-id --root -r HEAD"
@@ -231,7 +231,7 @@ fi
 echo ""
 
 # --- Check 7: AI Control Plane Security Check ---
-echo "[7/8] AI Control Plane セキュリティチェック..."
+echo "[7/9] AI Control Plane セキュリティチェック..."
 
 # Secret patterns (lightweight subset of sage-doctor.sh)
 SECRET_PATTERN='(api[_-]?key|secret[_-]?key|access[_-]?token|password|credential)\s*[:=]\s*["'"'"']?[A-Za-z0-9+/=_-]{8,}'
@@ -273,7 +273,7 @@ fi
 echo ""
 
 # --- Check 8: .gitignore ↔ tracked consistency (SPEC-0008 TASK-0080) ---
-echo "[8/8] .gitignore / tracked 整合性チェック..."
+echo "[8/9] .gitignore / tracked 整合性チェック..."
 # git ls-files -ci --exclude-standard lists files that are tracked AND would
 # be ignored by standard gitignore rules. The intersection is always a bug:
 # either the file should be removed from the index (git rm --cached) or it
@@ -287,6 +287,47 @@ if [ -n "$IGNORED_TRACKED" ]; then
   ERRORS=$((ERRORS + 1))
 else
   echo "  OK: tracked と gitignore の矛盾なし"
+fi
+echo ""
+
+# --- Check 9: installer_url 3-path sync (SPEC-0008 TASK-0081) ---
+# Compare local install.sh sha256 with the Gist-published version. Offline
+# or unreachable Gist => SKIPPED (not a failure). On main (GITHUB_REF_NAME=main)
+# a mismatch is a FAIL; elsewhere the mismatch is a warning.
+echo "[9/9] installer_url 3 経路同期チェック..."
+INSTALLER_URL=$(grep -E '^\s*installer_url:' .sage/config.yaml 2>/dev/null | head -1 | sed -E 's/^[^"]*"([^"]*)".*/\1/')
+if [ -z "$INSTALLER_URL" ]; then
+  echo "  SKIPPED: installer_url not set in .sage/config.yaml"
+elif [ ! -f install.sh ]; then
+  echo "  SKIPPED: local install.sh not found"
+elif ! command -v curl >/dev/null 2>&1; then
+  echo "  SKIPPED: curl not available"
+elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
+  echo "  SKIPPED: sha256 tool not available"
+else
+  LOCAL_SHA=$(shasum -a 256 install.sh 2>/dev/null | awk '{print $1}')
+  [ -z "$LOCAL_SHA" ] && LOCAL_SHA=$(sha256sum install.sh 2>/dev/null | awk '{print $1}')
+  REMOTE_CONTENT=$(curl -fsSL --max-time 10 "$INSTALLER_URL" 2>/dev/null || true)
+  if [ -z "$REMOTE_CONTENT" ]; then
+    echo "  SKIPPED: Gist not reachable (offline or URL 404)"
+  else
+    REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | shasum -a 256 2>/dev/null | awk '{print $1}')
+    [ -z "$REMOTE_SHA" ] && REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | sha256sum 2>/dev/null | awk '{print $1}')
+    if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
+      echo "  OK: local install.sh matches Gist publication (sha256)"
+    else
+      echo "  MISMATCH:"
+      echo "    local  sha256: $LOCAL_SHA"
+      echo "    remote sha256: $REMOTE_SHA"
+      echo "    URL:           $INSTALLER_URL"
+      if [ "${GITHUB_REF_NAME:-}" = "main" ]; then
+        echo "  FAIL: on main branch, mismatch is not allowed"
+        ERRORS=$((ERRORS + 1))
+      else
+        echo "  WARN: not on main, treating as warning (fix with 'bash scripts/sage-publish.sh')"
+      fi
+    fi
+  fi
 fi
 echo ""
 
