@@ -1374,7 +1374,11 @@ project_checks:
   lint: "go vet ./..."
   format: 'test -z "$(gofmt -l .)"'
   type_check: "go build ./..."
-  test_command: "go test ./... -coverprofile=coverage.out"
+  # TASK-0091 follow-up: tests are in the external package `calculator_test`
+  # (black-box testing per SAGE File Scope). Without -coverpkg, Go measures
+  # coverage only on the test package and reports 0.0%. Covering ./src/...
+  # makes the coverage_command reflect production code.
+  test_command: "go test ./... -coverpkg=./src/... -coverprofile=coverage.out"
   coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
   # --- prior examples kept below as reference ---
   # lint: "npm run lint"                    # Gate 1: Lint check
