@@ -89,16 +89,22 @@ anti_pattern_detection:
 # --- Harness Configuration ---
 harness:
   max_iterations: 5               # Execute-Verify loop limit
-  spec_score_threshold: 100        # Phase 1: Evaluator score to proceed
-  plan_score_threshold: 100        # Phase 2: Evaluator score to proceed
-  review_score_threshold: 100      # Phase 3-4: Review Agent score to pass
-  # 100未満 → verdict: FAIL → fix_scope に従いエージェント再実行
+  # SPEC-0008 TASK-0082: threshold 100 -> 95 で LLM 採点ブレに強くする。
+  # ブレ対策は moving window (直近 N 回の最小値で判定) + best-of-N
+  # (1 ラウンド M 回採点の最高値採用) の組合せ。実装は TASK-0083/0084。
+  spec_score_threshold: 95         # Phase 1: Evaluator score to proceed
+  plan_score_threshold: 95         # Phase 2: Evaluator score to proceed
+  review_score_threshold: 95       # Phase 3-4: Review Agent score to pass
+  scoring_window_size: 3           # 直近 N 回ラウンドの最小スコアで判定
+  scoring_best_of_n: 3             # 1 ラウンドあたり M 回採点し最高値採用 (1 で旧挙動)
+  scoring_variance_abort: 15       # best-of-N の max-min がこの値超で human escalation
+  # 閾値未達 → verdict: FAIL → fix_scope に従いエージェント再実行
   # Hard Fail → retry_allowed: false → 即abort
   spec_eval_max_iterations: 10     # Phase 1: Evaluator loop limit
   plan_eval_max_iterations: 10     # Phase 2: Evaluator loop limit
   verify_pass_required: true       # All gates must pass
   enable_browser_verify: false     # Playwright MCP browser verification
-  # abort_reason values: max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error
+  # abort_reason values: max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error | scoring_oscillation | evaluator_unavailable
   # Failure accumulation (Knowledge Management)
   auto_append_failures: true       # Auto-append Verify Fail patterns to sage/failures.md
   same_fail_abort_threshold: 3     # Abort on same CHECK-ID failing 3 times consecutively
@@ -106,7 +112,7 @@ harness:
   # Auto-approve mode: SPEC承認後、PLAN→TASK→Execute→Verify→ドキュメント更新まで
   # 人間の介入なしで完走する。SPECの最初の承認のみ人間が行う。
   #   false (default): 各フェーズでEvaluator採点→人間確認→次フェーズ
-  #   true:            SPEC承認後はEvaluator 100点到達で自動的に次フェーズへ進行
+  #   true:            SPEC承認後はEvaluator 閾値到達で自動的に次フェーズへ進行
   auto_approve: false
 
 # --- Project Checks (SPEC-0002: Gate Enforcement) ---
