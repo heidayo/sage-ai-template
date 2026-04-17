@@ -289,10 +289,27 @@ WHILE iteration < spec_eval_max_iterations:
   FOR i = 1 .. scoring_best_of_n:
     1. Evaluator（Read-Only）を呼び出し → eval_feedback YAML を受け取る
     2. YAML バリデーション実行（上記「YAML 出力バリデーション」参照）
-    3. samples.append((eval_feedback.total_score, eval_feedback))
+    3. 成功時: samples.append((eval_feedback.total_score, eval_feedback))
+       失敗時 (バリデーション不通過など): このサンプルはスキップ
+
+  # --- 有効サンプル欠落チェック (SPEC-0008 TASK-0084) ---
+  IF len(samples) == 0:
+    → status = "aborted"
+    → abort_reason = "evaluator_unavailable"
+    → ユーザーに報告し判断を委ねる
 
   iteration_score   = max(s.score for s in samples)
   best_eval_feedback = argmax(s.score for s in samples).eval_feedback
+
+  # --- oscillation 検知 (SPEC-0008 TASK-0084) ---
+  # 同一入力に対する採点の max-min が閾値超なら Evaluator の非決定性が
+  # 高すぎるサイン。再実行より人間判断が必要な状態。
+  IF scoring_best_of_n >= 2:
+    variance = max(s.score for s in samples) - min(s.score for s in samples)
+    IF variance > scoring_variance_abort:
+      → status = "aborted"
+      → abort_reason = "scoring_oscillation"
+      → samples の全スコアと variance をユーザーに提示
 
   # --- moving window 判定 ---
   score_window.append(iteration_score)
@@ -313,11 +330,16 @@ WHILE iteration < spec_eval_max_iterations:
   → ユーザーに報告し判断を委ねる
 ```
 
-**判定例** (spec_score_threshold=95, scoring_window_size=3, scoring_best_of_n=3):
+**判定例** (spec_score_threshold=95, scoring_window_size=3, scoring_best_of_n=3, scoring_variance_abort=15):
 - iteration scores `[95, 95, 95]` → window min = 95 ≥ 95 → PASS
 - iteration scores `[94, 95, 96]` → window min = 94 < 95 → 継続 (4 回目へ)
 - iteration scores `[96, 95, 97]` → window min = 95 ≥ 95 → PASS
 - 各 iteration 内で N=3 採点のうち最高値を採用するため、採点ブレが下振れたときの救済になる
+
+**Oscillation 例** (1 iteration 内のサンプル variance):
+- samples `[96, 95, 97]` → variance = 2 ≤ 15 → 継続
+- samples `[100, 80, 90]` → variance = 20 > 15 → abort_reason: `scoring_oscillation` (人間判断へ)
+- samples 空 (全回呼び出しが YAML バリデーション不通過) → abort_reason: `evaluator_unavailable`
 
 ---
 
