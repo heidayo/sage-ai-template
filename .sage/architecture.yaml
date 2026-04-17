@@ -1,0 +1,47 @@
+# SPEC-0008 TASK-0071/0072: architecture boundary and forbidden-deps rules.
+#
+# This file is CONSUMED by scripts/sage-architecture-check.sh and the
+# sage-architecture-gate workflow. The schema below is the Phase A form
+# (grep-based, language-agnostic). Language-specific linters (go-arch-lint,
+# depcruise, import-linter) may be opted in via project_checks in
+# .sage/config.yaml without changing this file.
+#
+# When this file is absent, Gate 4's architecture check is SKIPPED.
+
+# Optional: name and glob pattern for each layer. Informational; the
+# check uses the patterns in `forbidden` directly.
+layers: {}
+
+# Pairs of (from, to) file-glob patterns that MUST NOT have imports
+# crossing from `from` into `to`. Pattern syntax is shell glob as
+# recognized by git diff `-- pathspec`; both paths are interpreted
+# relative to repo root.
+#
+# For Phase A, violations are detected by:
+#   1. Restricting the PR diff to files under `from`
+#   2. Searching the added/changed lines for a substring match of the
+#      last segment of any path under `to`
+# This is a fuzzy heuristic that accepts false negatives (e.g., if the
+# import uses an alias). Add a language-specific linter via
+# project_checks when precision matters.
+forbidden: []
+# Example (uncomment to enable):
+# forbidden:
+#   - from: "src/domain/**"
+#     to:   "src/infra/**"
+#     reason: "domain must not depend on infrastructure"
+#   - from: "src/usecase/**"
+#     to:   "src/controller/**"
+#     reason: "usecases must not reference controllers"
+
+# List of package names that must NOT appear as imports anywhere in
+# the PR diff. Matching is literal substring in added lines. Useful
+# for keeping deprecated packages out of the codebase or for forcing
+# a migration window.
+forbidden_deps: []
+# Example (uncomment to enable):
+# forbidden_deps:
+#   - name: "lodash"
+#     reason: "use built-in array methods or es-toolkit"
+#   - name: "moment"
+#     reason: "use dayjs or native Intl"

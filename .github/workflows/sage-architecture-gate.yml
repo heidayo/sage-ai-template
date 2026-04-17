@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - '.sage/architecture.yaml'
+      - 'scripts/sage-architecture-check.sh'
       - '.github/workflows/sage-architecture-gate.yml'
 
 permissions:
@@ -71,6 +73,20 @@ jobs:
           echo "FAIL: ${{ steps.trace.outputs.errors }} traceability violation(s) found."
           exit 1
 
+      # SPEC-0008 TASK-0071/0072: layer-boundary + forbidden-deps via
+      # scripts/sage-architecture-check.sh. Configured by .sage/architecture.yaml.
+      # Absent file -> SKIPPED. Violations -> exit 1 (FAIL).
+      - name: Architecture rules (layer boundary + forbidden deps)
+        id: arch
+        run: |
+          if [ ! -f .sage/architecture.yaml ]; then
+            echo "architecture_configured=false" >> "$GITHUB_OUTPUT"
+            echo "SKIPPED: .sage/architecture.yaml not found"
+            exit 0
+          fi
+          echo "architecture_configured=true" >> "$GITHUB_OUTPUT"
+          bash scripts/sage-architecture-check.sh --base="${GITHUB_BASE_REF:-main}"
+
       - name: Comment result on PR
         if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
@@ -79,15 +95,28 @@ jobs:
           script: |
             const marker = '<!-- sage-architecture-gate -->';
             const errors = Number('${{ steps.trace.outputs.errors }}' || '0');
-            const status = errors === 0 ? 'PASS' : 'FAIL';
-            const icon = errors === 0 ? '✅' : '❌';
+            const archStatus = '${{ steps.arch.outcome }}';
+            const archConfigured = '${{ steps.arch.outputs.architecture_configured }}';
+            const overallPass = (errors === 0) && (archStatus !== 'failure');
+            const status = overallPass ? 'PASS' : 'FAIL';
+            const icon = overallPass ? '✅' : '❌';
             const title = `${icon} SAGE Gate 4 (Architecture): ${status}`;
+
+            let archNote;
+            if (archConfigured !== 'true') {
+              archNote = '- Architecture rules: **SKIPPED** (.sage/architecture.yaml not present)';
+            } else if (archStatus === 'success') {
+              archNote = '- Architecture rules: **PASS** (no layer/deps violations)';
+            } else {
+              archNote = '- Architecture rules: **FAIL** — see job log for violations';
+            }
 
             const body = [
               marker,
               `## ${title}`,
               '',
               `- Traceability issues: **${errors}**`,
+              archNote,
               `- Commit: \`${context.sha.slice(0, 7)}\``,
               `- Updated: ${new Date().toISOString()}`,
             ].join('\n');
