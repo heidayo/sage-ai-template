@@ -142,7 +142,8 @@ Evaluator / Review Agent の YAML 出力を受け取った後、オーケスト�
 │  │     Bash: テスト実行・lint・カバレッジのみ    │      │
 │  │     出力: review_feedback YAML              │      │
 │  │                                             │      │
-│  │   review_score >= 100 AND 全Gate pass:      │
+│  │   review_score >= review_score_threshold AND│
+│  │   全Gate pass:                               │
 │  │     auto_approve=false → 人間に確認を求める   │      │
 │  │     auto_approve=true  → 自動で完了          │      │
 │  │   FAIL → fix_scope ルーティングで再実行      │      │
@@ -275,20 +276,48 @@ eval_feedback:
 
 ### Phase 1 ループ制御
 
+採点は **best-of-N + moving window** 方式 (SPEC-0008 TASK-0083)。
+旧挙動に戻すには `scoring_best_of_n: 1` かつ `scoring_window_size: 1` と config.yaml に設定する。
+
 ```
+score_window = []   # 直近の iteration_score を最大 scoring_window_size 件保持
 iteration = 0
 WHILE iteration < spec_eval_max_iterations:
-  1. Evaluator（Read-Only）を呼び出し → eval_feedback YAML を受け取る
-  2. YAML バリデーション実行（上記「YAML 出力バリデーション」参照）
-  3. eval_feedback.verdict == "PASS" (score >= 100) → Phase 2 へ進む
-  4. eval_feedback.verdict == "FAIL" → Spec Agent 修正呼び出し
-  5. iteration += 1
+
+  # --- best-of-N 採点 ---
+  samples = []                       # (score, eval_feedback) のリスト
+  FOR i = 1 .. scoring_best_of_n:
+    1. Evaluator（Read-Only）を呼び出し → eval_feedback YAML を受け取る
+    2. YAML バリデーション実行（上記「YAML 出力バリデーション」参照）
+    3. samples.append((eval_feedback.total_score, eval_feedback))
+
+  iteration_score   = max(s.score for s in samples)
+  best_eval_feedback = argmax(s.score for s in samples).eval_feedback
+
+  # --- moving window 判定 ---
+  score_window.append(iteration_score)
+  IF len(score_window) > scoring_window_size:
+    score_window.pop_front()     # 先頭を捨てる
+
+  IF len(score_window) >= scoring_window_size
+     AND min(score_window) >= spec_score_threshold:
+    → verdict: PASS → Phase 2 へ進む
+
+  # --- 失敗時は最高スコア sample の fix_instructions を Spec Agent に渡す ---
+  Spec Agent 修正呼び出し(best_eval_feedback.fix_instructions)
+  iteration += 1
 
 上限到達（spec_eval_max_iterations）:
   → status = "aborted"
   → abort_reason = "spec_eval_max"
   → ユーザーに報告し判断を委ねる
 ```
+
+**判定例** (spec_score_threshold=95, scoring_window_size=3, scoring_best_of_n=3):
+- iteration scores `[95, 95, 95]` → window min = 95 ≥ 95 → PASS
+- iteration scores `[94, 95, 96]` → window min = 94 < 95 → 継続 (4 回目へ)
+- iteration scores `[96, 95, 97]` → window min = 95 ≥ 95 → PASS
+- 各 iteration 内で N=3 採点のうち最高値を採用するため、採点ブレが下振れたときの救済になる
 
 ---
 
@@ -360,8 +389,8 @@ SPEC と同じ要領で、PLAN + TASK を6軸採点。
 
 ### Phase 2 ループ制御
 
-Phase 1 と同一パターン。上限: `plan_eval_max_iterations` 回。
-上限到達 → `abort_reason = "plan_eval_max"`
+Phase 1 と同一パターン (best-of-N + moving window)。判定に使う閾値は `plan_score_threshold` (デフォルト 95)、上限は `plan_eval_max_iterations` 回。
+上限到達 → `abort_reason = "plan_eval_max"`。
 
 ---
 
@@ -592,7 +621,7 @@ review_feedback の `fix_scope` に基づき、オーケストレーターが再
 ### ループ判定
 
 ```
-IF review_result.verdict == "PASS" AND review_result.review_score >= review_score_threshold (100):
+IF review_result.verdict == "PASS" AND review_result.review_score >= review_score_threshold (95):
   → ループ終了、Phase 5 へ
 
 IF review_result.retry_allowed == false:
@@ -737,9 +766,12 @@ phases:
 ```yaml
 harness:
   max_iterations: 5               # Execute-Verify ループ上限
-  spec_score_threshold: 100        # Phase 1 通過に必要な Evaluator スコア
-  plan_score_threshold: 100        # Phase 2 通過に必要な Evaluator スコア
-  review_score_threshold: 100      # Phase 3-4: Review Agent score to pass
+  spec_score_threshold: 95         # Phase 1 通過に必要な Evaluator スコア
+  plan_score_threshold: 95         # Phase 2 通過に必要な Evaluator スコア
+  review_score_threshold: 95       # Phase 3-4: Review Agent score to pass
+  scoring_window_size: 3           # 直近 N 回の iteration_score の最小値で判定 (SPEC-0008)
+  scoring_best_of_n: 3             # 1 iteration で M 回採点し最高値採用 (1 で旧挙動)
+  scoring_variance_abort: 15       # best-of-N の max-min がこの値超で human escalation
   spec_eval_max_iterations: 10     # Phase 1 Evaluator ループ上限
   plan_eval_max_iterations: 10     # Phase 2 Evaluator ループ上限
   verify_pass_required: true       # 全ゲート通過必須
