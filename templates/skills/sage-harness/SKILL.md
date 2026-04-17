@@ -623,6 +623,8 @@ ELSE:
 
 ### Run Log 作成
 
+Canonical フォーマットは `templates/run-log-template.yaml` を参照。必須フィールドは `scripts/sage-runlog-validate.sh` によって CI で検証される。
+
 ```bash
 bash scripts/sage-id-gen.sh run
 ```
@@ -630,33 +632,52 @@ bash scripts/sage-id-gen.sh run
 で RUN-ID を生成し、`.sage/runs/RUN-XXXX.yaml` に以下を書き出す:
 
 ```yaml
+# Required (validator-enforced)
 run_id: RUN-XXXX
+task_id: TASK-XXXX              # primary TASK — harness may cover multiple; list extras in related_tasks
+agent_id: operations            # spec | planning | implementation | review | test | security | operations
+started_at: "2026-04-10T10:00:00Z"
+completed_at: "2026-04-10T10:45:00Z"
+status: pass                    # pass | fail | skipped
+files_changed:
+  - src/...
+  - tests/...
+gate_results:
+  structural: pass              # pass | fail | skipped
+  functional: pass
+  security: pass
+  architecture: pass
+  release: pass
+
+# Optional (validator accepts but does not require)
+error_log: ""
+
+# Harness-specific extensions (validator ignores unknown keys)
 type: harness
 spec_id: SPEC-XXXX
 plan_id: PLAN-XXXX
-task_ids: [TASK-XXXX, TASK-XXXY]
-started_at: "2026-04-10T10:00:00+09:00"
-completed_at: "2026-04-10T10:45:00+09:00"
-status: pass  # pass | fail | aborted
-abort_reason: ""  # max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error
+related_tasks: [TASK-XXXY]      # additional TASKs covered in this run
 iterations: 2
+abort_reason: ""                # one of: max_iterations | same_fail_3x | spec_eval_max |
+                                #         plan_eval_max | human_escalation | yaml_schema_error |
+                                #         scoring_oscillation | evaluator_unavailable
 phases:
   specify:
     status: pass
-    score: 100
-    eval_iterations: 3
+    score: 96                   # threshold 95 per SPEC-0008 TASK-0082
+    eval_iterations: 1
     duration_seconds: 120
   plan:
     status: pass
-    score: 100
-    eval_iterations: 2
+    score: 95
+    eval_iterations: 1
     duration_seconds: 180
   execute_verify:
     - iteration: 1
       implementation_status: completed
       test_status: completed
       review_status: fail
-      review_score: 72
+      review_score: 88            # below threshold -> loop
       review_feedback:
         findings:
           - id: "REV-001"
@@ -673,13 +694,10 @@ phases:
       implementation_status: skipped  # fix_scope.implementation が空のためスキップ
       test_status: completed
       review_status: pass
-      review_score: 100
-gate_results:
-  structural: pass
-  functional: pass
-  security: pass
-  architecture: pass
+      review_score: 96              # >= 95 threshold -> PASS
 ```
+
+**Verification**: 書き出した後に `bash scripts/sage-runlog-validate.sh .sage/runs/RUN-XXXX.yaml` を実行し、exit 0 を確認すること。exit 1 の場合は必須フィールドを埋め直す。
 
 ### Failure 自動蓄積
 
@@ -693,7 +711,7 @@ gate_results:
 - **Iteration**: {iteration}/{max}
 - **最終スコア**: {last_score}
 - **最終findings**: {last_findingsの要約}
-- **abort_reason**: {max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error}
+- **abort_reason**: {max_iterations | same_fail_3x | spec_eval_max | plan_eval_max | human_escalation | yaml_schema_error | scoring_oscillation | evaluator_unavailable}
 - **再発回数**: N
 - **対策**: [未解決]
 ```

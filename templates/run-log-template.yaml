@@ -1,0 +1,51 @@
+# Canonical RUN log template — matches scripts/sage-runlog-validate.sh schema
+# and .sage/config.yaml run_log_schema. Copy and replace placeholders when
+# writing a new .sage/runs/RUN-XXXX.yaml.
+#
+# Required fields (validator-enforced):
+run_id: RUN-XXXX                    # RUN-\d{4}
+task_id: TASK-XXXX                  # TASK-\d{4} — primary TASK for this run
+agent_id: implementation            # one of: spec | planning | implementation | review | test | security | operations
+started_at: "YYYY-MM-DDTHH:MM:SSZ"  # ISO 8601
+completed_at: "YYYY-MM-DDTHH:MM:SSZ"
+status: pass                        # pass | fail | skipped
+files_changed: []                   # list of repo-relative paths touched
+gate_results:
+  structural: pass                  # pass | fail | skipped
+  functional: pass                  # pass | fail | skipped
+  security: pass                    # pass | fail | skipped
+  architecture: pass                # pass | fail | skipped
+  release: pass                     # pass | fail | skipped
+
+# Optional fields — accepted by the validator but not required:
+error_log: ""                       # free-form error trace if status == fail
+
+# Harness-only extensions (validator ignores unknown keys):
+# Uncomment and populate when the run is orchestrated by sage-harness.
+#
+# type: harness
+# spec_id: SPEC-XXXX
+# plan_id: PLAN-XXXX
+# related_tasks: []                 # additional TASK-IDs covered in this run
+# iterations: 1
+# abort_reason: ""                  # one of:
+#                                   #   max_iterations | same_fail_3x | spec_eval_max |
+#                                   #   plan_eval_max | human_escalation | yaml_schema_error |
+#                                   #   scoring_oscillation | evaluator_unavailable
+# phases:
+#   specify:
+#     status: pass
+#     score: 95
+#     eval_iterations: 1
+#     duration_seconds: 60
+#   plan:
+#     status: pass
+#     score: 95
+#     eval_iterations: 1
+#     duration_seconds: 45
+#   execute_verify:
+#     - iteration: 1
+#       implementation_status: completed
+#       test_status: completed
+#       review_status: pass
+#       review_score: 96
