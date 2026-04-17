@@ -3581,7 +3581,7 @@ echo "=== SAGE Validation ==="
 echo ""
 
 # --- CLAUDE.md Section Check ---
-echo "[1/7] CLAUDE.md 必須セクション検証..."
+echo "[1/8] CLAUDE.md 必須セクション検証..."
 REQUIRED_SECTIONS=(
   "Project Overview"
   "Instruction Priority"
@@ -3611,7 +3611,7 @@ fi
 echo ""
 
 # --- specs/_template.md Field Check ---
-echo "[2/7] テンプレート必須フィールド検証..."
+echo "[2/8] テンプレート必須フィールド検証..."
 
 if [ -f specs/_template.md ]; then
   REQUIRED_SPEC_FIELDS=("スコープ外" "受け入れ条件" "異常系" "契約" "リスク" "PLAN-ID")
@@ -3657,7 +3657,7 @@ fi
 echo ""
 
 # --- Directory Structure Check ---
-echo "[3/7] ディレクトリ構造検証..."
+echo "[3/8] ディレクトリ構造検証..."
 REQUIRED_DIRS=("specs" "plans" "tasks" "sage" ".sage" "docs" "scripts")
 for dir in "${REQUIRED_DIRS[@]}"; do
   if [ -d "$dir" ]; then
@@ -3670,7 +3670,7 @@ done
 echo ""
 
 # --- Document Integrity Check ---
-echo "[4/7] ドキュメント整合性チェック..."
+echo "[4/8] ドキュメント整合性チェック..."
 
 # SPEC-0002: Error Context Template
 if grep -q "Error Context Template" CLAUDE.md 2>/dev/null; then
@@ -3706,7 +3706,7 @@ fi
 echo ""
 
 # --- Branch & Lane Check ---
-echo "[5/7] ブランチ規約・レーンチェック..."
+echo "[5/8] ブランチ規約・レーンチェック..."
 CURRENT_BRANCH=${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")}
 
 # Detect lane from branch name
@@ -3784,7 +3784,7 @@ fi
 echo ""
 
 # --- Check 6: Noise Diff Check ---
-echo "[6/7] ノイズ差分チェック..."
+echo "[6/8] ノイズ差分チェック..."
 # CI環境では直近コミットをルート安全に検査、ローカルではステージング済みファイル比較
 if [ -n "${CI:-}" ]; then
   DIFF_CMD="git diff-tree --check --no-commit-id --root -r HEAD"
@@ -3803,7 +3803,7 @@ fi
 echo ""
 
 # --- Check 7: AI Control Plane Security Check ---
-echo "[7/7] AI Control Plane セキュリティチェック..."
+echo "[7/8] AI Control Plane セキュリティチェック..."
 
 # Secret patterns (lightweight subset of sage-doctor.sh)
 SECRET_PATTERN='(api[_-]?key|secret[_-]?key|access[_-]?token|password|credential)\s*[:=]\s*["'"'"']?[A-Za-z0-9+/=_-]{8,}'
@@ -3841,6 +3841,24 @@ if [ -f ".claude/settings.json" ]; then
   else
     echo "  OK: .claude/settings.json パーミッション適切"
   fi
+fi
+echo ""
+
+# --- Check 8: .gitignore ↔ tracked consistency (SPEC-0008 TASK-0080) ---
+echo "[8/8] .gitignore / tracked 整合性チェック..."
+# git ls-files -ci --exclude-standard lists files that are tracked AND would
+# be ignored by standard gitignore rules. The intersection is always a bug:
+# either the file should be removed from the index (git rm --cached) or it
+# should not be in .gitignore. .DS_Store was the original motivating case.
+IGNORED_TRACKED=$(git ls-files -ci --exclude-standard 2>/dev/null || true)
+if [ -n "$IGNORED_TRACKED" ]; then
+  COUNT=$(printf '%s\n' "$IGNORED_TRACKED" | wc -l | tr -d ' ')
+  echo "  FAIL: $COUNT file(s) are tracked but also gitignored:"
+  printf '%s\n' "$IGNORED_TRACKED" | sed 's/^/    /'
+  echo "  Fix: 'git rm --cached <path>' for each, or remove from .gitignore"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "  OK: tracked と gitignore の矛盾なし"
 fi
 echo ""
 
