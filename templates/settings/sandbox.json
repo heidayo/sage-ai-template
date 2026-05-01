@@ -1,0 +1,67 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.production)",
+      "Read(./secrets/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gcloud/**)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~*)",
+      "Bash(rm -rf .*)",
+      "Bash(curl * | *sh)",
+      "Bash(wget * | *sh)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(pnpm add *)",
+      "Bash(yarn add *)",
+      "Bash(pip install *)"
+    ],
+    "disableBypassPermissionsMode": "disable"
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gcloud",
+        "~/.azure",
+        "~/.kube/config",
+        "./.env",
+        "./.env.local",
+        "./.env.production",
+        "./secrets"
+      ],
+      "allowWrite": [
+        "./tmp",
+        "./coverage",
+        "./.sage/runs",
+        "./.sage/metrics",
+        "./.sage/runtime"
+      ]
+    },
+    "network": {
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "api.github.com",
+        "api.anthropic.com",
+        "code.claude.com"
+      ],
+      "deniedDomains": [
+        "webhook.site",
+        "pastebin.com",
+        "transfer.sh"
+      ]
+    }
+  }
+}

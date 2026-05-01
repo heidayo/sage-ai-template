@@ -5,6 +5,7 @@
 .sage/version
 .sage/adoption-audit.md
 .sage/backup/
+.sage/runtime/
 
 # SAGE admin-only (not for public repo)
 docs/maintainer-guide.md

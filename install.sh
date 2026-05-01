@@ -680,7 +680,8 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | Lane 設計 | vibe / lite / standard / promotion の 4 Lane と昇格プロトコル (`scripts/sage-promote.sh`) |
 | File Scope | TASK ごとの変更可能ファイル明示と pre-commit hook |
 | Anti-pattern 学習 | `sage/anti-patterns.md`, `sage/failures.md` の蓄積枠組み |
-| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope 他) — pattern matching による補助ガード |
+| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, Stop hook で全 RUN-*.yaml を per-file atomic redact)**) — pattern matching による補助ガード |
+| Settings template | `templates/settings/sandbox.json` + README (Phase 2B, **雛形のみ — 適用は user 責任**) — Claude Code sandbox / permission 推奨設定 |
 | AI agent 向け instruction | CLAUDE.md / AGENTS.md / `.claude/rules/` のテンプレート |
 | Skill / governance / traceability | `templates/skills/sage-*/`, 本ドキュメント, `sage/traceability.md` |
 | Doctor / repair / report | `scripts/sage-doctor.sh`, `scripts/sage-repair.sh`, `scripts/sage-report.sh` |
@@ -5479,6 +5480,598 @@ exit 0
 
 __EOF_TMPL_HOOK_SESSION_STOP__
 
+read -r -d '' TMPL_HOOK_LETHAL_TRIFECTA <<'__EOF_TMPL_HOOK_LETHAL_TRIFECTA__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0107 (SPEC-0012 Phase 2B): lethal-trifecta-detect.sh
+# Purpose:  PreToolUse hook (Bash + Read matcher) — warn when Simon Willison's
+#           Lethal Trifecta surfaces:
+#             1. Private data was read recently (TTL 5 min via state file)
+#             2. Current input cites untrusted external content
+#             3. Current input has an exfiltration vector
+#           If >= 2 of 3 conditions hold, emit WARN to stderr. Exit code is
+#           ALWAYS 0 — this hook MUST NOT block (Codex review R3).
+#
+# Profile:  standard+ (skipped if profile is "minimal" or "none")
+# Behavior: Reads JSON from stdin. Updates .sage/runtime/lethal-trifecta-state.json
+#           when private-data read is detected, with 5-minute TTL.
+#
+# Reference: https://airia.com/ai-security-in-2026-prompt-injection-the-lethal-trifecta-and-how-to-defend/
+# =============================================================================
+set -euo pipefail
+
+# --- Profile gating ---
+PROFILE="standard"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "standard")
+  [ -z "$PROFILE" ] && PROFILE="standard"
+fi
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
+  exit 0
+fi
+
+# --- Read stdin ---
+INPUT=""
+if ! read -r -t 1 INPUT; then
+  exit 0
+fi
+[ -z "$INPUT" ] && exit 0
+
+# --- Parse tool_name / tool_input ---
+TOOL_NAME=""
+COMMAND=""
+FILE_PATH=""
+if command -v jq &>/dev/null; then
+  TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
+  COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+else
+  # Best-effort grep fallback (skip detection rather than risk a false WARN).
+  exit 0
+fi
+
+# --- State file: last_private_read timestamp (epoch seconds) ---
+STATE_DIR=".sage/runtime"
+STATE_FILE="${STATE_DIR}/lethal-trifecta-state.json"
+TTL_SECONDS=300  # 5 minutes
+
+now_epoch() { date -u +%s; }
+
+read_last_private_epoch() {
+  if [ ! -f "$STATE_FILE" ]; then
+    echo "0"; return
+  fi
+  if command -v jq &>/dev/null; then
+    jq -r '.last_private_read_epoch // 0' "$STATE_FILE" 2>/dev/null || echo "0"
+  else
+    echo "0"
+  fi
+}
+
+write_last_private_epoch() {
+  local ts="$1"
+  mkdir -p "$STATE_DIR" 2>/dev/null || return 0
+  # Atomic write via mktemp + mv. Failure is non-fatal (hook still exits 0).
+  local tmp
+  tmp=$(mktemp "${STATE_DIR}/lethal-trifecta-state.XXXXXX" 2>/dev/null) || return 0
+  printf '{"last_private_read_epoch": %s}\n' "$ts" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+}
+
+# --- Detection: did the current operation read private data? ---
+PRIVATE_PATH_RE='(\.env(\.[a-z]+)?$|/\.env(\.[a-z]+)?$|~/\.ssh/|~/\.aws/|/secrets/|\.pem$|\.key$|id_rsa|\.aws/credentials|gcloud.*credentials.*\.json)'
+
+current_reads_private=false
+case "$TOOL_NAME" in
+  Read)
+    if echo "$FILE_PATH" | grep -qE "$PRIVATE_PATH_RE"; then
+      current_reads_private=true
+    fi
+    ;;
+  Bash)
+    # cat/less/head/tail/grep/printenv|env on private targets
+    if echo "$COMMAND" | grep -qE "(cat|less|more|head|tail|grep|rg|ag|view|nl)[[:space:]][^|;&]*$PRIVATE_PATH_RE"; then
+      current_reads_private=true
+    elif echo "$COMMAND" | grep -qE '(printenv|env|set)[[:space:]]*\|[[:space:]]*(grep|rg|ag)[[:space:]][^|;&]*(KEY|TOKEN|SECRET|API_KEY|PASSWORD|PASSWD)'; then
+      current_reads_private=true
+    fi
+    ;;
+esac
+
+if [ "$current_reads_private" = "true" ]; then
+  write_last_private_epoch "$(now_epoch)"
+fi
+
+# --- Condition 1: T_PRIVATE — was private data read in the last TTL window? ---
+T_PRIVATE=false
+last_private=$(read_last_private_epoch)
+if [ "$last_private" -gt 0 ] 2>/dev/null; then
+  age=$(( $(now_epoch) - last_private ))
+  if [ "$age" -ge 0 ] && [ "$age" -le "$TTL_SECONDS" ]; then
+    T_PRIVATE=true
+  fi
+fi
+
+# --- Condition 2: T_UNTRUSTED — current input cites untrusted external content ---
+T_UNTRUSTED=false
+case "$TOOL_NAME" in
+  WebFetch|WebSearch)
+    T_UNTRUSTED=true
+    ;;
+  Bash)
+    if echo "$COMMAND" | grep -qE '(https?://|gh[[:space:]]+(issue|pr)[[:space:]]+view|gh[[:space:]]+issue[[:space:]]+list|gh[[:space:]]+pr[[:space:]]+list|curl[[:space:]]+https?://)'; then
+      T_UNTRUSTED=true
+    fi
+    ;;
+esac
+
+# --- Condition 3: T_EXFIL — current command has an exfiltration vector ---
+T_EXFIL=false
+if [ "$TOOL_NAME" = "Bash" ]; then
+  if echo "$COMMAND" | grep -qE '(curl[[:space:]]+([^|;&]*-X[[:space:]]+(POST|PUT|PATCH|DELETE)|[^|;&]*--data|[^|;&]*-d[[:space:]])|wget[[:space:]]+[^|;&]*--post-data|webhook\.site|(^|[[:space:];&|])nc[[:space:]]+[a-zA-Z0-9.-]+[[:space:]]+[0-9]+|(^|[[:space:];&|])(mail|mailx|sendmail)[[:space:]]|aws[[:space:]]+sns[[:space:]]+publish|slack-send)'; then
+    T_EXFIL=true
+  fi
+fi
+
+# --- Tally and warn ---
+trifecta_count=0
+[ "$T_PRIVATE"   = "true" ] && trifecta_count=$((trifecta_count + 1))
+[ "$T_UNTRUSTED" = "true" ] && trifecta_count=$((trifecta_count + 1))
+[ "$T_EXFIL"     = "true" ] && trifecta_count=$((trifecta_count + 1))
+
+if [ "$trifecta_count" -ge 2 ]; then
+  # TASK-0112 (Codex review P2 #3): differentiate wording so that "lethal
+  # trifecta" stays a precise term for 3/3 (Simon Willison's original
+  # definition). 2/3 is "partial trifecta risk" — early warning, not the
+  # fully-formed pattern.
+  if [ "$trifecta_count" -ge 3 ]; then
+    echo "WARN: lethal trifecta detected (3/3)" >&2
+  else
+    echo "WARN: partial trifecta risk (${trifecta_count}/3)" >&2
+  fi
+  [ "$T_PRIVATE"   = "true" ] && echo "  - private-data read within last ${TTL_SECONDS}s" >&2
+  [ "$T_UNTRUSTED" = "true" ] && echo "  - untrusted external content cited in this input" >&2
+  [ "$T_EXFIL"     = "true" ] && echo "  - exfiltration vector present in this command" >&2
+  echo "Reference: https://airia.com/ai-security-in-2026-prompt-injection-the-lethal-trifecta-and-how-to-defend/" >&2
+  echo "This is a WARN — the operation is NOT blocked. Review before proceeding." >&2
+fi
+
+# Always allow — this hook never blocks (Codex review R3).
+exit 0
+
+__EOF_TMPL_HOOK_LETHAL_TRIFECTA__
+
+read -r -d '' TMPL_HOOK_SECRET_READ <<'__EOF_TMPL_HOOK_SECRET_READ__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0108 (SPEC-0012 Phase 2B): secret-read-multi-layer.sh
+# Purpose:  PreToolUse hook (Bash matcher) — close the gap that Phase 1
+#           SECURITY.md disclosed: `Read(./.env)` deny does not stop a Bash
+#           subprocess like `cat .env`. This hook blocks Bash-side reads of
+#           secret-bearing files and environment variable filtering.
+#
+# Profile:  standard+ (skipped if profile is "minimal" or "none")
+# Behavior: Reads JSON from stdin. Returns exit 2 with stderr message when
+#           the command would expose secrets. Honors .env.example /
+#           .env.sample / .env.template as a non-secret allowlist.
+#
+# Reference: Phase 1 SECURITY.md §3 ("Read deny does not cover Bash subprocess")
+# =============================================================================
+set -euo pipefail
+
+# --- Profile gating ---
+PROFILE="standard"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "standard")
+  [ -z "$PROFILE" ] && PROFILE="standard"
+fi
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
+  exit 0
+fi
+
+# --- Read stdin ---
+INPUT=""
+if ! read -r -t 1 INPUT; then
+  exit 0
+fi
+[ -z "$INPUT" ] && exit 0
+
+# --- Parse command ---
+COMMAND=""
+if command -v jq &>/dev/null; then
+  COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+else
+  COMMAND=$(echo "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | head -1 | sed 's/.*"command"[[:space:]]*:[[:space:]]*"//;s/"$//' || true)
+fi
+[ -z "$COMMAND" ] && exit 0
+
+# --- Allowlist: .env templates that contain placeholders, not real secrets ---
+# If EVERY referenced .env-like path is a known template, allow.
+ALLOWLIST_RE='\.env\.(example|sample|template)$'
+
+# --- Block patterns ---
+
+# Pattern A: read tools (cat/less/head/tail/grep/rg/ag/view/nl/od/xxd/more)
+# whose argument matches a secret-bearing path. We exclude allowlisted
+# .env templates by checking them first.
+SECRET_PATH_RE='(\.env(\.local|\.production|\.prod|-prod)?|/\.env(\.local|\.production|\.prod|-prod)?|secrets/[^[:space:]]+|[^[:space:]]+\.pem|[^[:space:]]+\.key|id_rsa|\.aws/credentials|gcloud[^[:space:]]*credentials[^[:space:]]*\.json|\.ssh/id_[a-z]+)'
+
+# Step 1: extract argument tokens that look like secret paths.
+# Step 2: if at least one is NOT in the allowlist, block.
+read_tool_re='(^|[[:space:];&|])(cat|less|more|head|tail|grep|rg|ag|view|nl|od|xxd)([[:space:]]+-[a-zA-Z0-9-]+)*[[:space:]]+'
+
+if echo "$COMMAND" | grep -qE "${read_tool_re}[^|;&]*${SECRET_PATH_RE}"; then
+  # Check allowlist: extract all secret-like path tokens. The previous
+  # version used `[^[:space:]|;&]+(...)` which required >= 1 prefix char
+  # and therefore failed for the common `cat .env` form (the path starts
+  # right after a space). Use `[^[:space:]|;&]*` so 0 prefix chars are OK.
+  matched_paths=$(echo "$COMMAND" | grep -oE "[^[:space:]|;&]*${SECRET_PATH_RE}[^[:space:]|;&]*" || true)
+  any_real_secret=false
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    if ! echo "$path" | grep -qE "$ALLOWLIST_RE"; then
+      any_real_secret=true
+      break
+    fi
+  done <<< "$matched_paths"
+
+  if [ "$any_real_secret" = "true" ]; then
+    echo "BLOCKED: Bash command reads a secret-bearing path." >&2
+    echo "Matched paths: $(echo "$matched_paths" | tr '\n' ' ')" >&2
+    echo "Reference: SECURITY.md §3 — Bash subprocess bypass of Read() deny" >&2
+    echo "Allowlist exemption: .env.example / .env.sample / .env.template only." >&2
+    exit 2
+  fi
+fi
+
+# Pattern B: environment-variable filtering for secret keys.
+# `printenv | grep KEY`, `env | grep TOKEN`, `set | grep SECRET`, etc.
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])(printenv|env|set)([[:space:]]+[^|]*)?[[:space:]]*\|[[:space:]]*(grep|rg|ag)[[:space:]][^|;&]*(KEY|TOKEN|SECRET|API_KEY|PASSWORD|PASSWD|CREDENTIAL)'; then
+  echo "BLOCKED: Bash pipe filters environment variables for secret keys." >&2
+  echo "Pattern: printenv|env|set | grep KEY|TOKEN|SECRET|API_KEY|PASSWORD|CREDENTIAL" >&2
+  echo "Reference: SECURITY.md §3 — environment-variable secret read" >&2
+  exit 2
+fi
+
+# All checks passed
+exit 0
+
+__EOF_TMPL_HOOK_SECRET_READ__
+
+read -r -d '' TMPL_HOOK_SECURITY_FILTER <<'__EOF_TMPL_HOOK_SECURITY_FILTER__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0109 (SPEC-0012 Phase 2B): security-filter.sh
+# Purpose:  Stop hook — redact API keys / tokens / JWTs in ALL .sage/runs/
+#           RUN-*.yaml files so that RUN logs do not themselves become a
+#           secret-leak vector. Prerequisite for the future RUN-log
+#           indexing work (Codex review R5: redaction first, SQLite/FTS
+#           later).
+#
+# Profile:  standard+ (skipped if profile is "minimal" or "none")
+# Behavior: Reads JSON from stdin (Stop payload — Claude Code's official
+#           hook event name is "Stop", not "SessionStop"). Iterates over
+#           every RUN-*.yaml under .sage/runs/ and applies redaction via
+#           atomic write (mktemp + mv). Failure on any single file
+#           preserves that file; sibling files still get processed.
+#           Idempotent: lines that already contain ***REDACTED*** are
+#           not re-processed.
+#
+# TASK-0112 (Codex review P2 #5): originally only the newest RUN-*.yaml
+#   was scanned. Multiple RUN logs in a single session left older ones
+#   un-redacted. Now scans all of them.
+# TASK-0112 (Codex review P3 #6): renamed comment from "SessionStop" to
+#   "Stop" to match the Claude Code official hook event name.
+#
+# Reference: Codex review R5 / Cluster I (security-filter proposal)
+# =============================================================================
+set -uo pipefail
+
+# --- Profile gating ---
+PROFILE="standard"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "standard")
+  [ -z "$PROFILE" ] && PROFILE="standard"
+fi
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
+  exit 0
+fi
+
+# Drain stdin (Stop payload — we don't actually need it, but read it to
+# avoid SIGPIPE from the caller).
+if read -r -t 1 _input 2>/dev/null; then :; fi
+
+RUNS_DIR=".sage/runs"
+[ -d "$RUNS_DIR" ] || exit 0
+
+# TASK-0112 (Codex review P2 #5): redact ALL RUN-*.yaml files. The
+# previous newest-only behavior left older files un-redacted when
+# multiple runs happened in the same session.
+TARGETS=$(find "$RUNS_DIR" -maxdepth 1 -type f -name 'RUN-*.yaml' -print 2>/dev/null)
+[ -z "$TARGETS" ] && exit 0
+
+# --- Build redaction sed expressions ---
+# Patterns:
+#   1. sk-[A-Za-z0-9_-]{32,}     OpenAI / Anthropic style
+#   2. ghp_[A-Za-z0-9]{36}       GitHub PAT (classic)
+#   3. gho_[A-Za-z0-9]{36}       GitHub OAuth
+#   4. github_pat_[A-Za-z0-9_]{82}  GitHub fine-grained PAT
+#   5. xox[abp]-[A-Za-z0-9-]+    Slack
+#   6. AKIA[0-9A-Z]{16}          AWS Access Key
+#   7. eyJ[...]\.[...]\.[...]    JWT 3-part
+#   8. YAML field where key matches (api[_-]?key|token|secret|password|jwt)
+#      with a 20+ char value: replace value only.
+#
+# All replacements use the literal placeholder ***REDACTED***.
+PLACEHOLDER='***REDACTED***'
+
+# Per-file temp tracker so trap cleans up whichever file we're in the
+# middle of when an interrupt arrives.
+CURRENT_TMP=""
+cleanup() {
+  if [ -n "$CURRENT_TMP" ] && [ -f "$CURRENT_TMP" ]; then
+    rm -f "$CURRENT_TMP"
+  fi
+}
+trap cleanup EXIT
+
+# Loop over each target. Failure on a single file is logged-via-skip
+# (we just leave that one alone) but does not block sibling files or
+# cause the hook to fail (Stop hooks must always exit 0).
+process_one() {
+  local target="$1"
+  CURRENT_TMP=$(mktemp "${target}.redact.XXXXXX") || return 0
+
+  if ! awk -v PH="$PLACEHOLDER" '
+  {
+    line = $0
+
+    # 1. sk-... (32+ chars, alphanumeric + _ -)
+    while (match(line, /sk-[A-Za-z0-9_-]{32,}/)) {
+      line = substr(line, 1, RSTART-1) PH substr(line, RSTART+RLENGTH)
+    }
+
+    # 2-3. GitHub PATs / OAuth (36 chars)
+    while (match(line, /gh[po]_[A-Za-z0-9]{36}/)) {
+      line = substr(line, 1, RSTART-1) PH substr(line, RSTART+RLENGTH)
+    }
+
+    # 4. GitHub fine-grained PAT (github_pat_ + ~82 chars)
+    while (match(line, /github_pat_[A-Za-z0-9_]{20,}/)) {
+      line = substr(line, 1, RSTART-1) PH substr(line, RSTART+RLENGTH)
+    }
+
+    # 5. Slack tokens
+    while (match(line, /xox[abp]-[A-Za-z0-9-]{8,}/)) {
+      line = substr(line, 1, RSTART-1) PH substr(line, RSTART+RLENGTH)
+    }
+
+    # 6. AWS Access Key
+    while (match(line, /AKIA[0-9A-Z]{16}/)) {
+      line = substr(line, 1, RSTART-1) PH substr(line, RSTART+RLENGTH)
+    }
+
+    # 7. JWT (3-part base64 separated by .)
+    while (match(line, /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/)) {
+      line = substr(line, 1, RSTART-1) PH substr(line, RSTART+RLENGTH)
+    }
+
+    # 8. YAML secret-bearing field. Examples:
+    #     api_key: "abcdefghijklmnopqrst"
+    #     token: VeryLongSecretValueAlphanumeric20
+    #   Match key (case-insensitive) followed by colon and a value of
+    #   20+ alphanumeric chars (with optional surrounding quotes).
+    #   Skip lines already containing the placeholder (idempotency).
+    if (line !~ /\*\*\*REDACTED\*\*\*/) {
+      if (match(line, /^[[:space:]]*-?[[:space:]]*[Aa][Pp][Ii][_-]?[Kk][Ee][Yy][[:space:]]*:[[:space:]]*"?[A-Za-z0-9_+\/=.-]{20,}"?/)) {
+        sub(/[A-Za-z0-9_+\/=.-]{20,}/, PH, line)
+      } else if (match(line, /^[[:space:]]*-?[[:space:]]*[Tt][Oo][Kk][Ee][Nn][[:space:]]*:[[:space:]]*"?[A-Za-z0-9_+\/=.-]{20,}"?/)) {
+        sub(/[A-Za-z0-9_+\/=.-]{20,}/, PH, line)
+      } else if (match(line, /^[[:space:]]*-?[[:space:]]*[Ss][Ee][Cc][Rr][Ee][Tt][[:space:]]*:[[:space:]]*"?[A-Za-z0-9_+\/=.-]{20,}"?/)) {
+        sub(/[A-Za-z0-9_+\/=.-]{20,}/, PH, line)
+      } else if (match(line, /^[[:space:]]*-?[[:space:]]*[Pp][Aa][Ss][Ss][Ww][Oo]?[Rr]?[Dd][[:space:]]*:[[:space:]]*"?[A-Za-z0-9_+\/=.-]{20,}"?/)) {
+        sub(/[A-Za-z0-9_+\/=.-]{20,}/, PH, line)
+      } else if (match(line, /^[[:space:]]*-?[[:space:]]*[Jj][Ww][Tt][[:space:]]*:[[:space:]]*"?[A-Za-z0-9_+\/=.-]{20,}"?/)) {
+        sub(/[A-Za-z0-9_+\/=.-]{20,}/, PH, line)
+      }
+    }
+
+    print line
+  }
+' "$target" > "$CURRENT_TMP" 2>/dev/null; then
+    # awk failed for this target — keep original, move on.
+    rm -f "$CURRENT_TMP"
+    CURRENT_TMP=""
+    return 0
+  fi
+
+  # Atomic replace.
+  mv "$CURRENT_TMP" "$target" 2>/dev/null || rm -f "$CURRENT_TMP"
+  CURRENT_TMP=""
+  return 0
+}
+
+while IFS= read -r target; do
+  [ -z "$target" ] && continue
+  [ -f "$target" ] || continue
+  process_one "$target"
+done <<< "$TARGETS"
+
+exit 0
+
+__EOF_TMPL_HOOK_SECURITY_FILTER__
+
+read -r -d '' TMPL_SETTINGS_SANDBOX <<'__EOF_TMPL_SETTINGS_SANDBOX__' || true
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.production)",
+      "Read(./secrets/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gcloud/**)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~*)",
+      "Bash(rm -rf .*)",
+      "Bash(curl * | *sh)",
+      "Bash(wget * | *sh)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(pnpm add *)",
+      "Bash(yarn add *)",
+      "Bash(pip install *)"
+    ],
+    "disableBypassPermissionsMode": "disable"
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gcloud",
+        "~/.azure",
+        "~/.kube/config",
+        "./.env",
+        "./.env.local",
+        "./.env.production",
+        "./secrets"
+      ],
+      "allowWrite": [
+        "./tmp",
+        "./coverage",
+        "./.sage/runs",
+        "./.sage/metrics",
+        "./.sage/runtime"
+      ]
+    },
+    "network": {
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "api.github.com",
+        "api.anthropic.com",
+        "code.claude.com"
+      ],
+      "deniedDomains": [
+        "webhook.site",
+        "pastebin.com",
+        "transfer.sh"
+      ]
+    }
+  }
+}
+
+__EOF_TMPL_SETTINGS_SANDBOX__
+
+read -r -d '' TMPL_SETTINGS_README <<'__EOF_TMPL_SETTINGS_README__' || true
+# SAGE Settings Templates
+
+このディレクトリには Claude Code の設定 **雛形** が入っています。
+
+> **⚠️ 重要 — SAGE は runtime sandbox を提供しません**
+>
+> SAGE は templates/governance/anti-pattern を提供する **doctrine 層** です。runtime での filesystem isolation や network allowlist の実 enforcement は **Claude Code 本体** が行います ([sage/governance.md §9.2](../../sage/governance.md))。
+>
+> このディレクトリの `sandbox.json` は **雛形にすぎません**。SAGE は user の `.claude/settings.json` を自動上書きしません。**user が自分の責任で merge し、自分の環境で valid か確認してください**。
+
+---
+
+## sandbox.json — Claude Code Sandbox 推奨設定 (Phase 2B)
+
+### 含まれるもの
+
+| Section | Purpose | 根拠 |
+|---|---|---|
+| `permissions.deny` | secret 読み取り / 破壊的コマンド / force push を block | Phase 1 SECURITY.md §3, Anthropic Claude Code Security |
+| `permissions.ask` | dependency 追加 / commit / push は人間確認 | OWASP AI Agent Cheat Sheet §6 (human-in-the-loop) |
+| `permissions.disableBypassPermissionsMode: "disable"` | `bypassPermissions` モード自体を組織レベルで禁止 | [CVE-2026-33068](https://nvd.nist.gov/vuln/detail/CVE-2026-33068) trust dialog bypass |
+| `sandbox.enabled: true` | OS-level filesystem + network 隔離 | [Anthropic Claude Code Sandboxing 公式](https://www.anthropic.com/engineering/claude-code-sandboxing) |
+| `sandbox.failIfUnavailable: true` | sandbox が起動できない時に silently 続行しない | Phase 1 SECURITY.md §3 doctrine |
+| `sandbox.filesystem.denyRead` | SSH key / AWS credentials / `.env` 等を OS レベルで隔離 | [CVE-2025-59536](https://research.checkpoint.com/2026/rce-and-api-token-exfiltration-through-claude-code-project-files-cve-2025-59536/) (`ANTHROPIC_BASE_URL` exfil 防止), [CVE-2026-25723](https://nvd.nist.gov/vuln/detail/CVE-2026-25723) (file write bypass 防止) |
+| `sandbox.network.allowedDomains` | 必要な API endpoint のみ許可、exfiltration vector 制限 | [Lethal Trifecta — Airia](https://airia.com/ai-security-in-2026-prompt-injection-the-lethal-trifecta-and-how-to-defend/) |
+
+### 適用手順
+
+#### Option A: 既存 `.claude/settings.json` がない場合 (新規 project)
+
+```bash
+mkdir -p .claude
+cp templates/settings/sandbox.json .claude/settings.json
+```
+
+#### Option B: 既存設定がある場合 (推奨)
+
+`jq` で merge してから diff を必ず review:
+
+```bash
+# 1. 現状 backup
+cp .claude/settings.json .claude/settings.json.bak
+
+# 2. merge (sandbox.json の値が優先される deep merge)
+jq -s '.[0] * .[1]' .claude/settings.json templates/settings/sandbox.json > .claude/settings.json.merged
+
+# 3. 必ず diff で確認 — 自分の project に必要な permission を消していないか
+diff .claude/settings.json.bak .claude/settings.json.merged
+
+# 4. OK なら apply
+mv .claude/settings.json.merged .claude/settings.json
+
+# 5. 初回は plan mode で動作確認
+# Claude Code を起動し、まず /plan で軽い操作を試す
+```
+
+#### Option C: 部分的に取り込む
+
+全部一度に適用せず、`permissions.deny` だけ・`sandbox.network.allowedDomains` だけ等の段階導入も推奨されます。
+
+### カスタマイズの注意
+
+#### `network.allowedDomains` を自分の環境に合わせる
+
+template には Claude API endpoint と公式 docs (`code.claude.com`) を含めていますが、user の project が叩く API は別途追加が必要:
+
+- OpenAI も使う → `api.openai.com` を追加
+- Supabase project → `*.supabase.co` 相当を追加 (ただし wildcard は exfil リスク残るので可能なら specific subdomain に絞る)
+- 自社 API → 必要 host のみ追加
+
+#### `permissions.ask` を user が許容できる粒度に
+
+`Bash(npm install *)` を全部 `ask` にすると毎回承認が必要で承認疲れします。trusted package は `allow` に移すか、`pnpm` 1 種類に絞る等を検討。
+
+#### `denyRead` を緩めるのは慎重に
+
+`~/.ssh` を allow しないと git over SSH が動かないように見えますが、Claude Code sandbox の git 操作は通常 sandbox 外の git と HTTPS で動くため、SSH key 自体を読ませる必要は普通ありません。ssh-agent / git credential helper 経由で認証してください。
+
+### 何が変わるか (適用後の挙動)
+
+- `.env` を Claude Code に直接読まれない (Read tool deny + sandbox denyRead 二重防御)
+- `git push --force` を試みると block される
+- `bypassPermissions` モードへの切り替え自体が組織レベルで禁止される
+- 不明なドメインへの outbound 通信は sandbox が止める
+- 上記が破られた瞬間に Claude Code は失敗する (`failIfUnavailable: true`)
+
+これらは **user が許容するべきトレードオフ** です。承認プロンプトが増える代わりに supply chain / exfiltration / hijack risk を構造的に減らします。
+
+### 関連ドキュメント
+
+- [SECURITY.md §4](../../SECURITY.md) — SAGE の "Out of Scope" — runtime enforcement は Claude Code 側の責務
+- [sage/governance.md §9](../../sage/governance.md) — SAGE Scope Boundary
+- [AGENTS.md §2.1](../../AGENTS.md) — Codex 利用者は ~/.codex/config.toml で別途 sandbox 構築 (このファイルは Claude Code 専用)
+
+---
+
+*templates/settings/sandbox.json + README.md は SPEC-0012 / TASK-0110 として 2026-05-02 に追加されました。*
+
+__EOF_TMPL_SETTINGS_README__
+
 read -r -d '' TMPL_SETTINGS_JSON <<'__EOF_TMPL_SETTINGS_JSON__' || true
 {
   "permissions": {
@@ -5493,6 +6086,14 @@ read -r -d '' TMPL_SETTINGS_JSON <<'__EOF_TMPL_SETTINGS_JSON__' || true
           {
             "type": "command",
             "command": "bash templates/hooks/block-dangerous-commands.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash templates/hooks/secret-read-multi-layer.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash templates/hooks/lethal-trifecta-detect.sh"
           }
         ]
       },
@@ -5506,6 +6107,15 @@ read -r -d '' TMPL_SETTINGS_JSON <<'__EOF_TMPL_SETTINGS_JSON__' || true
           {
             "type": "command",
             "command": "bash templates/hooks/check-file-scope.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash templates/hooks/lethal-trifecta-detect.sh"
           }
         ]
       }
@@ -5526,6 +6136,10 @@ read -r -d '' TMPL_SETTINGS_JSON <<'__EOF_TMPL_SETTINGS_JSON__' || true
           {
             "type": "command",
             "command": "bash templates/hooks/session-stop.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash templates/hooks/security-filter.sh"
           }
         ]
       }
@@ -5572,16 +6186,24 @@ do_print_provenance() {
   else
     sha="unavailable (no sha256sum/shasum)"
   fi
+  # TASK-0112 (Codex review bonus): compute size dynamically from $0
+  # rather than hardcoding ~213KB. The installer keeps growing across
+  # phases (Phase 1: 213KB, Phase 2A: 235KB, Phase 2B: 262KB) and a
+  # stale label undermines provenance trust.
+  local size_bytes size_kb
+  size_bytes=$(wc -c < "$0" 2>/dev/null | tr -d ' ' || echo 0)
+  size_kb=$(( size_bytes / 1024 ))
   cat <<EOF
 SAGE Development System — Installer Provenance
 ==============================================
 SAGE_VERSION:     ${SAGE_VERSION}
 Installer SHA256: ${sha}
+Installer size:   ${size_bytes} bytes (~${size_kb}KB)
 Source:           https://github.com/heidayo/sage-ai-template
 License:          Apache-2.0 (see LICENSE)
 Generated:        $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-This installer is a self-contained shell script (~213KB).
+This installer is a self-contained shell script.
 It writes templates, hooks, scripts, and CI workflows under the
 current directory. Run with --dry-run to preview without writing.
 Run with --verify-checksum after install to detect drift against
@@ -6053,12 +6675,22 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/hooks/check-file-scope.sh" "$TMPL_HOOK_CHECK_SCOPE" && chmod +x "templates/hooks/check-file-scope.sh"
   write_file_if_new "templates/hooks/session-start.sh" "$TMPL_HOOK_SESSION_START" && chmod +x "templates/hooks/session-start.sh"
   write_file_if_new "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
+  write_file_if_new "templates/hooks/lethal-trifecta-detect.sh" "$TMPL_HOOK_LETHAL_TRIFECTA" && chmod +x "templates/hooks/lethal-trifecta-detect.sh"
+  write_file_if_new "templates/hooks/secret-read-multi-layer.sh" "$TMPL_HOOK_SECRET_READ" && chmod +x "templates/hooks/secret-read-multi-layer.sh"
+  write_file_if_new "templates/hooks/security-filter.sh" "$TMPL_HOOK_SECURITY_FILTER" && chmod +x "templates/hooks/security-filter.sh"
+  write_file_if_new "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
+  write_file_if_new "templates/settings/README.md" "$TMPL_SETTINGS_README"
 else
   update_file "templates/hooks/block-dangerous-commands.sh" "$TMPL_HOOK_BLOCK_DANGEROUS" && chmod +x "templates/hooks/block-dangerous-commands.sh"
   update_file "templates/hooks/protect-sage-files.sh" "$TMPL_HOOK_PROTECT_SAGE" && chmod +x "templates/hooks/protect-sage-files.sh"
   update_file "templates/hooks/check-file-scope.sh" "$TMPL_HOOK_CHECK_SCOPE" && chmod +x "templates/hooks/check-file-scope.sh"
   update_file "templates/hooks/session-start.sh" "$TMPL_HOOK_SESSION_START" && chmod +x "templates/hooks/session-start.sh"
   update_file "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
+  update_file "templates/hooks/lethal-trifecta-detect.sh" "$TMPL_HOOK_LETHAL_TRIFECTA" && chmod +x "templates/hooks/lethal-trifecta-detect.sh"
+  update_file "templates/hooks/secret-read-multi-layer.sh" "$TMPL_HOOK_SECRET_READ" && chmod +x "templates/hooks/secret-read-multi-layer.sh"
+  update_file "templates/hooks/security-filter.sh" "$TMPL_HOOK_SECURITY_FILTER" && chmod +x "templates/hooks/security-filter.sh"
+  update_file "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
+  update_file "templates/settings/README.md" "$TMPL_SETTINGS_README"
 fi
 # Deploy settings.json with hook definitions
 if [ "${DRY_RUN:-false}" = "true" ]; then

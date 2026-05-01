@@ -71,6 +71,13 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          # TASK-0117 (Codex 3rd-round P1): full history needed because
+          # scripts/sage-validate.sh runs `git diff-tree --check --root
+          # -r HEAD` which, on a shallow clone, treats unrelated history
+          # as part of HEAD and reports spurious "noise diffs". Other
+          # gates (structural, security) already use fetch-depth >= 2,
+          # release was the outlier.
+          fetch-depth: 0
 
       - name: Check Gate 1-4 prerequisites
         id: prerequisites
@@ -151,7 +158,7 @@ jobs:
       - name: Release readiness check
         id: release
         run: |
-          set -euo pipefail
+          set -uo pipefail
           ERRORS=0
 
           # Check SAGE structure
@@ -163,6 +170,17 @@ jobs:
           fi
 
           echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+
+          # TASK-0113 (Codex 2nd-round P1): fail-close. Previously this step
+          # only published the count to GITHUB_OUTPUT; the PR-comment step
+          # would then mark the gate FAIL while the check itself stayed
+          # green, causing required-check vs gate-comment divergence and
+          # potential merge confusion.
+          if [ "$ERRORS" -gt 0 ]; then
+            echo ""
+            echo "Release readiness FAILED with $ERRORS error(s) above."
+            exit 1
+          fi
 
       - name: Comment result on PR
         if: always() && github.event_name == 'pull_request'

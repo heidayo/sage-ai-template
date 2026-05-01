@@ -171,8 +171,33 @@ if [ -d "templates" ]; then
   done < <(find templates -type f 2>/dev/null)
 fi
 
+# SPEC-0012 / TASK-0111: allowlist hooks whose entire purpose is to define
+# or test secret detection patterns. Without this, the scanner trips on
+# its own future-collaborators (security-filter.sh embeds the redaction
+# regex; secret-read-multi-layer.sh embeds the deny regex; their test
+# files contain intentionally-fake fixture values).
+SECRET_SCAN_ALLOWLIST=(
+  "templates/hooks/security-filter.sh"
+  "templates/hooks/tests/test-security-filter.sh"
+  "templates/hooks/secret-read-multi-layer.sh"
+  "templates/hooks/tests/test-secret-read-multi-layer.sh"
+)
+
+is_secret_scan_allowlisted() {
+  local f="$1"
+  for allowed in "${SECRET_SCAN_ALLOWLIST[@]}"; do
+    if [ "$f" = "$allowed" ] || [ "$f" = "./$allowed" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 SECRET_FOUND=false
 for file in "${SECRET_SCAN_FILES[@]}"; do
+  if is_secret_scan_allowlisted "$file"; then
+    continue
+  fi
   for pattern in "$SECRET_PATTERN" "$AWS_PATTERN" "$JWT_PATTERN" "$GITHUB_TOKEN_PATTERN"; do
     if grep -qEi "$pattern" "$file" 2>/dev/null; then
       emit "FAIL" "Secret pattern detected in $file"

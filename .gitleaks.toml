@@ -1,0 +1,61 @@
+# Gitleaks configuration for SAGE Development System
+#
+# SPEC-0012 / TASK-0112 introduced this file because the security-filter.sh
+# self-tests contain intentionally fake values that match real secret formats.
+#
+# TASK-0113 (Codex 2nd-round P3) tightens the strategy:
+#   - The previous version used path-level allowlisting which silently
+#     exempted the four files from ALL secret detection. Real secret
+#     accidentally committed in those files would also have been missed.
+#   - The new version uses path AND regex AND condition — only the
+#     explicit fixture values listed below are allowed. Any new fixture
+#     must be added here explicitly (forces a code-review touch).
+#   - When CI Gitleaks reaches v8.25+, this should migrate to the
+#     [[allowlists]] array form. The single [allowlist] table is what
+#     8.24.3 currently supports.
+#
+# Documented at: SECURITY.md (Threat Model 3.1, Phase 2B)
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "SAGE security-hook self-test fixtures (path AND regex)."
+
+# TASK-0117 (Codex 3rd-round P2): Gitleaks default for multi-condition
+# allowlist is OR. To require BOTH a path match AND a regex match, the
+# `condition = "AND"` setting must be explicit. Without it, the
+# fixture regexes would silently exempt those values anywhere in the
+# repo, and the path list would silently exempt everything inside
+# those four files. With AND, only the named values inside the named
+# files are exempted.
+condition = "AND"
+
+# regexTarget = "match" tells Gitleaks to apply the regex against the
+# matched secret string itself (not the full line), so the explicit
+# fixture values match exactly without surrounding context.
+regexTarget = "match"
+
+paths = [
+  '''templates/hooks/tests/test-security-filter\.sh''',
+  '''templates/hooks/tests/test-secret-read-multi-layer\.sh''',
+  '''templates/hooks/security-filter\.sh''',
+  '''templates/hooks/secret-read-multi-layer\.sh''',
+]
+
+regexes = [
+  # OpenAI / Anthropic style fake key (fixture)
+  '''sk-abcdef0123456789abcdef0123456789abcd''',
+  # GitHub PAT classic style — both the "0123456789" and "9876543210" fixtures
+  '''ghp_abcdefghijklmnopqrstuvwxyz0123456789''',
+  '''ghp_abcdefghijklmnopqrstuvwxyz9876543210''',
+  # Slack bot token fixture
+  '''xoxb-12345-67890-abcdefghijklmnop''',
+  # AWS Access Key fixture
+  '''AKIAABCDEFGHIJKLMNOP''',
+  # JWT three-part fixture (header.payload.signature)
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c''',
+  # YAML-field fixtures: the literal long-string values in the heredoc
+  '''MyTotallyUnsafeSecretValueLongerThanTwentyChars''',
+  '''ShouldBeRedactedExampleStringValue''',
+]
