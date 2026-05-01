@@ -25,6 +25,18 @@ For **Codex sessions**, follow instructions in this order:
 
 `CLAUDE.md` is the Claude Code-specific counterpart. The two documents must stay semantically aligned.
 
+### 2.1 Codex specificity (hooks ≠ Codex enforcement)
+
+SAGE の `templates/hooks/` (block-dangerous-commands.sh / protect-sage-files.sh 他) は Claude Code の `PreToolUse` / `PostToolUse` 機構で実行されます。**Codex セッションではこれらの hook は直接動作しません**。Codex 側では、対応する防御を以下で別途構築してください:
+
+- `~/.codex/config.toml` で `sandbox_mode = "workspace-write"` + `approval_policy = "on-request"` (既定推奨)
+- network access は agent phase で off (`internet_access = false`)
+- `.env` 経由の `CODEX_HOME` 書き換えは Codex CLI 0.23.0+ で防止 ([CVE-2025-61260](https://research.checkpoint.com/2025/openai-codex-cli-command-injection-vulnerability/))
+- branch name / PR title / issue body は untrusted input として扱う ([BeyondTrust 報告](https://www.beyondtrust.com/blog/entry/openai-codex-command-injection-vulnerability-github-token))
+- 詳細は [SECURITY.md §3](SECURITY.md) と [sage/governance.md §9 Scope Boundary](sage/governance.md) を参照
+
+SAGE が提供する Codex 向け価値は: SPEC/PLAN/TASK lifecycle、File Scope、anti-pattern 学習枠組み、AGENTS.md ルール — **runtime enforcement ではなく仕様駆動の構造設計**。
+
 ## 3. SAGE Lifecycle Protocol
 
 All changes MUST follow this 7-phase lifecycle. Skipping phases is prohibited.
