@@ -146,5 +146,90 @@ if echo "$COMMAND" | grep -qE 'chmod[[:space:]]+(-R|--recursive)[[:space:]][0-7]
   exit 2
 fi
 
+# --- TASK-0103 (SPEC-0011): expanded patterns for Phase 2A hardening ---
+
+# Pattern: long subcommand chain (Adversa AI 50+subcommands deny-rule bypass).
+# We fail-closed at >= 30 separators (;/&&/||/|), well under the 50 boundary
+# in the published research. Counts ALL separators, including backgrounding (&)
+# is intentionally excluded to allow benign 'cmd &' usage.
+SEPCOUNT=$(printf '%s' "$COMMAND" | tr -cd ';|&' | wc -c | tr -d ' ')
+if [ "$SEPCOUNT" -ge 30 ]; then
+  echo "BLOCKED: command contains $SEPCOUNT shell separators (;|&), exceeding the chain-length limit of 30." >&2
+  echo "Suggestion: Break the command into smaller, reviewable pieces." >&2
+  echo "Reference: Adversa AI deny-rule bypass via 50+ subcommands" >&2
+  exit 2
+fi
+
+# Pattern: redirection write to AI control-plane files.
+# Mirrors the CVE-2026-25723 piped-sed bypass class. Catches >, >>, and tee
+# variants targeting .claude/, .mcp.json, .codex/, .sage/config.yaml, .git/,
+# .github/workflows/.
+#
+# TASK-0106 (Codex review P1 #2): the previous regex required whitespace
+# between the redirect operator and the path AND the leading dot was eaten
+# by `\.?`, so common variants slipped through:
+#   echo x>.claude/settings.json        (no space)
+#   echo x > ./.claude/settings.json    (./ prefix)
+#   echo x >./.mcp.json                 (mixed)
+#
+# Approach: split into two checks — operator-and-target with optional
+# whitespace, then the path matcher accepts an optional `./` prefix and
+# requires the literal leading `.` of the control-plane filename.
+if echo "$COMMAND" | grep -qE '(>>?|tee([[:space:]]+-a)?)[[:space:]]*(\./)?\.(claude/|mcp\.json|codex/config\.toml|sage/config\.yaml|git/|github/workflows/)'; then
+  echo "BLOCKED: redirection write to a SAGE / AI control-plane file detected." >&2
+  echo "Targets: .claude/, .mcp.json, .codex/config.toml, .sage/config.yaml, .git/, .github/workflows/" >&2
+  echo "Reference: NVD CVE-2026-25723 (Claude Code piped-sed bypass class)" >&2
+  echo "Suggestion: Edit these files via the Edit/Write tool so protect-sage-files.sh can audit." >&2
+  exit 2
+fi
+
+# Pattern: interpreter -c / -e with file write to disk.
+# Catches python/python3 -c, node -e, ruby -e, perl -e patterns that open a
+# file in write/append mode, which would bypass the Edit/Write tool path
+# entirely. Conservative regex — only flags explicit 'w' or '>>' modes.
+#
+# TASK-0106 (Codex review P2 #4): the previous regex used `[\x27"]` which
+# in grep -E does NOT expand \x27 to apostrophe — the class became literal
+# [\x27"] matching only \, x, 2, 7, ". Single-quoted variants were therefore
+# missed:
+#   python -c "open('foo','w').write('x')"
+#   ruby -e "File.open('foo','w')..."
+#   perl -e "open(..., '>foo')"
+# The fix uses a literal apostrophe inside a bracket class via `'\''`
+# shell-escape pattern, so grep -E sees `['"]`.
+SQ="'\''"
+if echo "$COMMAND" | grep -qE "python[23]?[[:space:]]+-c[[:space:]].*open\([^)]*[${SQ}\"]w"; then
+  echo "BLOCKED: 'python -c ... open(..., \"w\"|'w')' writes a file outside the audited Edit/Write path." >&2
+  echo "Suggestion: Use the Edit or Write tool, or run a reviewed script file." >&2
+  exit 2
+fi
+if echo "$COMMAND" | grep -qE 'node[[:space:]]+-e[[:space:]].*(writeFile|createWriteStream|appendFile)'; then
+  echo "BLOCKED: 'node -e ... writeFile/createWriteStream/appendFile' writes a file outside the audited path." >&2
+  echo "Suggestion: Use the Edit or Write tool, or run a reviewed script file." >&2
+  exit 2
+fi
+if echo "$COMMAND" | grep -qE "ruby[[:space:]]+-e[[:space:]].*File\.open\([^)]*[${SQ}\"](w|a)"; then
+  echo "BLOCKED: 'ruby -e ... File.open(..., \"w\"|\"a\"|'w'|'a')' writes a file outside the audited path." >&2
+  echo "Suggestion: Use the Edit or Write tool, or run a reviewed script file." >&2
+  exit 2
+fi
+if echo "$COMMAND" | grep -qE "perl[[:space:]]+-e[[:space:]].*open\([^)]*,[[:space:]]*[${SQ}\"]>+"; then
+  echo "BLOCKED: 'perl -e ... open(..., \">\"|\">>\"|'>'|'>>')' writes a file outside the audited path." >&2
+  echo "Suggestion: Use the Edit or Write tool, or run a reviewed script file." >&2
+  exit 2
+fi
+
+# Pattern: Unicode obfuscation warning (warn-only, never block).
+# BeyondTrust's Codex branch-name-injection report demonstrated that an
+# Ideographic Space (U+3000) or zero-width characters can hide payloads in
+# what visually looks like 'main'. We warn only because false positives in
+# legitimate filenames (e.g. JP project paths) would block real work.
+# grep -P with \x notation; falls back to grep silently if -P is unavailable.
+if printf '%s' "$COMMAND" | LC_ALL=C grep -qP '[\x{3000}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]' 2>/dev/null; then
+  echo "WARN: suspicious unicode whitespace / zero-width / bidi character detected in command." >&2
+  echo "Reference: BeyondTrust Codex branch-name injection (Unicode obfuscation)" >&2
+  # No exit — warning only.
+fi
+
 # All checks passed
 exit 0

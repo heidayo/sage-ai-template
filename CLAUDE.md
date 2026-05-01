@@ -25,6 +25,10 @@ For **Claude Code sessions**, follow instructions in this order:
 
 `AGENTS.md` is the Codex-specific counterpart. The two documents must stay semantically aligned.
 
+### 2.1 Claude Code specificity
+
+SAGE の `templates/hooks/` (block-dangerous-commands.sh / protect-sage-files.sh 他) は Claude Code の `PreToolUse` / `PostToolUse` 機構で実行されます。Claude Code 利用時は `.claude/settings.json` の `hooks` セクション + profile (`hooks.profile` in `.sage/config.yaml`) で有効化されます。**Codex セッションではこれらの hook は直接動作しません** — Codex 側の対応設定は [AGENTS.md §2.1 Codex specificity](AGENTS.md) を参照。
+
 ## 3. SAGE Lifecycle Protocol
 
 All changes MUST follow this 7-phase lifecycle. Skipping phases is prohibited.

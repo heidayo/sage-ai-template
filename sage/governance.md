@@ -357,6 +357,7 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | 項目 | 理由 / 代替手段 |
 |-----|-----------------|
 | **Claude Code / Codex 本体の runtime sandbox 強制** | filesystem isolation / network allowlist は Claude/Codex 側設定で実現する。SAGE は `templates/settings/` で雛形を示すのみ |
+| **Codex セッションでの hook 実行** | `templates/hooks/` は Claude Code の PreToolUse/PostToolUse 機構専用。**Codex セッションでは hook は直接動作しない** — Codex sandbox 設定 (`sandbox_mode` / `approval_policy` / `internet_access`) で同等防御を別途構築する。詳細は [AGENTS.md §2.1 Codex specificity](../AGENTS.md) |
 | **MCP server の実行時許可制御** | MCP runtime は Claude Code / Codex 本体の機能。SAGE は MCP allowlist テンプレート (Phase 5 予定) を示すが、強制は本体に依存 |
 | **GitHub branch protection の自動セットアップ** | GitHub token を要求して installer 権限が肥大化するため、opt-in script として別途提供予定 (SPEC-0012) |
 | **Production credential / secret の保管** | Vault / 1Password / GitHub Encrypted Secrets / cloud KMS で別途構築 |
