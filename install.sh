@@ -5619,7 +5619,15 @@ trifecta_count=0
 [ "$T_EXFIL"     = "true" ] && trifecta_count=$((trifecta_count + 1))
 
 if [ "$trifecta_count" -ge 2 ]; then
-  echo "WARN: lethal trifecta condition detected (${trifecta_count}/3)" >&2
+  # TASK-0112 (Codex review P2 #3): differentiate wording so that "lethal
+  # trifecta" stays a precise term for 3/3 (Simon Willison's original
+  # definition). 2/3 is "partial trifecta risk" — early warning, not the
+  # fully-formed pattern.
+  if [ "$trifecta_count" -ge 3 ]; then
+    echo "WARN: lethal trifecta detected (3/3)" >&2
+  else
+    echo "WARN: partial trifecta risk (${trifecta_count}/3)" >&2
+  fi
   [ "$T_PRIVATE"   = "true" ] && echo "  - private-data read within last ${TTL_SECONDS}s" >&2
   [ "$T_UNTRUSTED" = "true" ] && echo "  - untrusted external content cited in this input" >&2
   [ "$T_EXFIL"     = "true" ] && echo "  - exfiltration vector present in this command" >&2
@@ -5733,17 +5741,26 @@ read -r -d '' TMPL_HOOK_SECURITY_FILTER <<'__EOF_TMPL_HOOK_SECURITY_FILTER__' ||
 #!/usr/bin/env bash
 # =============================================================================
 # TASK-0109 (SPEC-0012 Phase 2B): security-filter.sh
-# Purpose:  SessionStop hook — redact API keys / tokens / JWTs in the most
-#           recently written .sage/runs/RUN-*.yaml so that RUN logs do not
-#           themselves become a secret-leak vector. Prerequisite for the
-#           future RUN-log indexing work (Codex review R5: redaction first,
-#           SQLite/FTS later).
+# Purpose:  Stop hook — redact API keys / tokens / JWTs in ALL .sage/runs/
+#           RUN-*.yaml files so that RUN logs do not themselves become a
+#           secret-leak vector. Prerequisite for the future RUN-log
+#           indexing work (Codex review R5: redaction first, SQLite/FTS
+#           later).
 #
 # Profile:  standard+ (skipped if profile is "minimal" or "none")
-# Behavior: Reads JSON from stdin (SessionStop payload). Picks the newest
-#           RUN-*.yaml under .sage/runs/. Replaces matched secret values
-#           with "***REDACTED***" via atomic write (mktemp + mv). Failure
-#           preserves the original file. Idempotent.
+# Behavior: Reads JSON from stdin (Stop payload — Claude Code's official
+#           hook event name is "Stop", not "SessionStop"). Iterates over
+#           every RUN-*.yaml under .sage/runs/ and applies redaction via
+#           atomic write (mktemp + mv). Failure on any single file
+#           preserves that file; sibling files still get processed.
+#           Idempotent: lines that already contain ***REDACTED*** are
+#           not re-processed.
+#
+# TASK-0112 (Codex review P2 #5): originally only the newest RUN-*.yaml
+#   was scanned. Multiple RUN logs in a single session left older ones
+#   un-redacted. Now scans all of them.
+# TASK-0112 (Codex review P3 #6): renamed comment from "SessionStop" to
+#   "Stop" to match the Claude Code official hook event name.
 #
 # Reference: Codex review R5 / Cluster I (security-filter proposal)
 # =============================================================================
@@ -5759,32 +5776,18 @@ if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
   exit 0
 fi
 
-# Drain stdin (SessionStop payload — we don't actually need it, but
-# read it to avoid SIGPIPE from the caller).
+# Drain stdin (Stop payload — we don't actually need it, but read it to
+# avoid SIGPIPE from the caller).
 if read -r -t 1 _input 2>/dev/null; then :; fi
 
 RUNS_DIR=".sage/runs"
 [ -d "$RUNS_DIR" ] || exit 0
 
-# Find the most recently modified RUN-*.yaml.
-# Use find with -newer chained against /tmp/.sage-filter-marker if it
-# exists, else fall back to ls -t. Keep portable across BSD/GNU tools.
-NEWEST=""
-if command -v find &>/dev/null; then
-  # POSIX-portable: list candidates, sort by mtime via stat, take newest.
-  NEWEST=$(find "$RUNS_DIR" -maxdepth 1 -type f -name 'RUN-*.yaml' -print 2>/dev/null \
-    | while IFS= read -r f; do
-        # Try GNU stat then BSD stat for mtime epoch.
-        ts=$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null || echo 0)
-        printf '%s\t%s\n' "$ts" "$f"
-      done \
-    | sort -nr \
-    | head -1 \
-    | cut -f2-)
-fi
-
-[ -z "$NEWEST" ] && exit 0
-[ -f "$NEWEST" ] || exit 0
+# TASK-0112 (Codex review P2 #5): redact ALL RUN-*.yaml files. The
+# previous newest-only behavior left older files un-redacted when
+# multiple runs happened in the same session.
+TARGETS=$(find "$RUNS_DIR" -maxdepth 1 -type f -name 'RUN-*.yaml' -print 2>/dev/null)
+[ -z "$TARGETS" ] && exit 0
 
 # --- Build redaction sed expressions ---
 # Patterns:
@@ -5801,19 +5804,24 @@ fi
 # All replacements use the literal placeholder ***REDACTED***.
 PLACEHOLDER='***REDACTED***'
 
-TMP=""
+# Per-file temp tracker so trap cleans up whichever file we're in the
+# middle of when an interrupt arrives.
+CURRENT_TMP=""
 cleanup() {
-  if [ -n "$TMP" ] && [ -f "$TMP" ]; then
-    rm -f "$TMP"
+  if [ -n "$CURRENT_TMP" ] && [ -f "$CURRENT_TMP" ]; then
+    rm -f "$CURRENT_TMP"
   fi
 }
 trap cleanup EXIT
 
-TMP=$(mktemp "${NEWEST}.redact.XXXXXX") || exit 0
+# Loop over each target. Failure on a single file is logged-via-skip
+# (we just leave that one alone) but does not block sibling files or
+# cause the hook to fail (Stop hooks must always exit 0).
+process_one() {
+  local target="$1"
+  CURRENT_TMP=$(mktemp "${target}.redact.XXXXXX") || return 0
 
-# Use awk for atomic-ish processing: read original line by line, apply
-# substitutions, write to TMP. Failure on stat or awk preserves NEWEST.
-if ! awk -v PH="$PLACEHOLDER" '
+  if ! awk -v PH="$PLACEHOLDER" '
   {
     line = $0
 
@@ -5869,14 +5877,24 @@ if ! awk -v PH="$PLACEHOLDER" '
 
     print line
   }
-' "$NEWEST" > "$TMP" 2>/dev/null; then
-  # awk failed — keep original.
-  exit 0
-fi
+' "$target" > "$CURRENT_TMP" 2>/dev/null; then
+    # awk failed for this target — keep original, move on.
+    rm -f "$CURRENT_TMP"
+    CURRENT_TMP=""
+    return 0
+  fi
 
-# Atomic replace.
-mv "$TMP" "$NEWEST" 2>/dev/null || exit 0
-TMP=""  # successfully consumed
+  # Atomic replace.
+  mv "$CURRENT_TMP" "$target" 2>/dev/null || rm -f "$CURRENT_TMP"
+  CURRENT_TMP=""
+  return 0
+}
+
+while IFS= read -r target; do
+  [ -z "$target" ] && continue
+  [ -f "$target" ] || continue
+  process_one "$target"
+done <<< "$TARGETS"
 
 exit 0
 
@@ -5931,7 +5949,8 @@ read -r -d '' TMPL_SETTINGS_SANDBOX <<'__EOF_TMPL_SETTINGS_SANDBOX__' || true
         "./tmp",
         "./coverage",
         "./.sage/runs",
-        "./.sage/metrics"
+        "./.sage/metrics",
+        "./.sage/runtime"
       ]
     },
     "network": {
@@ -6167,16 +6186,24 @@ do_print_provenance() {
   else
     sha="unavailable (no sha256sum/shasum)"
   fi
+  # TASK-0112 (Codex review bonus): compute size dynamically from $0
+  # rather than hardcoding ~213KB. The installer keeps growing across
+  # phases (Phase 1: 213KB, Phase 2A: 235KB, Phase 2B: 262KB) and a
+  # stale label undermines provenance trust.
+  local size_bytes size_kb
+  size_bytes=$(wc -c < "$0" 2>/dev/null | tr -d ' ' || echo 0)
+  size_kb=$(( size_bytes / 1024 ))
   cat <<EOF
 SAGE Development System — Installer Provenance
 ==============================================
 SAGE_VERSION:     ${SAGE_VERSION}
 Installer SHA256: ${sha}
+Installer size:   ${size_bytes} bytes (~${size_kb}KB)
 Source:           https://github.com/heidayo/sage-ai-template
 License:          Apache-2.0 (see LICENSE)
 Generated:        $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-This installer is a self-contained shell script (~213KB).
+This installer is a self-contained shell script.
 It writes templates, hooks, scripts, and CI workflows under the
 current directory. Run with --dry-run to preview without writing.
 Run with --verify-checksum after install to detect drift against

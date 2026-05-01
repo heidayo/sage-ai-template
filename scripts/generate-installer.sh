@@ -194,16 +194,24 @@ do_print_provenance() {
   else
     sha="unavailable (no sha256sum/shasum)"
   fi
+  # TASK-0112 (Codex review bonus): compute size dynamically from $0
+  # rather than hardcoding ~213KB. The installer keeps growing across
+  # phases (Phase 1: 213KB, Phase 2A: 235KB, Phase 2B: 262KB) and a
+  # stale label undermines provenance trust.
+  local size_bytes size_kb
+  size_bytes=$(wc -c < "$0" 2>/dev/null | tr -d ' ' || echo 0)
+  size_kb=$(( size_bytes / 1024 ))
   cat <<EOF
 SAGE Development System — Installer Provenance
 ==============================================
 SAGE_VERSION:     ${SAGE_VERSION}
 Installer SHA256: ${sha}
+Installer size:   ${size_bytes} bytes (~${size_kb}KB)
 Source:           https://github.com/heidayo/sage-ai-template
 License:          Apache-2.0 (see LICENSE)
 Generated:        $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-This installer is a self-contained shell script (~213KB).
+This installer is a self-contained shell script.
 It writes templates, hooks, scripts, and CI workflows under the
 current directory. Run with --dry-run to preview without writing.
 Run with --verify-checksum after install to detect drift against

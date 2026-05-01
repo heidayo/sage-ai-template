@@ -136,7 +136,15 @@ trifecta_count=0
 [ "$T_EXFIL"     = "true" ] && trifecta_count=$((trifecta_count + 1))
 
 if [ "$trifecta_count" -ge 2 ]; then
-  echo "WARN: lethal trifecta condition detected (${trifecta_count}/3)" >&2
+  # TASK-0112 (Codex review P2 #3): differentiate wording so that "lethal
+  # trifecta" stays a precise term for 3/3 (Simon Willison's original
+  # definition). 2/3 is "partial trifecta risk" — early warning, not the
+  # fully-formed pattern.
+  if [ "$trifecta_count" -ge 3 ]; then
+    echo "WARN: lethal trifecta detected (3/3)" >&2
+  else
+    echo "WARN: partial trifecta risk (${trifecta_count}/3)" >&2
+  fi
   [ "$T_PRIVATE"   = "true" ] && echo "  - private-data read within last ${TTL_SECONDS}s" >&2
   [ "$T_UNTRUSTED" = "true" ] && echo "  - untrusted external content cited in this input" >&2
   [ "$T_EXFIL"     = "true" ] && echo "  - exfiltration vector present in this command" >&2

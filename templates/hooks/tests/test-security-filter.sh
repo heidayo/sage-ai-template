@@ -34,7 +34,7 @@ LOGFILE="${SANDBOX}/.sage/runs/RUN-9999.yaml"
 write_run_log "$LOGFILE"
 
 # Run hook
-run_hook "security-filter.sh" '{"hook_event_name":"SessionStop"}' "${SANDBOX}"
+run_hook "security-filter.sh" '{"hook_event_name":"Stop"}' "${SANDBOX}"
 assert_eq "${HOOK_RC}" "0" "security-filter exits 0"
 
 # Verify file still exists and has content
@@ -70,7 +70,7 @@ assert_contains "${content}" "token:" "yaml key 'token:' preserved"
 
 # --- Idempotency: run again, content should not change ---
 content_before=$(cat "$LOGFILE")
-run_hook "security-filter.sh" '{"hook_event_name":"SessionStop"}' "${SANDBOX}"
+run_hook "security-filter.sh" '{"hook_event_name":"Stop"}' "${SANDBOX}"
 content_after=$(cat "$LOGFILE")
 if [ "$content_before" = "$content_after" ]; then
   HELPER_PASS=$((HELPER_PASS + 1))
@@ -87,7 +87,7 @@ hooks:
   profile: minimal
 EOF
 content_before=$(cat "$LOGFILE")
-run_hook "security-filter.sh" '{"hook_event_name":"SessionStop"}' "${SANDBOX}"
+run_hook "security-filter.sh" '{"hook_event_name":"Stop"}' "${SANDBOX}"
 content_after=$(cat "$LOGFILE")
 if [ "$content_before" = "$content_after" ]; then
   HELPER_PASS=$((HELPER_PASS + 1))
@@ -102,9 +102,30 @@ hooks:
   profile: standard
 EOF
 
+# --- TASK-0112 (Codex review P2 #5): multiple RUN logs all get redacted ---
+# Recreate runs dir and seed TWO files with secrets. Both must be cleaned.
+mkdir -p "${SANDBOX}/.sage/runs"
+LOGFILE_A="${SANDBOX}/.sage/runs/RUN-0001.yaml"
+LOGFILE_B="${SANDBOX}/.sage/runs/RUN-0002.yaml"
+write_run_log "${LOGFILE_A}"
+write_run_log "${LOGFILE_B}"
+# Make B newer than A so the old "newest only" behavior would have picked B.
+touch -t 202601010000.00 "${LOGFILE_A}"
+touch -t 202612310000.00 "${LOGFILE_B}"
+
+run_hook "security-filter.sh" '{"hook_event_name":"Stop"}' "${SANDBOX}"
+assert_eq "${HOOK_RC}" "0" "multi-file: exits 0"
+
+content_A=$(cat "${LOGFILE_A}")
+content_B=$(cat "${LOGFILE_B}")
+assert_not_contains "${content_A}" "sk-abcdef0123456789abcdef0123456789abcd" "multi-file: oldest file (RUN-0001) is also redacted"
+assert_not_contains "${content_B}" "sk-abcdef0123456789abcdef0123456789abcd" "multi-file: newest file (RUN-0002) is redacted"
+assert_contains    "${content_A}" "***REDACTED***" "multi-file: oldest contains placeholder"
+assert_contains    "${content_B}" "***REDACTED***" "multi-file: newest contains placeholder"
+
 # --- No RUN logs at all: graceful exit ---
 rm -rf "${SANDBOX}/.sage/runs"
-run_hook "security-filter.sh" '{"hook_event_name":"SessionStop"}' "${SANDBOX}"
+run_hook "security-filter.sh" '{"hook_event_name":"Stop"}' "${SANDBOX}"
 assert_eq "${HOOK_RC}" "0" "no runs dir: exits 0"
 
 summary_line

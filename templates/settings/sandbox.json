@@ -46,7 +46,8 @@
         "./tmp",
         "./coverage",
         "./.sage/runs",
-        "./.sage/metrics"
+        "./.sage/metrics",
+        "./.sage/runtime"
       ]
     },
     "network": {

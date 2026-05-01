@@ -121,13 +121,24 @@ jobs:
             // which produced false FAILs when the bot's output included ❌
             // inside unrelated content such as the anti-pattern checklist
             // (e.g. "❌ Big Bang Prompt: 検出").
-            const verdictLine = body.split('\n').find(l => l.includes('総合判定'));
-            if (!verdictLine) {
-              core.setFailed('SAGE Review Agent did not emit a 総合判定 line. Bot may have deviated from the required format.');
-            } else if (verdictLine.includes('❌')) {
-              core.setFailed('SAGE Review Agent verdict: FAIL — see PR comments for details');
-            } else if (verdictLine.includes('✅')) {
-              core.info('SAGE Review Agent verdict: PASS');
+            //
+            // TASK-0112 (Codex review P1 #2) follow-up: an earlier version
+            // picked the FIRST line containing 総合判定, which matched
+            // checklist items like "- [x] 総合判定の決定" before reaching the
+            // actual verdict heading "### 総合判定: ✅ PASS". Now we filter
+            // to lines that contain BOTH the keyword AND a marker.
+            const verdictLines = body.split('\n').filter(l =>
+              l.includes('総合判定') && (l.includes('✅') || l.includes('❌'))
+            );
+            if (verdictLines.length === 0) {
+              core.setFailed('SAGE Review Agent did not emit a 総合判定 line with a ✅/❌ marker. Bot may have deviated from the required format.');
             } else {
-              core.setFailed('SAGE Review Agent 総合判定 line has no ✅/❌ marker. Bot output format broken.');
+              // Use the LAST marked verdict line — bots sometimes emit a
+              // preliminary status before the final one.
+              const verdictLine = verdictLines[verdictLines.length - 1];
+              if (verdictLine.includes('❌')) {
+                core.setFailed('SAGE Review Agent verdict: FAIL — see PR comments for details');
+              } else {
+                core.info('SAGE Review Agent verdict: PASS');
+              }
             }

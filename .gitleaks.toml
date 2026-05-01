@@ -1,0 +1,20 @@
+# Gitleaks configuration for SAGE Development System
+# SPEC-0012 / TASK-0112: allowlist test fixtures whose entire purpose is to
+# verify the security-filter.sh redaction patterns. These files contain
+# intentionally fake values that match real secret formats — without this
+# allowlist, Gate 3 (Security) fails on every PR that touches them.
+#
+# Documented at: SECURITY.md (Threat Model 3.1, Phase 2B)
+
+# Inherit the upstream default ruleset so we keep coverage on real secrets.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "SAGE template fixtures for hook self-tests. Narrow path scope."
+paths = [
+  '''templates/hooks/tests/test-security-filter\.sh''',
+  '''templates/hooks/tests/test-secret-read-multi-layer\.sh''',
+  '''templates/hooks/security-filter\.sh''',
+  '''templates/hooks/secret-read-multi-layer\.sh''',
+]
