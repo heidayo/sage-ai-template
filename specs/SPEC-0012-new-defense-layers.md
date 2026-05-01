@@ -20,7 +20,7 @@ SAGE v2 改修ロードマップ Phase 2B。Phase 2A で既存 hook の品質強
 
 - **lethal-trifecta-detect.sh** (warn-only): Simon Willison の Lethal Trifecta (private data + untrusted input + exfiltration vector) を検出。Codex review R3 通り **block ではなく warn-only** で起動 — pattern matching では完全判定不能だが、3 条件揃った瞬間に開発者に注意喚起する価値はある
 - **secret-read-multi-layer.sh**: Phase 1 で「Read deny だけでは Bash subprocess 経由を防げない」と SECURITY.md §3 で開示した穴を実防御で塞ぐ。`cat .env`, `grep ANTHROPIC_API_KEY`, `head ~/.ssh/id_rsa`, `printenv | grep KEY` 等を Bash 経路で block
-- **security-filter.sh** (SessionStop): Cluster I (Make Culture sub-agent 報告) で提案された RUN log secret mask。`.sage/runs/RUN-*.yaml` 書き込み前に API key / token / JWT パターンを redact。Codex review R5 (RUN log SQLite/FTS は redaction 先行) の前提条件を満たす
+- **security-filter.sh** (Stop hook): Cluster I (Make Culture sub-agent 報告) で提案された RUN log secret mask。`.sage/runs/RUN-*.yaml` の **全ファイル** を scan して API key / token / JWT パターンを redact。Codex review R5 (RUN log SQLite/FTS は redaction 先行) の前提条件を満たす (Stop event 名と全ファイル scan は TASK-0112 で確定)
 - **templates/settings/sandbox.json** (Codex review R2 と整合): SAGE が **runtime sandbox を提供しない** という doctrine は維持しつつ、Claude Code の `denyRead` / `network.allowedDomains` / `failIfUnavailable: true` を含む推奨設定を template として提供 (適用は user の責任、SAGE は雛形提示のみ)
 
 doctrine 更新: governance §9.1 (SAGE が提供するもの) に新規 hook と sandbox template を追記、SECURITY.md threat model の `[partial]` → `[partial→improved]` 表記更新 (実防御層が追加されたことを正直に反映)。
@@ -35,11 +35,11 @@ doctrine 更新: governance §9.1 (SAGE が提供するもの) に新規 hook �
 
 - `templates/hooks/lethal-trifecta-detect.sh` 新規 (warn-only、PreToolUse Bash + Read matcher)
 - `templates/hooks/secret-read-multi-layer.sh` 新規 (PreToolUse Bash matcher、`cat .env`/`grep KEY` 等を block)
-- `templates/hooks/security-filter.sh` 新規 (SessionStop hook、`.sage/runs/` 書き込み前に redact)
+- `templates/hooks/security-filter.sh` 新規 (Stop hook、`.sage/runs/RUN-*.yaml` の全ファイルを redact)
 - `templates/hooks/tests/test-lethal-trifecta-detect.sh`, `test-secret-read-multi-layer.sh`, `test-security-filter.sh` 新規
 - `templates/settings/sandbox.json` 新規 (Claude Code sandbox 推奨設定の雛形 — denyRead / network allowlist / failIfUnavailable)
 - `templates/settings/README.md` 新規 (sandbox.json の使い方、SAGE は雛形のみ・適用は user 責任の doctrine 明記)
-- `.claude/settings.json` の hooks 設定に新 3 hooks 登録 (PreToolUse Bash + Read matcher 拡張、SessionStop matcher 追加)
+- `.claude/settings.json` の hooks 設定に新 3 hooks 登録 (PreToolUse Bash + Read matcher 拡張、Stop matcher 追加)
 - `sage/governance.md` §9.1 に「SAGE が提供するもの」追記 (新 hook 3 種 + sandbox template)
 - `SECURITY.md` §3 threat model の `[partial]` 表記を新 hook 追加分について更新 (`[partial → 改善]` 表記)
 - `scripts/generate-installer.sh` + `install.sh` 再生成 (新 hook を embed)
@@ -70,7 +70,7 @@ doctrine 更新: governance §9.1 (SAGE が提供するもの) に新規 hook �
   - `head|tail|less|more` で同上
   - `printenv|env|set` の出力を `grep KEY|TOKEN|SECRET|API_KEY` で filter (環境変数経由 secret 漏洩)
   - `~/.ssh/id_rsa`, `~/.aws/credentials`, `~/.config/gcloud/application_default_credentials.json` 直接 read
-- [FR-03] `templates/hooks/security-filter.sh` が SessionStop で `.sage/runs/RUN-*.yaml` の最新ファイルを scan し、以下のパターンを `***REDACTED***` に置換 (in-place):
+- [FR-03] `templates/hooks/security-filter.sh` が Stop hook で `.sage/runs/RUN-*.yaml` の **全ファイル** を scan し、以下のパターンを `***REDACTED***` に置換 (per-file atomic write、1 file 失敗が他 file を block しない):
   - `[A-Za-z0-9_-]{20,}` の値で key 名が `api[_-]?key|token|secret|password|jwt` を含む YAML field
   - `sk-[A-Za-z0-9]{32,}` (OpenAI/Anthropic style)
   - `ghp_[A-Za-z0-9]{36}`, `gho_[A-Za-z0-9]{36}` (GitHub PAT)
@@ -90,7 +90,7 @@ doctrine 更新: governance §9.1 (SAGE が提供するもの) に新規 hook �
 - [FR-06] `.claude/settings.json` の `hooks` セクションを以下に拡張:
   - `PreToolUse` Bash matcher に `secret-read-multi-layer.sh` と `lethal-trifecta-detect.sh` を追加
   - `PreToolUse` Read matcher に `lethal-trifecta-detect.sh` を追加 (Read tool 経由の private data 痕跡検出)
-  - `SessionStop` matcher に `security-filter.sh` を追加
+  - `Stop` matcher に `security-filter.sh` を追加
 - [FR-07] `sage/governance.md` §9.1 (SAGE が提供するもの) の「Hook テンプレート」行に新 3 hooks を列挙
 - [FR-08] `SECURITY.md` §3.1, §3.3 threat model の該当行を `[partial]` から「partial → Phase 2B で改善」に更新 (正直 disclosure)
 - [FR-09] `scripts/generate-installer.sh` を更新し、新 hook 3 件 + `templates/settings/` を install.sh に embed
@@ -144,13 +144,13 @@ doctrine 更新: governance §9.1 (SAGE が提供するもの) に新規 hook �
 
 - API: なし
 - DB: なし
-- イベント: Claude Code PreToolUse + SessionStop hook payload schema (既存依存)
+- イベント: Claude Code PreToolUse + Stop hook payload schema (既存依存)
 - File contract: `templates/hooks/*.sh` 3 件新規、`templates/settings/sandbox.json` + README 新規、`.claude/settings.json` hooks 配列拡張
 
 ## リスク
 
 - リスク1: 新 hook 3 件で false positive が増える → test harness で各 hook positive/negative 両ケース必須、profile=minimal で全無効化可能
-- リスク2: security-filter.sh が performance bottleneck (毎 SessionStop で全 RUN log scan) → 最新 1 file のみ対象、5 分 cache、profile=minimal で skip
+- リスク2: security-filter.sh が performance bottleneck (毎 Stop で全 RUN log scan) → per-file atomic write で 1 file 失敗が他 file を block しない設計、profile=minimal で skip。100+ RUN log で計測時間が問題化したら recent N file 化を SPEC-0014 で検討
 - リスク3: sandbox.json の denyRead に user の必要 path が含まれて誤動作 → README で「user 環境に合わせて削るのが前提」と明記
 - リスク4: lethal-trifecta-detect の 「session 跨ぎ状態」が `.sage/runtime/` を生成して .gitignore に新規 entry が必要 → installer の setup_gitignore で対応 (ただし .sage/runs/ の轍を踏まないよう、最小範囲で追加)
 

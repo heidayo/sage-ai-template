@@ -29,12 +29,12 @@ Phase 2B の最終 wrap-up: 新 hook 3 件を `.claude/settings.json` の hooks 
 既存の PreToolUse/Bash + Edit|Write、SessionStart/Stop matchers を保持しつつ:
 - `PreToolUse` Bash matcher に `secret-read-multi-layer.sh` と `lethal-trifecta-detect.sh` 追加
 - `PreToolUse` Read matcher に `lethal-trifecta-detect.sh` 追加 (Read tool 経由の private data 痕跡記録)
-- `SessionStop` matcher に `security-filter.sh` 追加 (既存 session-stop.sh と並列実行)
+- `Stop` matcher に `security-filter.sh` 追加 (既存 session-stop.sh と並列実行) — TASK-0112 で `SessionStop` → `Stop` に rename (Claude Code 公式準拠)
 
 ### 2. `sage/governance.md` §9.1 更新
 
 「Hook テンプレート」行に Phase 2B 新 hook 3 件を列挙:
-> - `templates/hooks/`: block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, SessionStop redact)**
+> - `templates/hooks/`: block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, Stop hook で全 RUN log redact)**
 > - `templates/settings/sandbox.json` (Phase 2B, **雛形のみ — 適用は user 責任**)
 
 ### 3. `SECURITY.md` §3 threat model 更新

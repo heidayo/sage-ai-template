@@ -19,7 +19,7 @@
 
 ## 影響範囲
 
-- **AI agent runtime**: 新 3 hooks が PreToolUse + SessionStop で動作。secret-read-multi-layer は Bash 拡張で false positive 0 確認必須
+- **AI agent runtime**: 新 3 hooks が PreToolUse + Stop で動作。secret-read-multi-layer は Bash 拡張で false positive 0 確認必須 (Stop event 名は Claude Code 公式準拠、TASK-0112 で確定)
 - **install workflow**: 新 hook 3 件 + sandbox.json + README が install.sh に embed されサイズ +5-8 KB 程度想定
 - **Claude Code settings**: `.claude/settings.json` の `hooks` 配列が拡張 (既存 hooks 全保持)
 - **影響を受けない**: 既存 hook 5 件本体 (Phase 2A で完了)、Phase 1 install.sh 機能、CLAUDE.md/AGENTS.md (新 §2.1 のみ既存)
@@ -34,7 +34,7 @@
 ### TASK 順序と依存
 1. TASK-0107 (lethal-trifecta) → 並列可、状態管理が独立
 2. TASK-0108 (secret-read) → 並列可、独立 hook
-3. TASK-0109 (security-filter) → 並列可、SessionStop の独立 hook
+3. TASK-0109 (security-filter) → 並列可、Stop hook で全 RUN log scan
 4. TASK-0110 (sandbox.json + README) → 並列可、純 doc/JSON
 5. TASK-0111 (.claude/settings.json + governance + SECURITY.md + install.sh 再生成) → 全 TASK 後
 
@@ -44,7 +44,7 @@
 |---------|------|----------|------|---------|---------|
 | TASK-0107 | lethal-trifecta-detect.sh (warn-only) + test + 状態管理 .sage/runtime/ | Implementation/Test | 90m | none | Yes |
 | TASK-0108 | secret-read-multi-layer.sh + test (cat .env / printenv | grep / SSH key 直接 read) | Implementation/Test | 60m | none | Yes |
-| TASK-0109 | security-filter.sh (SessionStop atomic redact) + test (sk-/ghp_/xox/AKIA + idempotent) | Implementation/Test | 75m | none | Yes |
+| TASK-0109 | security-filter.sh (Stop hook、全 RUN log を per-file atomic redact) + test (sk-/ghp_/xox/AKIA + idempotent + multi-file) | Implementation/Test | 75m | none | Yes |
 | TASK-0110 | templates/settings/sandbox.json + README.md | Implementation | 45m | none | Yes |
 | TASK-0111 | .claude/settings.json + governance §9.1 + SECURITY.md §3 + install.sh 再生成 + .gitignore (.sage/runtime/) | Implementation | 60m | TASK-0107..0110 | No |
 

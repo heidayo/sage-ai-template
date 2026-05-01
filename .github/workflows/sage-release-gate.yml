@@ -151,7 +151,7 @@ jobs:
       - name: Release readiness check
         id: release
         run: |
-          set -euo pipefail
+          set -uo pipefail
           ERRORS=0
 
           # Check SAGE structure
@@ -163,6 +163,17 @@ jobs:
           fi
 
           echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+
+          # TASK-0113 (Codex 2nd-round P1): fail-close. Previously this step
+          # only published the count to GITHUB_OUTPUT; the PR-comment step
+          # would then mark the gate FAIL while the check itself stayed
+          # green, causing required-check vs gate-comment divergence and
+          # potential merge confusion.
+          if [ "$ERRORS" -gt 0 ]; then
+            echo ""
+            echo "Release readiness FAILED with $ERRORS error(s) above."
+            exit 1
+          fi
 
       - name: Comment result on PR
         if: always() && github.event_name == 'pull_request'

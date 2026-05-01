@@ -1,4 +1,4 @@
-# TASK-0109: security-filter.sh (SessionStop secret mask) + tests
+# TASK-0109: security-filter.sh (Stop secret mask) + tests
 
 ## メタデータ
 
@@ -15,7 +15,9 @@
 
 ## 責務
 
-SessionStop hook で `.sage/runs/RUN-*.yaml` の最新 file を scan し、API key / token / JWT パターンを `***REDACTED***` に置換する。Phase 2A Cluster I subagent 報告 (security-filter.sh 提案) と Codex review R5 (RUN log SQLite/FTS は redaction 先行) の両方への対応。
+Stop hook で `.sage/runs/RUN-*.yaml` の **全 file** を scan し、API key / token / JWT パターンを `***REDACTED***` に置換する。Phase 2A Cluster I subagent 報告 (security-filter.sh 提案) と Codex review R5 (RUN log SQLite/FTS は redaction 先行) の両方への対応。
+
+**TASK-0112 (Codex 1st-round) 反映済**: hook event 名を `SessionStop` → `Stop` (Claude Code 公式準拠)、対象を「最新 1 file」→「全 RUN-*.yaml」(複数 RUN log で古いものに secret が残る問題を解消、per-file atomic write で 1 file 失敗が他 file を block しない設計)。
 
 ## 入力
 
@@ -28,7 +30,7 @@ SessionStop hook で `.sage/runs/RUN-*.yaml` の最新 file を scan し、API k
 
 1. `templates/hooks/security-filter.sh` 新規:
    - `set -euo pipefail` + profile gating
-   - SessionStop hook なので stdin JSON は `{"hook_event_name":"SessionStop", ...}` を期待
+   - Stop hook なので stdin JSON は `{"hook_event_name":"Stop", ...}` を期待
    - **Target**: `.sage/runs/RUN-*.yaml` の最新 (mtime 最新) 1 file のみ scan
    - **Redaction patterns** (sed -i または awk で in-place 置換、atomic write):
      - `sk-[A-Za-z0-9]{32,}` (OpenAI/Anthropic style)
@@ -40,7 +42,7 @@ SessionStop hook で `.sage/runs/RUN-*.yaml` の最新 file を scan し、API k
    - **Atomic write**: `mktemp` → `sed/awk` → `mv` で in-place、失敗時 trap で original 保持
    - **Idempotency** (NFR-05): 既に `***REDACTED***` 化された entry は再 redact しない
    - profile=minimal/none で skip
-   - exit 0 を必ず返す (SessionStop hook なので block しない)
+   - exit 0 を必ず返す (Stop hook なので block しない)
 
 2. `templates/hooks/tests/test-security-filter.sh`:
    - Setup: sandbox に `.sage/runs/RUN-9999.yaml` を作成、test patterns 含む内容
@@ -60,7 +62,7 @@ SessionStop hook で `.sage/runs/RUN-*.yaml` の最新 file を scan し、API k
 ## 禁止事項
 
 - 既存 RUN log structure (YAML schema) を破壊しない (key/value 構造維持、value のみ置換)
-- `.sage/runs/` 全 file scan 禁止 (最新 1 file のみ、performance リスク)
+- ~~`.sage/runs/` 全 file scan 禁止 (最新 1 file のみ、performance リスク)~~ — **TASK-0112 で撤回**: Codex 1st-round P2 #5 で「複数 RUN log で古いものに secret 残存」が指摘され、全 file scan に変更。100+ RUN log で計測時間が問題化したら recent N file 化を SPEC-0014 で検討
 - non-atomic write 禁止 (partial failure で破損)
 - redaction が 1 回 file pattern だけで合致したら全行置換のような broad match 禁止
 - minimal profile で実行されないこと (test で確認)
