@@ -327,3 +327,101 @@ SAGEのレーン・昇格プロトコルは、以下の3環境すべてで動作
 - **hook** (`session-start`): セッション開始時の自動コンテキスト注入。全環境共通
 
 スクリプトが単一実装（Single Source of Truth）となり、スキルはそのラッパーとして機能する。
+
+---
+
+## 9. SAGE Scope Boundary
+
+> **章の姿勢**: SAGE は「強い」と見せるよりも、「何が SAGE の責務外か」を正直に開示することが、長期的な信頼と correct adoption を生む。本章は SAGE と AI agent runtime tool (Claude Code / Codex 他) の **補完関係** を明示するために設けられた (Phase 1, SPEC-0010)。
+
+### 9.1 SAGE が提供するもの (What SAGE provides)
+
+SAGE は以下の **テンプレート・構造・ルール** を提供する:
+
+| カテゴリ | 提供物 |
+|---------|-------|
+| ライフサイクル | SPEC / PLAN / TASK テンプレート + ID 採番 (`scripts/sage-id-gen.sh`) + 7-phase protocol (Specify→Plan→Slice→Execute→Verify→Merge→Observe) |
+| Quality Gate | Gate 1-5 の構造と CI workflow テンプレート (`.github/workflows/sage-*-gate.yml`) |
+| Lane 設計 | vibe / lite / standard / promotion の 4 Lane と昇格プロトコル (`scripts/sage-promote.sh`) |
+| File Scope | TASK ごとの変更可能ファイル明示と pre-commit hook |
+| Anti-pattern 学習 | `sage/anti-patterns.md`, `sage/failures.md` の蓄積枠組み |
+| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope 他) — pattern matching による補助ガード |
+| AI agent 向け instruction | CLAUDE.md / AGENTS.md / `.claude/rules/` のテンプレート |
+| Skill / governance / traceability | `templates/skills/sage-*/`, 本ドキュメント, `sage/traceability.md` |
+| Doctor / repair / report | `scripts/sage-doctor.sh`, `scripts/sage-repair.sh`, `scripts/sage-report.sh` |
+
+### 9.2 SAGE が提供しないもの (What SAGE does NOT provide)
+
+⭐ **重要**: SAGE は **runtime enforcement** を提供しない。以下はすべて Claude Code / Codex 本体機能、外部ツール、または運用設計の責任範囲である。
+
+| 項目 | 理由 / 代替手段 |
+|-----|-----------------|
+| **Claude Code / Codex 本体の runtime sandbox 強制** | filesystem isolation / network allowlist は Claude/Codex 側設定で実現する。SAGE は `templates/settings/` で雛形を示すのみ |
+| **MCP server の実行時許可制御** | MCP runtime は Claude Code / Codex 本体の機能。SAGE は MCP allowlist テンプレート (Phase 5 予定) を示すが、強制は本体に依存 |
+| **GitHub branch protection の自動セットアップ** | GitHub token を要求して installer 権限が肥大化するため、opt-in script として別途提供予定 (SPEC-0012) |
+| **Production credential / secret の保管** | Vault / 1Password / GitHub Encrypted Secrets / cloud KMS で別途構築 |
+| **AI モデル自体の脆弱性検出・修正** | deterministic security scanner (gitleaks / trivy / semgrep / npm audit 等) と組み合わせる前提。SAGE 単独で safety を保証しない |
+| **CVE 検出を block で強制する hook** | pattern matching の限界 (Adversa AI 50+subcommand bypass 等) のため warn-only で起動。block は本体 sandbox の責務 |
+| **Codex の sandbox / approval / network access** | Codex CLI / Codex web 設定で実現 (`workspace-write` + `on-request` + domain allowlist 推奨)。SAGE は `AGENTS.md` で prompt-level guidance を示すのみ |
+| **Codex GitHub Action の hardening** | OpenAI codex-action security guide と GitHub Actions 設定で実現。SAGE は doc reference のみ提供 |
+| **Incident response の運用** | 担当者と連絡網は組織が用意する (SAGE は SECURITY.md にチャネル定義のみ) |
+
+### 9.3 ユーザーが別途用意すべきもの (What you must bring)
+
+SAGE 採用組織は以下を別途構築する:
+
+1. **Claude Code / Codex 本体の最新 version** — CVE-2026-25723 / CVE-2026-33068 / CVE-2025-61260 fix が適用されていること (それぞれ 2.0.55 / 2.1.53 / 0.23.0 以上)
+2. **Claude Code / Codex の sandbox 設定** — filesystem denyRead (`~/.ssh`, `~/.aws`, `.env*`, `secrets/`), network allowlist (必要 domain のみ), `bypassPermissions` 禁止, `failIfUnavailable: true`
+3. **GitHub branch protection 設定** — required status checks (Gate 1-5 の必要分), 1+ reviewer, signed commits 推奨。人間が GitHub UI または管理 script で実行
+4. **secret 管理基盤** — Vault / 1Password / GitHub Encrypted Secrets / cloud KMS
+5. **deterministic security scanner** — gitleaks (secret), trivy (dep / fs / image), semgrep (SAST), npm audit / pip-audit / cargo audit (SCA)
+6. **Incident response 担当者と連絡網** — SECURITY.md `Reporting a Vulnerability` セクションで指す先
+7. **MCP server allowlist** — 利用する MCP server の publisher / SHA / version pin (Phase 5 で SAGE テンプレ提供予定)
+8. **Codex 専用 docs** — sandbox mode / approval policy / network / token / codex-action 設定 (SPEC-0014 で SAGE 側 docs 強化予定)
+
+### 9.4 補完関係の図式
+
+```
++-------------------------------+    +----------------------------------+
+|   SAGE (this repository)      |    |   Claude Code / Codex (runtime)  |
+|                               |    |                                  |
+| - SPEC/PLAN/TASK structure    |    | - Sandbox enforcement (filesystem|
+| - Quality Gate templates       | <->|   + network)                     |
+| - Lane / File Scope / Anti-pat |    | - Permission system (allow/ask/  |
+| - Hook templates (warn aux)    |    |   deny + modes)                  |
+| - AI instruction templates     |    | - MCP runtime + trust dialog     |
+| - failures.md learning loop    |    | - Approval policy (auto/on-req)  |
++-------------------------------+    +----------------------------------+
+              |                                       |
+              +----------> Combined: Defense in Depth <-----+
+                                       |
+                                       v
+                          + Deterministic scanners (gitleaks/trivy/SAST)
+                          + GitHub branch protection (required checks)
+                          + Vault / Secret manager
+                          + Human review at high-risk action
+                          + Incident response procedure
+```
+
+### 9.5 採用判断のチェックリスト
+
+組織が SAGE を採用する前に、以下を確認すること:
+
+- [ ] Claude Code / Codex 本体が最新 version (CVE 修正適用済) か
+- [ ] sandbox / approval / network access の組織標準を持っているか
+- [ ] GitHub branch protection の運用設計があるか
+- [ ] secret 管理基盤を持っているか
+- [ ] deterministic security scanner を CI に組み込めるか
+- [ ] AI 生成コード review の最終承認者が定義されているか
+- [ ] Incident response 担当者がいるか
+- [ ] 上記が揃わない領域については、SAGE 採用と並行して整備する計画があるか
+
+これらが整わないまま SAGE を導入しても、**SAGE は補助でしかなく、安全保証にはならない**。Phase 1 の正直な開示は、長期的な信頼と correct adoption を生むための投資である。
+
+### 9.6 関連ドキュメント
+
+- [SECURITY.md](../SECURITY.md) — 脆弱性報告手順、threat model、Out of Scope (本章と整合)
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — contribution の最小要件と Quality Gate 概要
+- [ATTRIBUTION.md](../ATTRIBUTION.md) — 一次ソース・統合知識源
+- [CLAUDE.md](../CLAUDE.md) §0 — Claude Code 向け template-trust callout
+- [AGENTS.md](../AGENTS.md) §0 — Codex 向け template-trust callout
