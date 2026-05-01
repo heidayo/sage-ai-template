@@ -145,14 +145,43 @@ graph TD
 
 ## 導入方法
 
-### Step 1: install.sh を取得して実行する
+> **⚠️ Trust First**: SAGE installer は約 213KB の自己完結 shell script で、`.git/hooks` / `.github/workflows` / `.claude/settings.json` 等を一括書き換えます。**未検証で実行しないでください**。Phase 1 (SPEC-0010) で provenance 表示と dry-run プレビューを実装済みです — 下記の推奨手順 (Step 1A) を使ってください。詳細は [SECURITY.md](SECURITY.md) を参照。
+
+### Step 1A: 推奨手順 (download → verify → preview → review → execute)
+
+```bash
+cd /path/to/your-project
+
+# 1. Download (実行はしない)
+curl -fsSL -o install.sh https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh
+
+# 2. Verify provenance (SHA256 / 由来 / ライセンス確認)
+bash install.sh --print-provenance
+
+# 3. Preview without writing (dry-run で副作用なし内容確認)
+bash install.sh --dry-run
+
+# 4. (任意) install.sh 自体を読む / shellcheck で検査
+less install.sh
+shellcheck install.sh
+
+# 5. Execute
+bash install.sh
+
+# 6. Post-install drift detection (任意・推奨)
+bash install.sh --verify-checksum
+```
+
+### Step 1B: 一行導入 (隔離環境・dev container 等で sandbox 済の場合のみ)
+
+> 上記 Step 1A の verify / preview / review を省略するため、**未検証 repository / 本番開発端末では非推奨** です。
 
 ```bash
 cd /path/to/your-project
 curl -fsSL https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh | bash
 ```
 
-または `install.sh` を直接ダウンロードして実行:
+または既に repository を clone 済の場合:
 
 ```bash
 bash install.sh
@@ -528,4 +557,26 @@ bash scripts/sage-retro-spec.sh
 
 ## ライセンス
 
-All Rights Reserved. ライセンスは未定です。
+SAGE Development System は **Apache License, Version 2.0** で配布されます。
+詳細は [LICENSE](LICENSE) を参照してください。
+
+```
+Copyright 2026 heidayo and SAGE Development System contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+### 帰属表示・統合知識源
+
+SAGE は単独著作物ですが、設計思想・ベストプラクティスの統合源があります:
+
+- 設計インスピレーション (5 source) は [ATTRIBUTION.md](ATTRIBUTION.md) に列挙
+- v2 改修にあたり参照した一次ソース (OWASP / NVD CVE / Anthropic 公式 / OpenAI 公式 / Check Point 等 65 資料) も同 [ATTRIBUTION.md](ATTRIBUTION.md) に整理
+
+### Contribution
+
+contribution 受付方針は [CONTRIBUTING.md](CONTRIBUTING.md)、脆弱性報告は [SECURITY.md](SECURITY.md) を参照してください。
