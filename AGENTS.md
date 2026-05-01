@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > **これはテンプレートです。clone 直後は未レビューで信頼してはいけません。**
 > このリポジトリの `.codex/config.toml`, `.mcp.json`, `templates/hooks/`, `AGENTS.md`, `CLAUDE.md` は AI agent の権限・実行・記憶に影響します。Codex CLI 0.23.0 未満では `.env` の `CODEX_HOME` 経由で project-local config 経由 RCE (CVE-2025-61260) や branch name injection (BeyondTrust 報告) も成立し得ます。
-> **This is a template. Do not trust on first clone without review** — Codex sandbox / approval / network is enforced by Codex itself, not by SAGE. See [SECURITY.md](SECURITY.md) and [sage/governance.md §13 Scope Boundary](sage/governance.md) before adoption.
+> **This is a template. Do not trust on first clone without review** — Codex sandbox / approval / network is enforced by Codex itself, not by SAGE. See [SECURITY.md](SECURITY.md) and [sage/governance.md §9 Scope Boundary](sage/governance.md) before adoption.
 
 ## 1. Project Overview
 

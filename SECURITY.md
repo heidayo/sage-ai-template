@@ -117,7 +117,7 @@ SAGE が想定する **主要な脅威カテゴリ** は以下です。これら
 
 ### 4.3 What SAGE Provides (補完関係)
 
-詳細は [sage/governance.md §13 SAGE Scope Boundary](sage/governance.md) を参照。要約:
+詳細は [sage/governance.md §9 SAGE Scope Boundary](sage/governance.md) を参照。要約:
 
 - ✅ ライフサイクル (SPEC/PLAN/TASK) と Quality Gate **構造**
 - ✅ Lane 設計 / File Scope / anti-pattern 学習枠組み

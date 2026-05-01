@@ -47,3 +47,4 @@ build/
 # Logs
 *.log
 npm-debug.log*
+.sage/runs/
