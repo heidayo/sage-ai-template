@@ -162,10 +162,106 @@ check_installed_version() {
   fi
 }
 
+# --- SPEC-0010 / TASK-0097: provenance and integrity verification ---
+_sha256_cmd() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "sha256sum"
+  elif command -v shasum >/dev/null 2>&1; then
+    echo "shasum -a 256"
+  else
+    echo ""
+  fi
+}
+
+do_print_provenance() {
+  local sha_cmd
+  sha_cmd=$(_sha256_cmd)
+  local sha
+  if [ -n "$sha_cmd" ]; then
+    sha=$($sha_cmd "$0" 2>/dev/null | awk '{print $1}')
+  else
+    sha="unavailable (no sha256sum/shasum)"
+  fi
+  cat <<EOF
+SAGE Development System — Installer Provenance
+==============================================
+SAGE_VERSION:     ${SAGE_VERSION}
+Installer SHA256: ${sha}
+Source:           https://github.com/heidayo/sage-ai-template
+License:          Apache-2.0 (see LICENSE)
+Generated:        $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+This installer is a self-contained shell script (~213KB).
+It writes templates, hooks, scripts, and CI workflows under the
+current directory. Run with --dry-run to preview without writing.
+Run with --verify-checksum after install to detect drift against
+.sage/install-state.yaml.
+
+Template-trust note: cloned project files (.claude/settings.json,
+.mcp.json, AGENTS.md, CLAUDE.md, templates/hooks/) influence AI
+agent behavior. See SECURITY.md and sage/governance.md §9 (Scope
+Boundary) before adoption.
+EOF
+}
+
+do_verify_checksum() {
+  local state_file=".sage/install-state.yaml"
+  if [ ! -f "$state_file" ]; then
+    echo "WARN: state file not found at $state_file."
+    echo "      Run 'bash $0' (without --verify-checksum) to install first."
+    return 0
+  fi
+  local sha_cmd
+  sha_cmd=$(_sha256_cmd)
+  if [ -z "$sha_cmd" ]; then
+    echo "ERROR: sha256sum/shasum not found, cannot verify."
+    return 1
+  fi
+  local drift=0 missing=0 checked=0
+  local current_path="" current_sha=""
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*path:[[:space:]]*\"(.*)\"[[:space:]]*$ ]]; then
+      current_path="${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ ^[[:space:]]*sha256:[[:space:]]*\"(.*)\"[[:space:]]*$ ]]; then
+      current_sha="${BASH_REMATCH[1]}"
+      if [ -n "$current_path" ] && [ -f "$current_path" ]; then
+        local actual
+        actual=$($sha_cmd "$current_path" 2>/dev/null | awk '{print $1}')
+        checked=$((checked + 1))
+        if [ "$actual" != "$current_sha" ]; then
+          echo "DRIFT:   $current_path"
+          echo "  recorded: $current_sha"
+          echo "  actual:   $actual"
+          drift=$((drift + 1))
+        fi
+      elif [ -n "$current_path" ]; then
+        echo "MISSING: $current_path"
+        missing=$((missing + 1))
+      fi
+      current_path=""; current_sha=""
+    fi
+  done < "$state_file"
+  echo ""
+  echo "Verified: ${checked} files. Drift: ${drift}. Missing: ${missing}."
+  if [ "$drift" -gt 0 ] || [ "$missing" -gt 0 ]; then
+    return 1
+  fi
+  return 0
+}
+
 write_file_if_new() {
   local path="$1"
   local content="$2"
-  local dir=$(dirname "$path")
+  local dir
+  dir=$(dirname "$path")
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    if [ -f "$path" ]; then
+      echo "  WOULD-SKIP:   $path (already exists)"
+    else
+      echo "  WOULD-CREATE: $path"
+    fi
+    return 0
+  fi
   mkdir -p "$dir"
 
   if [ -f "$path" ]; then
@@ -181,7 +277,12 @@ write_file_if_new() {
 update_file() {
   local path="$1"
   local content="$2"
-  local dir=$(dirname "$path")
+  local dir
+  dir=$(dirname "$path")
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    echo "  WOULD-UPDATE: $path"
+    return 0
+  fi
   mkdir -p "$dir"
   echo "$content" > "$path"
   echo "  UPDATE: $path"
@@ -190,6 +291,17 @@ update_file() {
 upsert_sage_section() {
   local file="$1"
   local snippet="$2"
+
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    if [ ! -f "$file" ]; then
+      echo "  WOULD-CREATE: $file"
+    elif grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null; then
+      echo "  WOULD-UPDATE: $file (SAGE section)"
+    else
+      echo "  WOULD-APPEND: $file (SAGE section)"
+    fi
+    return 0
+  fi
 
   if [ ! -f "$file" ]; then
     echo "$snippet" > "$file"
@@ -250,6 +362,17 @@ setup_commit_hook() {
 
   local hook_file="$hook_dir/commit-msg"
 
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    if [ -f "$hook_file" ] && grep -qF "SAGE" "$hook_file" 2>/dev/null; then
+      echo "  WOULD-SKIP:   $hook_file (SAGE hook already present)"
+    elif [ -f "$hook_file" ]; then
+      echo "  WOULD-APPEND: $hook_file"
+    else
+      echo "  WOULD-CREATE: $hook_file"
+    fi
+    return
+  fi
+
   if [ -f "$hook_file" ] && grep -qF "SAGE" "$hook_file"; then
     echo "  SKIP: $hook_file (SAGE hook already present)"
   elif [ -f "$hook_file" ]; then
@@ -268,6 +391,11 @@ setup_commit_hook() {
 audit_existing_claude_md() {
   local file="$1"
   local report=".sage/adoption-audit.md"
+
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    echo "  WOULD-WRITE: $report (adoption audit for existing CLAUDE.md)"
+    return
+  fi
 
   echo "# SAGE Adoption Audit" > "$report"
   echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$report"
@@ -316,6 +444,15 @@ audit_existing_claude_md() {
 }
 
 setup_gitignore() {
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    if [ ! -f .gitignore ]; then
+      echo "  WOULD-CREATE: .gitignore (with .sage/runs/ + .sage/metrics/)"
+    else
+      grep -qxF '.sage/runs/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/runs/"
+      grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/metrics/"
+    fi
+    return
+  fi
   if [ ! -f .gitignore ]; then
     touch .gitignore
   fi
@@ -326,19 +463,45 @@ setup_gitignore() {
 
 # --- Parse arguments ---
 MODE="install"
+DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     --update) MODE="update" ;;
     --version) show_version; exit 0 ;;
+    --print-provenance) do_print_provenance; exit 0 ;;
+    --verify-checksum) do_verify_checksum; exit $? ;;
+    --dry-run) DRY_RUN=true ;;
     --help)
-      echo "Usage: bash install.sh [--update] [--version]"
-      echo "  (no args)  First-time installation"
-      echo "  --update   Update SAGE to v${SAGE_VERSION}"
-      echo "  --version  Show version"
+      cat <<HELP_EOF
+Usage: bash install.sh [OPTIONS]
+
+  (no args)              First-time installation (auto-updates if installed)
+  --update               Force update mode
+  --version              Show SAGE version
+  --dry-run              Preview without writing any files (SPEC-0010)
+  --verify-checksum      Verify installed files against .sage/install-state.yaml
+  --print-provenance     Print installer SHA256, version, and license info
+  --help                 Show this help
+
+License: Apache-2.0 (see LICENSE)
+Source:  https://github.com/heidayo/sage-ai-template
+Trust:   See SECURITY.md and sage/governance.md §9 (Scope Boundary)
+HELP_EOF
       exit 0
       ;;
   esac
 done
+
+# Announce dry-run mode prominently
+if [ "$DRY_RUN" = "true" ]; then
+  echo "========================================="
+  echo "  SAGE v${SAGE_VERSION} — DRY RUN (no writes will occur)"
+  echo "========================================="
+  echo ""
+  # Override chmod as no-op so chained "write_file_if_new && chmod +x" stays safe
+  # (the file is not created in dry-run, so chmod would fail under set -e).
+  chmod() { return 0; }
+fi
 
 INSTALLED_VERSION=$(check_installed_version)
 
@@ -366,7 +529,11 @@ echo ""
 
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
-mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
+if [ "${DRY_RUN:-false}" = "true" ]; then
+  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
+else
+  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
+fi
 echo "  OK"
 
 # --- [2/9] Templates & governance ---
@@ -473,7 +640,9 @@ upsert_sage_section "AGENTS.md" "$TMPL_AGENTS_SNIPPET"
 # --- [7/9] Hooks ---
 echo ""
 echo "[7/9] Claude Code hooks..."
-mkdir -p templates/hooks
+if [ "${DRY_RUN:-false}" != "true" ]; then
+  mkdir -p templates/hooks
+fi
 if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/hooks/block-dangerous-commands.sh" "$TMPL_HOOK_BLOCK_DANGEROUS" && chmod +x "templates/hooks/block-dangerous-commands.sh"
   write_file_if_new "templates/hooks/protect-sage-files.sh" "$TMPL_HOOK_PROTECT_SAGE" && chmod +x "templates/hooks/protect-sage-files.sh"
@@ -488,7 +657,13 @@ else
   update_file "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
 fi
 # Deploy settings.json with hook definitions
-if [ ! -f ".claude/settings.json" ] || ! grep -qF "block-dangerous-commands" ".claude/settings.json" 2>/dev/null; then
+if [ "${DRY_RUN:-false}" = "true" ]; then
+  if [ ! -f ".claude/settings.json" ] || ! grep -qF "block-dangerous-commands" ".claude/settings.json" 2>/dev/null; then
+    echo "  WOULD-CREATE: .claude/settings.json (with hooks)"
+  else
+    echo "  WOULD-SKIP:   .claude/settings.json (hooks already configured)"
+  fi
+elif [ ! -f ".claude/settings.json" ] || ! grep -qF "block-dangerous-commands" ".claude/settings.json" 2>/dev/null; then
   mkdir -p .claude
   echo "$TMPL_SETTINGS_JSON" > ".claude/settings.json"
   echo "  CREATE: .claude/settings.json (with hooks)"
@@ -507,7 +682,11 @@ echo "[9/9] .gitignore..."
 setup_gitignore
 
 # --- Save installed version ---
-echo "$SAGE_VERSION" > .sage/version
+if [ "${DRY_RUN:-false}" = "true" ]; then
+  echo "  WOULD-WRITE: .sage/version (${SAGE_VERSION})"
+else
+  echo "$SAGE_VERSION" > .sage/version
+fi
 
 # --- Generate install-state.yaml (SPEC-0004) ---
 echo ""
@@ -515,6 +694,11 @@ echo "Generating install-state.yaml..."
 generate_install_state() {
   local state_file=".sage/install-state.yaml"
   local sha_cmd=""
+
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    echo "  WOULD-WRITE: $state_file"
+    return
+  fi
 
   # Cross-platform SHA256
   if command -v sha256sum &>/dev/null; then
