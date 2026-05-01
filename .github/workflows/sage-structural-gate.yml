@@ -160,8 +160,26 @@ jobs:
             exit 1
           fi
 
+      # SPEC-0011 / TASK-0102: shellcheck for hooks, scripts, installer.
+      # Uses a SHA-pinned action per CLAUDE.md governance. Severity is
+      # 'error' so we do not break on pre-existing 'warning' baseline noise;
+      # warnings still surface via the action's GitHub Annotations.
+      - name: shellcheck (hooks / scripts / installer)
+        uses: ludeeus/action-shellcheck@00b27aa7cb85167568cb48a3838b75f4265f2bca # v2.0.0
+        with:
+          severity: error
+          scandir: '.'
+          additional_files: 'install.sh'
+          ignore_paths: >-
+            node_modules
+            vendor
+            .git
+
       - name: SAGE structure validation
         run: bash scripts/sage-validate.sh
+
+      - name: Hook smoke tests (TASK-0101)
+        run: bash templates/hooks/tests/run-tests.sh
 
       # SPEC-0008 Track C: consistency checks wired into Gate 1. Each script
       # is fail-close by default but SKIPs when its precondition is absent
