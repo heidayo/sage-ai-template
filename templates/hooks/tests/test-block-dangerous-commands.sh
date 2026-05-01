@@ -64,6 +64,23 @@ assert_eq "${HOOK_RC}" "2" "block: tee to .git/hooks"
 run_hook "block-dangerous-commands.sh" '{"tool_name":"Bash","tool_input":{"command":"echo hello > out/notes.txt"}}' "${SANDBOX}"
 assert_eq "${HOOK_RC}" "0" "allow: redirection to non-control-plane path"
 
+# TASK-0106 (Codex review P1 #2): variants the original regex missed.
+# Block: ./ prefix.
+run_hook "block-dangerous-commands.sh" '{"tool_name":"Bash","tool_input":{"command":"echo evil > ./.claude/settings.json"}}' "${SANDBOX}"
+assert_eq "${HOOK_RC}" "2" "block: redirection with ./ prefix"
+
+# Block: no whitespace between operator and path.
+run_hook "block-dangerous-commands.sh" '{"tool_name":"Bash","tool_input":{"command":"echo evil>.claude/settings.json"}}' "${SANDBOX}"
+assert_eq "${HOOK_RC}" "2" "block: redirection with no whitespace"
+
+# Block: no-space operator + ./ prefix.
+run_hook "block-dangerous-commands.sh" '{"tool_name":"Bash","tool_input":{"command":"echo evil >./.mcp.json"}}' "${SANDBOX}"
+assert_eq "${HOOK_RC}" "2" "block: redirection no-space + ./ prefix"
+
+# Block: append (>>) with ./ prefix.
+run_hook "block-dangerous-commands.sh" '{"tool_name":"Bash","tool_input":{"command":"cat extra >>./.claude/settings.json"}}' "${SANDBOX}"
+assert_eq "${HOOK_RC}" "2" "block: append redirection with ./ prefix"
+
 # Block: python -c file write
 run_hook "block-dangerous-commands.sh" "$(bash_input_json 'python -c "open(\"foo\",\"w\").write(\"x\")"')" "${SANDBOX}"
 assert_eq "${HOOK_RC}" "2" "block: python -c file write"
@@ -75,6 +92,19 @@ assert_eq "${HOOK_RC}" "2" "block: node -e writeFile"
 # Allow: python -c that only reads
 run_hook "block-dangerous-commands.sh" "$(bash_input_json 'python -c "print(open(\"foo\").read())"')" "${SANDBOX}"
 assert_eq "${HOOK_RC}" "0" "allow: python -c read-only"
+
+# TASK-0106 (Codex review P2 #4): single-quote variants the original regex missed.
+# Block: python single-quote write
+run_hook "block-dangerous-commands.sh" "$(bash_input_json "python -c \"open('foo','w').write('x')\"")" "${SANDBOX}"
+assert_eq "${HOOK_RC}" "2" "block: python -c single-quote file write"
+
+# Block: ruby single-quote File.open write
+run_hook "block-dangerous-commands.sh" "$(bash_input_json "ruby -e \"File.open('foo','w'){|f| f.write('x')}\"")" "${SANDBOX}"
+assert_eq "${HOOK_RC}" "2" "block: ruby -e single-quote File.open write"
+
+# Block: perl single-quote open write
+run_hook "block-dangerous-commands.sh" "$(bash_input_json "perl -e \"open(my \\\$fh, '>foo'); print \\\$fh 'x'\"")" "${SANDBOX}"
+assert_eq "${HOOK_RC}" "2" "block: perl -e single-quote open write"
 
 # Warn (not block): Unicode obfuscation — Ideographic Space (U+3000).
 # The hook prints WARN on stderr but exits 0.

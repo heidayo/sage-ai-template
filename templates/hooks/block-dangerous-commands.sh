@@ -163,9 +163,19 @@ fi
 # Pattern: redirection write to AI control-plane files.
 # Mirrors the CVE-2026-25723 piped-sed bypass class. Catches >, >>, and tee
 # variants targeting .claude/, .mcp.json, .codex/, .sage/config.yaml, .git/,
-# .github/workflows/. Uses a single regex with [[:space:]]* around the redirect
-# operator to tolerate inconsistent spacing.
-if echo "$COMMAND" | grep -qE '(>>?|tee([[:space:]]+-a)?)[[:space:]]+\.?/?(claude/|mcp\.json|codex/config\.toml|sage/config\.yaml|git/|github/workflows/)'; then
+# .github/workflows/.
+#
+# TASK-0106 (Codex review P1 #2): the previous regex required whitespace
+# between the redirect operator and the path AND the leading dot was eaten
+# by `\.?`, so common variants slipped through:
+#   echo x>.claude/settings.json        (no space)
+#   echo x > ./.claude/settings.json    (./ prefix)
+#   echo x >./.mcp.json                 (mixed)
+#
+# Approach: split into two checks — operator-and-target with optional
+# whitespace, then the path matcher accepts an optional `./` prefix and
+# requires the literal leading `.` of the control-plane filename.
+if echo "$COMMAND" | grep -qE '(>>?|tee([[:space:]]+-a)?)[[:space:]]*(\./)?\.(claude/|mcp\.json|codex/config\.toml|sage/config\.yaml|git/|github/workflows/)'; then
   echo "BLOCKED: redirection write to a SAGE / AI control-plane file detected." >&2
   echo "Targets: .claude/, .mcp.json, .codex/config.toml, .sage/config.yaml, .git/, .github/workflows/" >&2
   echo "Reference: NVD CVE-2026-25723 (Claude Code piped-sed bypass class)" >&2
@@ -177,8 +187,19 @@ fi
 # Catches python/python3 -c, node -e, ruby -e, perl -e patterns that open a
 # file in write/append mode, which would bypass the Edit/Write tool path
 # entirely. Conservative regex — only flags explicit 'w' or '>>' modes.
-if echo "$COMMAND" | grep -qE 'python[23]?[[:space:]]+-c[[:space:]].*open\([^)]*[\x27"]w'; then
-  echo "BLOCKED: 'python -c ... open(..., \"w\")' writes a file outside the audited Edit/Write path." >&2
+#
+# TASK-0106 (Codex review P2 #4): the previous regex used `[\x27"]` which
+# in grep -E does NOT expand \x27 to apostrophe — the class became literal
+# [\x27"] matching only \, x, 2, 7, ". Single-quoted variants were therefore
+# missed:
+#   python -c "open('foo','w').write('x')"
+#   ruby -e "File.open('foo','w')..."
+#   perl -e "open(..., '>foo')"
+# The fix uses a literal apostrophe inside a bracket class via `'\''`
+# shell-escape pattern, so grep -E sees `['"]`.
+SQ="'\''"
+if echo "$COMMAND" | grep -qE "python[23]?[[:space:]]+-c[[:space:]].*open\([^)]*[${SQ}\"]w"; then
+  echo "BLOCKED: 'python -c ... open(..., \"w\"|'w')' writes a file outside the audited Edit/Write path." >&2
   echo "Suggestion: Use the Edit or Write tool, or run a reviewed script file." >&2
   exit 2
 fi
@@ -187,13 +208,13 @@ if echo "$COMMAND" | grep -qE 'node[[:space:]]+-e[[:space:]].*(writeFile|createW
   echo "Suggestion: Use the Edit or Write tool, or run a reviewed script file." >&2
   exit 2
 fi
-if echo "$COMMAND" | grep -qE 'ruby[[:space:]]+-e[[:space:]].*File\.open\([^)]*[\x27"](w|a)'; then
-  echo "BLOCKED: 'ruby -e ... File.open(..., \"w\"|\"a\")' writes a file outside the audited path." >&2
+if echo "$COMMAND" | grep -qE "ruby[[:space:]]+-e[[:space:]].*File\.open\([^)]*[${SQ}\"](w|a)"; then
+  echo "BLOCKED: 'ruby -e ... File.open(..., \"w\"|\"a\"|'w'|'a')' writes a file outside the audited path." >&2
   echo "Suggestion: Use the Edit or Write tool, or run a reviewed script file." >&2
   exit 2
 fi
-if echo "$COMMAND" | grep -qE 'perl[[:space:]]+-e[[:space:]].*open\([^)]*,[[:space:]]*[\x27"]>+'; then
-  echo "BLOCKED: 'perl -e ... open(..., \">\"|\">>\")' writes a file outside the audited path." >&2
+if echo "$COMMAND" | grep -qE "perl[[:space:]]+-e[[:space:]].*open\([^)]*,[[:space:]]*[${SQ}\"]>+"; then
+  echo "BLOCKED: 'perl -e ... open(..., \">\"|\">>\"|'>'|'>>')' writes a file outside the audited path." >&2
   echo "Suggestion: Use the Edit or Write tool, or run a reviewed script file." >&2
   exit 2
 fi
