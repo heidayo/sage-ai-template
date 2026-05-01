@@ -73,7 +73,7 @@ SAGE が想定する **主要な脅威カテゴリ** は以下です。これら
 | 脅威                                                                                | SAGE 対応 |
 | ----------------------------------------------------------------------------------- | --------- |
 | `.claude/settings.json` に `permissions.defaultMode = "bypassPermissions"` 注入    | [partial] template-trust callout で警告。block は Claude Code 本体の責務 (CVE-2026-33068 fixed in 2.1.53) |
-| `.codex/config.toml` + `.env` `CODEX_HOME` redirect で MCP RCE (CVE-2025-61260)     | [partial] CONTRIBUTING.md / governance §9 で警告。block は Codex CLI 0.23.0+ の責務 |
+| `.codex/config.toml` + `.env` `CODEX_HOME` redirect で MCP RCE (CVE-2025-61260)     | [partial] CONTRIBUTING.md / governance §9 で警告。block は Codex CLI 0.23.0+ の責務。詳細手順: [docs/codex-security.md §4](docs/codex-security.md) |
 | `ANTHROPIC_BASE_URL` 書き換えで API key exfil (CVE-2025-59536)                     | [partial] template-trust callout で警告。block は Claude Code 本体の責務 |
 
 ### 3.3 Prompt Injection / Lethal Trifecta
@@ -105,7 +105,7 @@ SAGE が想定する **主要な脅威カテゴリ** は以下です。これら
 - **Network egress allowlist** — Claude Code sandbox `network.allowedDomains` または OS proxy で実現
 - **Bash subprocess deny** — pattern matching hook は補助に過ぎない (参考: [Adversa AI deny rule bypass](https://adversa.ai/blog/claude-code-security-bypass-deny-rules-disabled/))
 - **MCP server consent / sandboxing** — Claude Code / Codex 本体の trust 機構に依存
-- **Codex sandbox / approval policy** — Codex CLI / cloud 設定で実現 (`workspace-write` + `on-request` 推奨)
+- **Codex sandbox / approval policy** — Codex CLI / cloud 設定で実現 (`workspace-write` + `on-request` 推奨)。詳細な設定例 / IR 手順: [docs/codex-security.md](docs/codex-security.md)
 
 ### 4.2 External Operations (ユーザーが別途用意)
 

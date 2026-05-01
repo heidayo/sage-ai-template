@@ -580,3 +580,7 @@ SAGE は単独著作物ですが、設計思想・ベストプラクティスの
 ### Contribution
 
 contribution 受付方針は [CONTRIBUTING.md](CONTRIBUTING.md)、脆弱性報告は [SECURITY.md](SECURITY.md) を参照してください。
+
+### Codex 利用者向け
+
+Codex (CLI / Cloud / codex-action) を SAGE と組み合わせて使う場合は [docs/codex-security.md](docs/codex-security.md) を参照してください (Phase 3 / SPEC-0013): config.toml 推奨設定 / Codex Cloud / CODEX_HOME 対策 / codex-action hardening / IR 手順。
