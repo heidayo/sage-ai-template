@@ -110,4 +110,4 @@ SAGE v2 改修にあたり、以下の **公開一次ソース** からセキュ
 
 ## Note on Phase 1 Synthesis
 
-These sources informed SAGE v2's **doctrine and threat model** (governance §13 Scope Boundary, SECURITY.md threat model). No copyrighted text was reproduced — references are URL-only, with summaries paraphrased in original wording. The integration was cross-validated by an independent Codex review (cross-model adversarial review per SAGE-v2 Tier 2.5 pattern) before adoption.
+These sources informed SAGE v2's **doctrine and threat model** (governance §9 Scope Boundary, SECURITY.md threat model). No copyrighted text was reproduced — references are URL-only, with summaries paraphrased in original wording. The integration was cross-validated by an independent Codex review (cross-model adversarial review per SAGE-v2 Tier 2.5 pattern) before adoption.

@@ -207,9 +207,12 @@ EOF
 do_verify_checksum() {
   local state_file=".sage/install-state.yaml"
   if [ ! -f "$state_file" ]; then
-    echo "WARN: state file not found at $state_file."
-    echo "      Run 'bash $0' (without --verify-checksum) to install first."
-    return 0
+    echo "ERROR: state file not found at $state_file."
+    echo "       Cannot verify integrity. Either:"
+    echo "         (a) Run 'bash $0' to install (and generate state), then re-run --verify-checksum, or"
+    echo "         (b) You are running --verify-checksum from a directory where SAGE is not installed."
+    echo "       Treating absence as verification failure (rc=2) per SPEC-0010 / TASK-0100 (Codex review P2 #3)."
+    return 2
   fi
   local sha_cmd
   sha_cmd=$(_sha256_cmd)
@@ -217,16 +220,26 @@ do_verify_checksum() {
     echo "ERROR: sha256sum/shasum not found, cannot verify."
     return 1
   fi
-  local drift=0 missing=0 checked=0
+  local drift=0 missing=0 checked=0 invalid=0
   local current_path="" current_sha=""
   while IFS= read -r line; do
     if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*path:[[:space:]]*\"(.*)\"[[:space:]]*$ ]]; then
       current_path="${BASH_REMATCH[1]}"
+      # Reject suspicious paths early (P3 #5: option-like / absolute / parent-traversal).
+      case "$current_path" in
+        -*|/*|*..*)
+          echo "INVALID-PATH: $current_path (rejected by allowlist)"
+          invalid=$((invalid + 1))
+          current_path=""
+          continue
+          ;;
+      esac
     elif [[ "$line" =~ ^[[:space:]]*sha256:[[:space:]]*\"(.*)\"[[:space:]]*$ ]]; then
       current_sha="${BASH_REMATCH[1]}"
       if [ -n "$current_path" ] && [ -f "$current_path" ]; then
+        # Use -- to terminate options so paths cannot be misinterpreted (P3 #5).
         local actual
-        actual=$($sha_cmd "$current_path" 2>/dev/null | awk '{print $1}')
+        actual=$($sha_cmd -- "$current_path" 2>/dev/null | awk '{print $1}')
         checked=$((checked + 1))
         if [ "$actual" != "$current_sha" ]; then
           echo "DRIFT:   $current_path"
@@ -242,8 +255,8 @@ do_verify_checksum() {
     fi
   done < "$state_file"
   echo ""
-  echo "Verified: ${checked} files. Drift: ${drift}. Missing: ${missing}."
-  if [ "$drift" -gt 0 ] || [ "$missing" -gt 0 ]; then
+  echo "Verified: ${checked} files. Drift: ${drift}. Missing: ${missing}. Invalid-path: ${invalid}."
+  if [ "$drift" -gt 0 ] || [ "$missing" -gt 0 ] || [ "$invalid" -gt 0 ]; then
     return 1
   fi
   return 0
@@ -444,11 +457,13 @@ audit_existing_claude_md() {
 }
 
 setup_gitignore() {
+  # Note: .sage/runs/ is intentionally NOT added to .gitignore — RUN logs
+  # are SAGE's audit trail and must be tracked. Only .sage/metrics/ (raw
+  # numeric counters) is ignored. See TASK-0100 / Codex review P1 #1.
   if [ "${DRY_RUN:-false}" = "true" ]; then
     if [ ! -f .gitignore ]; then
-      echo "  WOULD-CREATE: .gitignore (with .sage/runs/ + .sage/metrics/)"
+      echo "  WOULD-CREATE: .gitignore (with .sage/metrics/)"
     else
-      grep -qxF '.sage/runs/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/runs/"
       grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/metrics/"
     fi
     return
@@ -456,7 +471,6 @@ setup_gitignore() {
   if [ ! -f .gitignore ]; then
     touch .gitignore
   fi
-  grep -qxF '.sage/runs/' .gitignore 2>/dev/null || echo '.sage/runs/' >> .gitignore
   grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo '.sage/metrics/' >> .gitignore
   echo "  OK"
 }

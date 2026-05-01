@@ -145,14 +145,43 @@ graph TD
 
 ## 導入方法
 
-### Step 1: install.sh を取得して実行する
+> **⚠️ Trust First**: SAGE installer は約 213KB の自己完結 shell script で、`.git/hooks` / `.github/workflows` / `.claude/settings.json` 等を一括書き換えます。**未検証で実行しないでください**。Phase 1 (SPEC-0010) で provenance 表示と dry-run プレビューを実装済みです — 下記の推奨手順 (Step 1A) を使ってください。詳細は [SECURITY.md](SECURITY.md) を参照。
+
+### Step 1A: 推奨手順 (download → verify → preview → review → execute)
+
+```bash
+cd /path/to/your-project
+
+# 1. Download (実行はしない)
+curl -fsSL -o install.sh https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh
+
+# 2. Verify provenance (SHA256 / 由来 / ライセンス確認)
+bash install.sh --print-provenance
+
+# 3. Preview without writing (dry-run で副作用なし内容確認)
+bash install.sh --dry-run
+
+# 4. (任意) install.sh 自体を読む / shellcheck で検査
+less install.sh
+shellcheck install.sh
+
+# 5. Execute
+bash install.sh
+
+# 6. Post-install drift detection (任意・推奨)
+bash install.sh --verify-checksum
+```
+
+### Step 1B: 一行導入 (隔離環境・dev container 等で sandbox 済の場合のみ)
+
+> 上記 Step 1A の verify / preview / review を省略するため、**未検証 repository / 本番開発端末では非推奨** です。
 
 ```bash
 cd /path/to/your-project
 curl -fsSL https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh | bash
 ```
 
-または `install.sh` を直接ダウンロードして実行:
+または既に repository を clone 済の場合:
 
 ```bash
 bash install.sh

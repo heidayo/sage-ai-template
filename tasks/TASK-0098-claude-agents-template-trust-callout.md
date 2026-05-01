@@ -33,7 +33,7 @@ CLAUDE.md と AGENTS.md それぞれの **タイトル直後 (Section 0 とし�
 > [!IMPORTANT]
 > **これはテンプレートです。未レビューで信頼してはいけません。**
 > このリポジトリの `.claude/settings.json`, `.mcp.json`, `templates/hooks/`, `[CLAUDE|AGENTS].md` は AI agent の権限・実行・記憶に影響します。clone 直後のフルパス信頼は、Check Point CVE-2025-59536 / NVD CVE-2026-33068 と同質の supply chain 攻撃面になり得ます。
-> 詳細と検証手順は [SECURITY.md](SECURITY.md) と [sage/governance.md §13 Scope Boundary](sage/governance.md) を参照してください。
+> 詳細と検証手順は [SECURITY.md](SECURITY.md) と [sage/governance.md §9 Scope Boundary](sage/governance.md) を参照してください。
 ```
 
 (日本語版 + 英語要約を1ブロック内に含める。最大 8 行以内 / 約 400 文字以内)
