@@ -29,18 +29,19 @@ Stop hook で `.sage/runs/RUN-*.yaml` の **全 file** を scan し、API key / 
 ## 出力
 
 1. `templates/hooks/security-filter.sh` 新規:
-   - `set -euo pipefail` + profile gating
+   - `set -uo pipefail` + profile gating
    - Stop hook なので stdin JSON は `{"hook_event_name":"Stop", ...}` を期待
-   - **Target**: `.sage/runs/RUN-*.yaml` の最新 (mtime 最新) 1 file のみ scan
-   - **Redaction patterns** (sed -i または awk で in-place 置換、atomic write):
-     - `sk-[A-Za-z0-9]{32,}` (OpenAI/Anthropic style)
-     - `ghp_[A-Za-z0-9]{36}`, `gho_[A-Za-z0-9]{36}` (GitHub PAT)
+   - **Target**: `.sage/runs/RUN-*.yaml` の **全ファイル** を scan (TASK-0112 で 「最新 (mtime 最新) 1 file のみ」 を撤回し全 file scan に変更、Codex 1st-round P2 #5 対応)
+   - **Per-file atomic write**: `process_one()` 関数で各 file ごとに `mktemp` → `awk` → `mv`、1 file の失敗が他 file を block しない設計。失敗時 trap で original 保持
+   - **Redaction patterns** (awk で in-place 置換、atomic write):
+     - `sk-[A-Za-z0-9_-]{32,}` (OpenAI/Anthropic style)
+     - `ghp_[A-Za-z0-9]{36}`, `gho_[A-Za-z0-9]{36}` (GitHub PAT classic / OAuth)
+     - `github_pat_[A-Za-z0-9_]{20,}` (GitHub fine-grained PAT)
      - `xox[abp]-[A-Za-z0-9-]+` (Slack)
      - `AKIA[0-9A-Z]{16}` (AWS Access Key)
      - `eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}` (JWT 3-part base64)
      - YAML field where key matches `(api[_-]?key|token|secret|password|jwt)` (case-insensitive) and value is non-empty 20+ char alphanumeric → 値全体を `***REDACTED***`
-   - **Atomic write**: `mktemp` → `sed/awk` → `mv` で in-place、失敗時 trap で original 保持
-   - **Idempotency** (NFR-05): 既に `***REDACTED***` 化された entry は再 redact しない
+   - **Idempotency** (NFR-05): 既に `***REDACTED***` 化された entry は再 redact しない (awk 内で placeholder 検出時 skip)
    - profile=minimal/none で skip
    - exit 0 を必ず返す (Stop hook なので block しない)
 
