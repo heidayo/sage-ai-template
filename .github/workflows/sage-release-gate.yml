@@ -71,6 +71,13 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          # TASK-0117 (Codex 3rd-round P1): full history needed because
+          # scripts/sage-validate.sh runs `git diff-tree --check --root
+          # -r HEAD` which, on a shallow clone, treats unrelated history
+          # as part of HEAD and reports spurious "noise diffs". Other
+          # gates (structural, security) already use fetch-depth >= 2,
+          # release was the outlier.
+          fetch-depth: 0
 
       - name: Check Gate 1-4 prerequisites
         id: prerequisites

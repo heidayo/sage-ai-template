@@ -20,11 +20,22 @@
 useDefault = true
 
 [allowlist]
-description = "SAGE security-hook self-test fixtures (path AND regex AND)."
+description = "SAGE security-hook self-test fixtures (path AND regex)."
 
-# AND condition: a finding must match BOTH a listed path AND one of the
-# regexes below to be exempted. Any other finding in these files (or
-# anywhere else) still surfaces normally.
+# TASK-0117 (Codex 3rd-round P2): Gitleaks default for multi-condition
+# allowlist is OR. To require BOTH a path match AND a regex match, the
+# `condition = "AND"` setting must be explicit. Without it, the
+# fixture regexes would silently exempt those values anywhere in the
+# repo, and the path list would silently exempt everything inside
+# those four files. With AND, only the named values inside the named
+# files are exempted.
+condition = "AND"
+
+# regexTarget = "match" tells Gitleaks to apply the regex against the
+# matched secret string itself (not the full line), so the explicit
+# fixture values match exactly without surrounding context.
+regexTarget = "match"
+
 paths = [
   '''templates/hooks/tests/test-security-filter\.sh''',
   '''templates/hooks/tests/test-secret-read-multi-layer\.sh''',
