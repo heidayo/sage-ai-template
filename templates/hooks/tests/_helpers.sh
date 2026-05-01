@@ -107,6 +107,43 @@ assert_not_contains() {
   fi
 }
 
+# bash_input_json <command-string>
+#   Emit a JSON payload `{"tool_name":"Bash","tool_input":{"command":"..."}}`
+#   with the command properly JSON-escaped. Uses jq when available, otherwise
+#   falls back to a small bash escaper that handles \, ", control chars.
+bash_input_json() {
+  local cmd="$1"
+  if command -v jq &>/dev/null; then
+    # -c: compact (single line). Required because the hooks use `read -r INPUT`
+    # which captures one line only; pretty-printed JSON would be truncated.
+    printf '%s' "$cmd" | jq -Rsc '{tool_name:"Bash", tool_input:{command:.}}'
+  else
+    local escaped
+    escaped="${cmd//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    escaped="${escaped//$'\n'/\\n}"
+    escaped="${escaped//$'\t'/\\t}"
+    escaped="${escaped//$'\r'/\\r}"
+    printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$escaped"
+  fi
+}
+
+# edit_input_json <file_path> [<content>]
+#   Emit `{"tool_name":"Edit","tool_input":{"file_path":"...","content":"..."}}`.
+edit_input_json() {
+  local fp="$1"
+  local content="${2:-}"
+  if command -v jq &>/dev/null; then
+    jq -nc --arg fp "$fp" --arg c "$content" \
+      '{tool_name:"Edit", tool_input:{file_path:$fp, content:$c}}'
+  else
+    local efp ec
+    efp="${fp//\\/\\\\}"; efp="${efp//\"/\\\"}"
+    ec="${content//\\/\\\\}"; ec="${ec//\"/\\\"}"; ec="${ec//$'\n'/\\n}"
+    printf '{"tool_name":"Edit","tool_input":{"file_path":"%s","content":"%s"}}' "$efp" "$ec"
+  fi
+}
+
 # Emit a one-line summary the runner can parse.
 summary_line() {
   echo "SUMMARY pass=${HELPER_PASS} fail=${HELPER_FAIL}"
