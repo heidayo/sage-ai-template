@@ -64,7 +64,7 @@ SAGE が想定する **主要な脅威カテゴリ** は以下です。これら
 | 悪意ある fork / clone repository が `.claude/settings.json` で `bypassPermissions` に誘導 | [partial] CLAUDE.md / AGENTS.md 冒頭 callout (TASK-0098) で警告 |
 | `install.sh` 自体の改ざん                                         | [partial] `--print-provenance` / `--verify-checksum` (TASK-0097) |
 | `installer_url` (auto-update) 取得先の悪意ある書き換え            | [partial] local install-state.yaml の sha256 drift 検出は `--verify-checksum` で実装済 (TASK-0097)。remote installer_url の pinning / signing / trust flow は未実装 (SPEC-0011 で扱う) |
-| Skill / hook ファイル経由の任意コード実行                         | [partial] hook テスト + shellcheck (CONTRIBUTING.md)、本格対応は Phase 2-3 |
+| Skill / hook ファイル経由の任意コード実行                         | [partial → improved (Phase 2B)] secret-read-multi-layer.sh + lethal-trifecta-detect.sh + security-filter.sh で部分緩和。完全防御は引き続き Claude Code sandbox 必要 ([templates/settings/sandbox.json](templates/settings/sandbox.json) 雛形参照) |
 
 参考: [Trend Micro Claude Code Source Leak Campaign](https://www.trendmicro.com/en_us/research/26/d/weaponizing-trust-claude-code-lures-and-github-release-payloads.html), [OWASP Agentic Skills Top 10](https://owasp.org/www-project-agentic-skills-top-10/) AST01-AST10
 
@@ -81,7 +81,7 @@ SAGE が想定する **主要な脅威カテゴリ** は以下です。これら
 | 脅威                                                                                       | SAGE 対応 |
 | ------------------------------------------------------------------------------------------ | --------- |
 | 外部由来コンテンツ (PR/issue/branch/README) からの indirect prompt injection              | [partial] doctrine 化 (Phase 2 で warn-only hook 追加予定) |
-| Lethal Trifecta (private data + untrusted input + exfil vector) の同時成立                | [partial] governance §9 で原則記載。検出 hook は Phase 2 で warn-only 起動予定 |
+| Lethal Trifecta (private data + untrusted input + exfil vector) の同時成立                | [partial → improved (Phase 2B)] `templates/hooks/lethal-trifecta-detect.sh` で warn-only 検出を実装 (Codex review R3 通り block はしない、人間判断責任は維持) |
 
 参考: [Lethal Trifecta — Simon Willison via Airia](https://airia.com/ai-security-in-2026-prompt-injection-the-lethal-trifecta-and-how-to-defend/)
 

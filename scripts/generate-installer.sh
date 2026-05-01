@@ -139,6 +139,18 @@ embed_file "TMPL_HOOK_SESSION_START" "$ROOT/templates/hooks/session-start.sh"
 echo ""
 embed_file "TMPL_HOOK_SESSION_STOP" "$ROOT/templates/hooks/session-stop.sh"
 echo ""
+# Phase 2B (SPEC-0012) new defense hooks
+embed_file "TMPL_HOOK_LETHAL_TRIFECTA" "$ROOT/templates/hooks/lethal-trifecta-detect.sh"
+echo ""
+embed_file "TMPL_HOOK_SECRET_READ" "$ROOT/templates/hooks/secret-read-multi-layer.sh"
+echo ""
+embed_file "TMPL_HOOK_SECURITY_FILTER" "$ROOT/templates/hooks/security-filter.sh"
+echo ""
+# Phase 2B (SPEC-0012) settings template (Claude Code sandbox doctrine)
+embed_file "TMPL_SETTINGS_SANDBOX" "$ROOT/templates/settings/sandbox.json"
+echo ""
+embed_file "TMPL_SETTINGS_README" "$ROOT/templates/settings/README.md"
+echo ""
 # Settings.json template with hooks
 embed_file "TMPL_SETTINGS_JSON" "$ROOT/.claude/settings.json"
 echo ""
@@ -663,12 +675,22 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/hooks/check-file-scope.sh" "$TMPL_HOOK_CHECK_SCOPE" && chmod +x "templates/hooks/check-file-scope.sh"
   write_file_if_new "templates/hooks/session-start.sh" "$TMPL_HOOK_SESSION_START" && chmod +x "templates/hooks/session-start.sh"
   write_file_if_new "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
+  write_file_if_new "templates/hooks/lethal-trifecta-detect.sh" "$TMPL_HOOK_LETHAL_TRIFECTA" && chmod +x "templates/hooks/lethal-trifecta-detect.sh"
+  write_file_if_new "templates/hooks/secret-read-multi-layer.sh" "$TMPL_HOOK_SECRET_READ" && chmod +x "templates/hooks/secret-read-multi-layer.sh"
+  write_file_if_new "templates/hooks/security-filter.sh" "$TMPL_HOOK_SECURITY_FILTER" && chmod +x "templates/hooks/security-filter.sh"
+  write_file_if_new "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
+  write_file_if_new "templates/settings/README.md" "$TMPL_SETTINGS_README"
 else
   update_file "templates/hooks/block-dangerous-commands.sh" "$TMPL_HOOK_BLOCK_DANGEROUS" && chmod +x "templates/hooks/block-dangerous-commands.sh"
   update_file "templates/hooks/protect-sage-files.sh" "$TMPL_HOOK_PROTECT_SAGE" && chmod +x "templates/hooks/protect-sage-files.sh"
   update_file "templates/hooks/check-file-scope.sh" "$TMPL_HOOK_CHECK_SCOPE" && chmod +x "templates/hooks/check-file-scope.sh"
   update_file "templates/hooks/session-start.sh" "$TMPL_HOOK_SESSION_START" && chmod +x "templates/hooks/session-start.sh"
   update_file "templates/hooks/session-stop.sh" "$TMPL_HOOK_SESSION_STOP" && chmod +x "templates/hooks/session-stop.sh"
+  update_file "templates/hooks/lethal-trifecta-detect.sh" "$TMPL_HOOK_LETHAL_TRIFECTA" && chmod +x "templates/hooks/lethal-trifecta-detect.sh"
+  update_file "templates/hooks/secret-read-multi-layer.sh" "$TMPL_HOOK_SECRET_READ" && chmod +x "templates/hooks/secret-read-multi-layer.sh"
+  update_file "templates/hooks/security-filter.sh" "$TMPL_HOOK_SECURITY_FILTER" && chmod +x "templates/hooks/security-filter.sh"
+  update_file "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
+  update_file "templates/settings/README.md" "$TMPL_SETTINGS_README"
 fi
 # Deploy settings.json with hook definitions
 if [ "${DRY_RUN:-false}" = "true" ]; then
