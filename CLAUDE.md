@@ -1,5 +1,10 @@
 # SAGE Development System — AI Agent Guidance
 
+> [!IMPORTANT]
+> **これはテンプレートです。clone 直後は未レビューで信頼してはいけません。**
+> このリポジトリの `.claude/settings.json`, `.mcp.json`, `templates/hooks/`, `CLAUDE.md`, `AGENTS.md` は AI agent の権限・実行・記憶に影響します。フォーク元の検証なしに全幅信頼すると、Check Point CVE-2025-59536 / NVD CVE-2026-33068 と同質の supply chain 攻撃面になり得ます。
+> **This is a template. Do not trust on first clone without review** — settings, hooks, and instruction files affect AI agent behavior. See [SECURITY.md](SECURITY.md) and [sage/governance.md §13 Scope Boundary](sage/governance.md) before adoption.
+
 ## 1. Project Overview
 
 This repository follows the **SAGE Development System** (Spec-driven, Agent-governed, Guard-railed, Evolving).
