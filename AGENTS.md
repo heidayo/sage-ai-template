@@ -34,6 +34,7 @@ SAGE の `templates/hooks/` は Claude Code の `PreToolUse`/`PostToolUse` 機�
 - `.env` 経由の `CODEX_HOME` 書き換えは Codex CLI 0.23.0+ で防止 ([CVE-2025-61260](https://research.checkpoint.com/2025/openai-codex-cli-command-injection-vulnerability/))
 - branch name / PR title / issue body は untrusted input として扱う ([BeyondTrust 報告](https://www.beyondtrust.com/blog/entry/openai-codex-command-injection-vulnerability-github-token))
 - 詳細は [SECURITY.md §3](SECURITY.md) と [sage/governance.md §9](sage/governance.md) を参照
+- **Codex 利用者向け詳細ガイド**: [docs/codex-security.md](docs/codex-security.md) (config.toml 推奨設定 / Codex Cloud / CODEX_HOME 対策 / codex-action hardening / IR 手順)
 
 SAGE が提供する Codex 向け価値は: SPEC/PLAN/TASK lifecycle / File Scope / anti-pattern 学習枠組み / AGENTS.md ルール — **runtime enforcement ではなく仕様駆動の構造設計**。
 
