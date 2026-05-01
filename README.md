@@ -528,4 +528,26 @@ bash scripts/sage-retro-spec.sh
 
 ## ライセンス
 
-All Rights Reserved. ライセンスは未定です。
+SAGE Development System は **Apache License, Version 2.0** で配布されます。
+詳細は [LICENSE](LICENSE) を参照してください。
+
+```
+Copyright 2026 heidayo and SAGE Development System contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+### 帰属表示・統合知識源
+
+SAGE は単独著作物ですが、設計思想・ベストプラクティスの統合源があります:
+
+- 設計インスピレーション (5 source) は [ATTRIBUTION.md](ATTRIBUTION.md) に列挙
+- v2 改修にあたり参照した一次ソース (OWASP / NVD CVE / Anthropic 公式 / OpenAI 公式 / Check Point 等 65 資料) も同 [ATTRIBUTION.md](ATTRIBUTION.md) に整理
+
+### Contribution
+
+contribution 受付方針は [CONTRIBUTING.md](CONTRIBUTING.md)、脆弱性報告は [SECURITY.md](SECURITY.md) を参照してください。
