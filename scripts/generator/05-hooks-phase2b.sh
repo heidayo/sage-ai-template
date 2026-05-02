@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Module 05: Phase 2B hooks + sandbox/settings (SPEC-0014)
 # Sourced by scripts/generate-installer.sh — depends on embed_file function.
 # Do not chmod +x; do not run standalone.

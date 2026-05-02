@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Module 03: rules + skills + base scripts (SPEC-0014)
 # Sourced by scripts/generate-installer.sh — depends on embed_file function.
 # Do not chmod +x; do not run standalone.

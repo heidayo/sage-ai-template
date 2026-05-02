@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Module 04: Phase 1-2A hooks (block-dangerous / protect-sage / check-file-scope / session-*) (SPEC-0014)
 # Sourced by scripts/generate-installer.sh — depends on embed_file function.
 # Do not chmod +x; do not run standalone.

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # --- メインロジックを埋め込む ---
 cat <<'MAIN_LOGIC'
 # === Main Logic ===
