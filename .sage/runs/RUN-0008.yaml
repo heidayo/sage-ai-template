@@ -1,0 +1,73 @@
+run_id: RUN-0008
+task_id: TASK-0155
+agent_id: implementation
+started_at: "2026-05-03T01:00:00Z"
+completed_at: "2026-05-03T02:30:00Z"
+status: pass
+runtime: "claude-code"
+tool_runtime: "claude-opus-4-7-1m"
+approval_policy: "on-request"
+network_mode: "off"
+files_changed:
+  - "specs/SPEC-0023-claude-collaboration-pairing.md"
+  - "plans/PLAN-0023-claude-collaboration-pairing.md"
+  - "tasks/TASK-0151-spec-plan-task-draft.md"
+  - "tasks/TASK-0152-claude-collaboration-brief-doc.md"
+  - "tasks/TASK-0153-claude-md-snippet-doctrine-update.md"
+  - "tasks/TASK-0154-governance-installer-version.md"
+  - "tasks/TASK-0155-paired-test-and-verification.md"
+  - "tasks/TASK-0156-fix-codex-test-branch-awareness.md"
+  - "docs/claude-collaboration-brief.md"
+  - "CLAUDE.md"
+  - "AGENTS.md"
+  - "templates/claude-md-snippet.md"
+  - "sage/governance.md"
+  - "scripts/generator/03-rules.sh"
+  - "scripts/generator/07-installer-main.sh"
+  - "templates/hooks/tests/test-claude-collaboration-pairing.sh"
+  - "templates/hooks/tests/test-codex-delegation-packet.sh"
+  - "install.sh"
+  - "SHA256SUMS"
+  - ".sage-version"
+  - ".sage/runs/RUN-0008.yaml"
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: |
+  Claude side paired implementation for SPEC-0023 (paired with SPEC-0022).
+  Implements review Major #2 fix from prior Codex SPEC-0022 review:
+  AGENTS.md / CLAUDE.md semantic alignment break is now formalized via
+  governance §10 paired-update doctrine, with a paired SPEC-0023 actually
+  filed as the first concrete example.
+
+  Codex-specific files (AGENTS.md beyond §2 doctrine sync, agents-md-snippet,
+  docs/codex-delegation-packet.md, docs/codex-security.md) were intentionally
+  not edited by hand. AGENTS.md L300+ SAGE-managed snippet section was
+  refreshed via 'bash install.sh --update' as a normal install consequence
+  (paired-update doctrine §10 acknowledges this propagation pattern).
+
+  RUN-ID assignment note: this RUN is RUN-0008 (corrected from initial
+  RUN-0007 collision). Codex SPEC-0022 follow-up RUN-0007 (task_id: TASK-0150,
+  runtime: codex-cli) is preserved untouched in main; RUN-0008 is the first
+  Claude-side RUN log. Per Codex review Blocker B1.
+
+  Verification summary (post-Codex-review fix):
+    - bash templates/hooks/tests/test-claude-collaboration-pairing.sh: pass (10/10 after Scenario 5 強化)
+    - bash templates/hooks/tests/test-codex-delegation-packet.sh: pass (6/6 with detached HEAD fallback)
+    - bash templates/hooks/tests/run-tests.sh: pass (190/190)
+    - bash scripts/generate-installer.sh > /tmp/new.sh && diff install.sh /tmp/new.sh: pass (byte-identical)
+    - shasum -a 256 -c SHA256SUMS: pass
+    - bash scripts/sage-validate.sh: pass (Check 9 WARN on legacy Gist mismatch on non-main as expected)
+    - bash scripts/sage-doctor.sh: pass after install.sh --update refresh
+    - bash scripts/sage-doc-drift.sh: pass
+    - bash scripts/sage-runlog-validate.sh .sage/runs/RUN-0008.yaml: pass
+    - shellcheck on changed shell files: pass
+
+  Note on runtime config: this RUN was executed with approval_policy=on-request
+  and network_mode=off (Claude Code recommended defaults per
+  docs/claude-collaboration-brief.md セキュリティ注意), contrasting with prior
+  Codex RUN-0006/0007 which used never/unrestricted. Different runtime
+  postures are documented for inventory baseline.

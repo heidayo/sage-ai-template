@@ -42,10 +42,10 @@ SPEC-0023 全成果物を検証する hook test を新規作成し、RUN log を
 8. **Scenario 8 (異常系 AC-16)**: CLAUDE.md doctrine 文言を mock で削除した state を simulate し、test scenario 5 が FAIL を返すことを確認 (in-memory mutation、git working tree 不変)
 9. **Scenario 9 (異常系 AC-17)**: docs/claude-collaboration-brief.md の必須セクション「## Codex Handoff Triggers」を mock で rename した state を simulate し、test scenario 1 が FAIL を返すことを確認
 
-### `.sage/runs/RUN-0007.yaml` (新規)
+### `.sage/runs/RUN-0008.yaml` (新規)
 
 SPEC-0023 implementation の RUN log:
-- run_id: RUN-0007
+- run_id: RUN-0008
 - task_id: TASK-0155
 - agent_id: implementation
 - runtime: claude-code
@@ -62,13 +62,13 @@ SPEC-0023 implementation の RUN log:
 - [ ] `bash scripts/sage-validate.sh` PASS (Check 9 MISMATCH WARN は許容、main 以外のため)
 - [ ] `bash scripts/sage-doctor.sh` 0 FAIL (after `bash install.sh --update`)
 - [ ] `bash scripts/sage-doc-drift.sh` PASS
-- [ ] `bash scripts/sage-runlog-validate.sh .sage/runs/RUN-0007.yaml` PASS
+- [ ] `bash scripts/sage-runlog-validate.sh .sage/runs/RUN-0008.yaml` PASS
 - [ ] `shellcheck templates/hooks/tests/test-claude-collaboration-pairing.sh` PASS
 
 ## File Scope（変更許可範囲）
 
 - 作成: `templates/hooks/tests/test-claude-collaboration-pairing.sh`
-- 作成: `.sage/runs/RUN-0007.yaml`
+- 作成: `.sage/runs/RUN-0008.yaml`
 
 ## 禁止事項
 
@@ -76,15 +76,15 @@ SPEC-0023 implementation の RUN log:
 - test を `set +e` で誤魔化さない (実際の exit code を確認)
 - 異常系 fixture (Scenario 8/9) で git working tree を mutate しない (in-memory 文字列操作のみ)
 - shellcheck error を残さない (R9)
-- RUN-0007.yaml に secret / credential / `.env` 例値を含めない
-- RUN-0007.yaml の `runtime` field を「unknown」「codex-cli」等に偽装しない (実態は claude-code、SPEC-0017 準拠)
+- RUN-0008.yaml に secret / credential / `.env` 例値を含めない
+- RUN-0008.yaml の `runtime` field を「unknown」「codex-cli」等に偽装しない (実態は claude-code、SPEC-0017 準拠)
 - 失敗した検証を RUN log で `pass` と記録しない
 
 ## 完了条件
 
 - [ ] `templates/hooks/tests/test-claude-collaboration-pairing.sh` 9/9 PASS (`bash templates/hooks/tests/test-claude-collaboration-pairing.sh; echo $?` で 0)
 - [ ] `bash templates/hooks/tests/run-tests.sh` 全 PASS (190+ scenarios)
-- [ ] `.sage/runs/RUN-0007.yaml` 存在し `bash scripts/sage-runlog-validate.sh` PASS
+- [ ] `.sage/runs/RUN-0008.yaml` 存在し `bash scripts/sage-runlog-validate.sh` PASS
 - [ ] `bash scripts/sage-doctor.sh` 0 FAIL (after install.sh --update)
 - [ ] `bash scripts/sage-doc-drift.sh` PASS
 - [ ] `bash scripts/sage-validate.sh` PASS
