@@ -253,7 +253,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Post Codex feedback as PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@<PIN_TO_SHA>  # v7.0.1 (write 権限 job では full-length SHA pin 推奨)
         env:
           CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}
         with:
