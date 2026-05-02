@@ -1,4 +1,4 @@
-# PLAN-0015: MCP allowlist audit + agent identity inventory — implementation plan
+# PLAN-0015: MCP allowlist audit (supply-chain pinned) — implementation plan
 
 ## メタデータ
 
@@ -6,113 +6,138 @@
 |-----------|------|
 | PLAN-ID   | PLAN-0015 |
 | SPEC-ID   | SPEC-0015 |
-| ステータス | Draft |
+| ステータス | Draft (Codex Specify-phase review 反映済) |
 | 作成日    | 2026-05-02 |
 | 担当Agent | Planning Agent |
 
 ## SPEC からの落とし込み方針
 
-SPEC-0015 の 6 機能要件 (FR-01..FR-06) を独立性が高い 5 TASK に分割する。各 TASK は単一責務を持ち、並列実行可能なものは並列マークを付ける。
+SPEC-0015 (Codex review 後 scope 縮小、agent identity は SPEC-0017 に分離) の 6 機能要件 (FR-01..FR-06) を独立性が高い 4 TASK に分割する。
 
-**設計上の判断**:
-- registry schema (TASK-0122) を **最初に確定** させ、以後の TASK が schema を前提に書ける状態を作る (依存基盤)
-- audit hook (TASK-0123) と inventory (TASK-0125) は schema 完成後 **並列開発可能**
-- doctor 拡張 (TASK-0124) は audit hook の logic を re-use する形にする (DRY)
-- documentation 更新 (TASK-0126) は **最後にまとめて** 行う (実装が確定してから書かないと drift する)
+**設計上の判断 (Codex review P1/P2 反映)**:
+- registry schema は **JSON 形式** (Python stdlib `json` で安定 parse、awk-based shape comparison 不採用)
+- registry に **supply-chain pin field** (sha256 / version_pin / publisher / source_registry) を必須化
+- audit hook の default 比較対象は **repo-local config** のみ、user-global `~/.codex/config.toml` は opt-in
+- audit log で **args を redact** (raw command line / API key 漏洩防止)
+- Performance test helper を追加して `time` 単発の flakiness を回避
 
 ## 影響レイヤー
 
 | レイヤー | 影響 |
 |---|---|
-| `templates/sage/` (新規) | registry / inventory の YAML template |
+| `templates/sage/` (新規) | registry の JSON template |
 | `templates/hooks/` | 新 hook 1 つ追加 (`mcp-allowlist-audit.sh`) |
-| `templates/hooks/tests/` | 新 test 1 つ追加 |
-| `scripts/` | `sage-doctor.sh` 拡張、`sage-validate.sh` (RUN log validator) 拡張 |
+| `templates/hooks/tests/` | 新 test 1 つ追加 + performance test helper 1 つ追加 |
+| `scripts/` | `sage-doctor.sh` 拡張 (`sage-validate.sh` の RUN log validator 拡張は SPEC-0017 へ移動) |
 | `.claude/settings.json` template | SessionStart hook に `mcp-allowlist-audit.sh` 追加 (standard profile) |
-| `install.sh` | 上記 templates の embed (生成された `install.sh` で配布) |
-| `SECURITY.md` / `sage/governance.md` / `AGENTS.md` / `CLAUDE.md` / `docs/codex-security.md` | 文書更新 (各最大 +3 行) |
+| `install.sh` | 上記 templates の embed |
+| 5 文書ファイル | doc cross-reference 追加 (各最大 +3 行) |
 
-## 影響スコープ (機能 / モジュール)
+## 影響スコープ
 
-- **MCP runtime side**: なし (SAGE doctrine §9.2 維持、本 SPEC は audit-only)
+- **MCP runtime side**: なし (SAGE doctrine §9.2 維持、本 SPEC は audit-only / runtime-process-safe)
 - **Hook side**: SessionStart hook に 1 つ追加。既存 7 hook と共存
 - **Doctor side**: 新 step 追加、既存 step に影響なし
-- **RUN log side**: validator が「inventory に declared か」を warn する path 追加。既存 RUN log データ構造は不変
+- **RUN log side**: 影響なし (SPEC-0017 で別途、本 SPEC スコープ外)
 
-## TASK 分割
+## TASK 分割 (4 TASK、SPEC-0017 分離後)
 
 | TASK | 責務 | FR/AC mapping | 依存 | 並列可 | 見積 |
 |---|---|---|---|---|---|
-| TASK-0122 | MCP allowlist registry schema + template (`templates/sage/mcp-allowlist-template.yaml`) | FR-01 / AC-01 | - | No (最初) | 30m |
-| TASK-0123 | MCP allowlist audit hook + tests (`templates/hooks/mcp-allowlist-audit.sh` + `tests/test-mcp-allowlist-audit.sh`) | FR-02 / AC-02, AC-03, NFR-01, NFR-02, NFR-03, NFR-05 | TASK-0122 | Yes (with TASK-0125) | 90m |
-| TASK-0124 | sage-doctor.sh に MCP allowlist check 追加 | FR-03 / AC-04, AC-10 | TASK-0123 (logic re-use) | No | 45m |
-| TASK-0125 | Agent identity inventory schema + template + RUN log validator 拡張 | FR-04, FR-05 / AC-05, AC-06 | TASK-0122 (schema 流儀) | Yes (with TASK-0123) | 60m |
-| TASK-0126 | Documentation 更新 (5 ファイル) + installer regeneration | FR-06 / AC-07, AC-09, AC-11 | TASK-0122..0125 | No (最後) | 45m |
+| TASK-0122 | MCP allowlist registry schema + JSON template (`templates/sage/mcp-allowlist-template.json`) | FR-01, FR-02 / AC-01 | - | No (foundation) | 30m |
+| TASK-0123 | MCP allowlist audit hook + tests + performance test helper | FR-03, FR-05 / AC-02, AC-03, AC-05, AC-07, AC-11, AC-12, AC-13, NFR-01..NFR-07 | TASK-0122 | No | 120m (旧 90m + perf helper + parser robustness 改善で +30m) |
+| TASK-0124 | sage-doctor.sh に MCP allowlist check 追加 + detection-only behavior test | FR-04 / AC-04, AC-09 | TASK-0123 (logic re-use) | No | 60m (旧 45m + behavior test で +15m) |
+| TASK-0126 | Documentation 更新 (5 ファイル) + installer regeneration | FR-06 / AC-06, AC-08, AC-10 | TASK-0122..0124 | No (最後) | 45m |
 
-合計見積: 270 min (4.5 h)
+合計見積: 255 min (4.25 h)
+**TASK-0125 (agent identity) は本 PLAN から削除済 → SPEC-0017 へ移動**
+
+## 依存グラフ
+
+```
+TASK-0122 (foundation, 30m)
+    │
+    ▼
+TASK-0123 (audit hook + perf helper, 120m)
+    │
+    ▼
+TASK-0124 (doctor + behavior test, 60m)
+    │
+    ▼
+TASK-0126 (doc + installer regen, 45m)
+```
+
+シリアル実行 (旧 PLAN の TASK-0123 || TASK-0125 並列は SPEC-0017 分離で消滅)。総 wall-clock 時間は短縮 (270m → 255m + 並列消滅で実質変化なし)。
 
 ## 検証方法
 
 | 検証 | 方法 |
 |---|---|
-| Unit test | `bash templates/hooks/tests/run-tests.sh` で 109 + 新規 ≥ 7 = 116+ 全 PASS |
+| Unit test | `bash templates/hooks/tests/run-tests.sh` で 109 + 13 シナリオ = 122+ 全 PASS |
 | Integration test | `bash scripts/sage-doctor.sh` で MCP allowlist check が新ステップとして OK 返す |
-| Performance | `time bash templates/hooks/mcp-allowlist-audit.sh < /tmp/empty.json` < 200ms (AC-12) |
-| Doctrine alignment | `bash scripts/sage-doc-drift.sh` PASS (CLAUDE/AGENTS 整合) |
+| Performance | `bash templates/hooks/tests/measure-hook-time.sh templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (機械判定) |
+| Detection-only behavior | `! grep -nE "\\b(kill\|pkill\|killall)\\b" templates/hooks/mcp-allowlist-audit.sh` で 0 件 (Codex review P2 反映) |
+| Doctrine alignment | `bash scripts/sage-doc-drift.sh` PASS |
 | Doc cross-ref | `grep -rn "SPEC-0015\|mcp-allowlist-audit" SECURITY.md sage/governance.md AGENTS.md CLAUDE.md docs/codex-security.md` で各 1+ 件 |
-| Regression | Phase 1-3 hook tests 109/109 不変 (新 hook は独立 ファイル) |
+| R7 increment check | `wc -l` で 5 文書ファイル各 +3 行以内 |
+| Regression | Phase 1-3 hook tests 109/109 不変 (新 hook は独立ファイル) |
+| JSON schema validity | `python3 -c "import json; json.load(open('templates/sage/mcp-allowlist-template.json'))"` |
 
 ## リスク
 
-1. **registry schema の field 過不足** — initial draft で多すぎる field を要求すると user 採用が遅れる。Mitigation: required field 6 個 + optional 3 個に抑える (SPEC FR-01)
-2. **audit hook の SessionStart 遅延** — 200ms threshold (NFR-01) を満たさないと UX 劣化。Mitigation: registry parsing に awk 使用 (yq 依存しない)、Codex config check は `~/.codex/config.toml` 存在 conditional
-3. **既存 protect-sage-files との二重 warn** — 同じ mcp_servers 追加で両 hook が warn 出すと noise。Mitigation: protect-sage-files は **書き込み block**、本 hook は **session-start audit** で発火 trigger が異なる、warn 文言を区別
-4. **install.sh 再生成のタイミング** — 各 TASK で install.sh を再生成するか TASK-0126 で一括か。Mitigation: TASK-0126 で一括 (commit ノイズ削減、TASK-0117 / 0119 の install.sh 巻き戻し問題を回避)
+1. **registry schema field 過不足** — supply-chain pin field を多数追加したため registry 記入負荷が上がる。Mitigation: `policy.require_sha256: false` default で sha256 は推奨止まり、必須化は org 判断
+2. **audit hook の SessionStart 遅延** — 200ms threshold (NFR-01) を満たさないと UX 劣化。Mitigation: Python parsing は `json.loads()` のみ (sha256 verification は optional + cache)
+3. **既存 protect-sage-files との二重 warn** — 同じ mcp_servers 追加で両 hook が warn 出すと noise。Mitigation: protect-sage-files は **書き込み block**、本 hook は **session-start audit + supply-chain pin check** で発火 trigger 異なる、warn 文言を区別
+4. **install.sh 再生成のタイミング** — 各 TASK で再生成するか TASK-0126 で一括か。Mitigation: TASK-0126 で一括 (Phase 3 の TASK-0117/0119 で経験した「install.sh 巻き戻し問題」回避)
+5. **Python 依存の追加** — Phase 1-3 では shell only だったが、本 SPEC で Python stdlib 依存追加。Mitigation: `command -v python3` 失敗時 graceful skip (NFR-03)、既に CI/macOS/Linux で標準環境
 
 ## Cross-model adversarial review 計画
 
-Phase 1-3 で確立した cross-model adversarial review pattern を本 SPEC でも厳密適用する。本 PLAN は Phase 3 で確立された **R1-R10 doctrine の継続適用**を宣言:
+Phase 1-3 で確立した cross-model adversarial review pattern を本 SPEC でも厳密適用。
 
 ### Phase 1-3 確立 doctrine の本 SPEC への適用
 
 | Doctrine | 本 SPEC での適用 |
 |---|---|
-| **R1** (no branch protection auto-config) | 本 SPEC で branch protection / Ruleset を触らない。`.sage/config.yaml` の profile gating のみで段階制御 |
-| **R2** (sandbox_mode template only, runtime change なし) | 本 SPEC は audit-only、MCP runtime / process 起動は SAGE 範囲外 (governance §9.2 維持) |
-| **R3** (Lethal Trifecta warn-only) | 本 SPEC の drift detection も warn-only ベース、strict profile のみ block (drift1)。R3 と完全整合 |
+| **R1** (no branch protection auto-config) | 本 SPEC で branch protection / Ruleset を触らない |
+| **R2** (sandbox_mode template only, runtime change なし) | 本 SPEC は audit-only、MCP runtime / process 起動は SAGE 範囲外 (governance §9.2 維持)。`audit-first` / `runtime-process-safe` 用語で精緻化 (Codex review continued doctrine 反映) |
+| **R3** (Lethal Trifecta warn-only) | 本 SPEC の drift detection も warn-only ベース、strict profile のみ block (drift1 / drift5)。R3 と同方向 |
 | **R4** (no SecPass thresholds) | 本 SPEC で「100% drift 0 必須」のような硬い閾値を設定しない。OPS-05 の昇格条件は運用 doctrine、強制ではない |
-| **R5** (RUN log redaction first) | 本 SPEC の audit log (`mcp-allowlist-*.log`) は drift event 集計用、secret は記録しない (registry の command/args のみ、API key は含まない設計) |
-| **R6** (license vs security 分離) | 本 SPEC は security 専念、license 関連は触らない |
-| **R7** (CLAUDE/AGENTS 肥大化禁止) | TASK-0126 で AGENTS / CLAUDE 各 +1 行のみ、長文 guidance は SPEC 自体と docs/codex-security.md (§2 末尾 1 行追加) に集約 |
-| **R8** (hook tests required) | TASK-0123 で 7+ test case 必須、TASK-0125 で validator test 追加。test 抜きの hook 追加禁止 |
-| **R9** (shellcheck required) | TASK-0123 で `mcp-allowlist-audit.sh` に対し shellcheck error 0 件必須 |
-| **R10** (一次ソース引用) | 本 SPEC の主張は SAGE governance §9.2 / Phase 1-3 SPEC / Codex 公式 docs に紐付け済。新 claim 追加時は WebFetch で primary source 確認義務 |
+| **R5** (RUN log redaction first) | 本 SPEC の audit log は drift event 集計用、args は **redact** (Codex review P2 反映)、secret 漏洩防止 |
+| **R6** (license vs security 分離) | 本 SPEC は security 専念 |
+| **R7** (CLAUDE/AGENTS 肥大化禁止) | TASK-0126 で AGENTS / CLAUDE 各 +1 行のみ、長文は SPEC + docs/codex-security.md (§2 末尾 1 行) に集約 |
+| **R8** (hook tests required) | TASK-0123 で 13 シナリオ test 必須、test 抜きの hook 追加禁止 |
+| **R9** (shellcheck required) | TASK-0123 で `mcp-allowlist-audit.sh` に shellcheck error 0 件必須 |
+| **R10** (一次ソース引用) | OWASP Agentic Skills Top 10 / OpenAI Codex config reference / SAGE governance §9.2 を一次ソースとして引用 |
 
 ### Review プロセス
 
-1. **Specify phase** (本 PR #21): SPEC + PLAN + 5 TASK draft → sage-evaluate (本作業中) で 100 点 PASS 確認 → user 承認
-2. **Implementation phase** (PR #22-#23 想定): TASK-0122 → 0123 + 0125 (並列) → 0124 → 0126 の順で実装。複数 TASK を 1 PR にまとめるか分割するかは実装着手時に判断
-3. **Codex 1st-round review**: 実装 PR 完了後、Phase 3 と同じ format で Codex に依頼
-4. **Multi-round 収束**: 指摘が多 / 重要度高い場合、Phase 3 の 6 round パターン (4→2→2→1→1→0) と同様に収束まで micro-round を繰り返す
-5. **CONVERGED 判定**: 0 件 + R7/R10 doctrine 維持確認 → main merge
+1. **Specify phase** (本 PR #21): SPEC + PLAN + 4 TASK draft → sage-evaluate 100 点 → **Codex Specify-phase review** (本回で実施済、6 finding 全反映) → user 承認
+2. **Implementation phase** (PR #22+ 想定): TASK-0122 → 0123 → 0124 → 0126 の順で実装
+3. **Codex implementation review**: 実装 PR 完了後、Phase 3 と同 format で Codex に依頼
+4. **Multi-round 収束**: 必要に応じて micro-round を繰り返す
+5. **CONVERGED 判定**: 下記 exit criteria 達成 → main merge
 
-### 期待される収束軌跡
+### Exit criteria (収束件数予測ではなく明示判定基準、Codex review P3 反映)
 
-Phase 3 (docs only) で 6 round / 10 finding だったのに対し、本 SPEC は code 変更 (hook + validator) を含むため:
-- 1st-round で finding 数: 5-8 件想定 (P1×1-2 + P2×3-4 + P3×残り)
-- 収束まで: 4-6 round 想定 (Phase 3 と同等程度)
-- 主な review 観点: hook idempotency / atomic write / portability / profile gating の正確性 / R10 一次ソース整合
+実装 PR の Codex review が収束したと判定する基準:
+
+- [ ] **P1 (critical) 0 件**
+- [ ] **P2 (should fix) 0 件**
+- [ ] **P3 (nit) は明示 accept** — 各 P3 finding に対し「accept (理由)」または「fix」の判断を PR コメントで明記
+- [ ] **R7 regression なし** — `wc -l SECURITY.md sage/governance.md AGENTS.md CLAUDE.md docs/codex-security.md` で 5 文書の合計増分 ≤ +15 行
+- [ ] **R10 regression なし** — 全 claim に primary source URL 紐付き、二次ソース推測なし
 
 ### 失敗時のエスカレーション
 
-5 round 経過しても新 P2 以上の finding が出続ける場合、SPEC 設計に根本的な問題がある signal。その場合は:
+5 round 経過しても新 P2 以上の finding が出続ける場合:
 1. SPEC を draft に戻し、Spec Agent で再設計
 2. `sage/failures.md` に「FAIL-SPEC-0015-DESIGN-ITERATION」として記録
-3. user に方針相談 (本 SPEC の scope 縮小 / 別 SPEC への分割等)
+3. user に方針相談 (本 SPEC の scope 更なる縮小 / 別 SPEC への分割等)
 
 ## 完了条件 (Plan レベル)
 
 - [ ] SPEC-0015 の AC-01..AC-13 全件達成
-- [ ] 5 TASK 全 commit に TASK-ID 含有、Phase 1-3 と同 pattern
-- [ ] PR description に SPEC-0015 / PLAN-0015 / TASK-0122..0126 全 link
-- [ ] Codex 1st-round review 完了 (収束は本 PLAN スコープ外、別ラウンド)
+- [ ] 4 TASK 全 commit に TASK-ID 含有、Phase 1-3 と同 pattern
+- [ ] PR description に SPEC-0015 / PLAN-0015 / TASK-0122/0123/0124/0126 全 link
+- [ ] Codex implementation review が exit criteria 全 ✅ で収束
