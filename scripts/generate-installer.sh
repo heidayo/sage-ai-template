@@ -146,6 +146,21 @@ embed_file "TMPL_HOOK_SECRET_READ" "$ROOT/templates/hooks/secret-read-multi-laye
 echo ""
 embed_file "TMPL_HOOK_SECURITY_FILTER" "$ROOT/templates/hooks/security-filter.sh"
 echo ""
+# Phase 5 (SPEC-0015) MCP allowlist audit hook + registry template + perf helper
+embed_file "TMPL_HOOK_MCP_ALLOWLIST_AUDIT" "$ROOT/templates/hooks/mcp-allowlist-audit.sh"
+echo ""
+embed_file "TMPL_SAGE_MCP_ALLOWLIST_TEMPLATE" "$ROOT/templates/sage/mcp-allowlist-template.json"
+echo ""
+embed_file "TMPL_SAGE_README" "$ROOT/templates/sage/README.md"
+echo ""
+embed_file "TMPL_TEST_MCP_ALLOWLIST" "$ROOT/templates/hooks/tests/test-mcp-allowlist-audit.sh"
+echo ""
+embed_file "TMPL_TEST_DETECTION_ONLY" "$ROOT/templates/hooks/tests/test-detection-only-behavior.sh"
+echo ""
+embed_file "TMPL_MEASURE_HOOK_TIME" "$ROOT/templates/hooks/tests/measure-hook-time.py"
+echo ""
+embed_file "TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT" "$ROOT/scripts/sage-mcp-allowlist-audit.sh"
+echo ""
 # Phase 2B (SPEC-0012) settings template (Claude Code sandbox doctrine)
 embed_file "TMPL_SETTINGS_SANDBOX" "$ROOT/templates/settings/sandbox.json"
 echo ""
@@ -686,6 +701,15 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/hooks/lethal-trifecta-detect.sh" "$TMPL_HOOK_LETHAL_TRIFECTA" && chmod +x "templates/hooks/lethal-trifecta-detect.sh"
   write_file_if_new "templates/hooks/secret-read-multi-layer.sh" "$TMPL_HOOK_SECRET_READ" && chmod +x "templates/hooks/secret-read-multi-layer.sh"
   write_file_if_new "templates/hooks/security-filter.sh" "$TMPL_HOOK_SECURITY_FILTER" && chmod +x "templates/hooks/security-filter.sh"
+  write_file_if_new "templates/hooks/mcp-allowlist-audit.sh" "$TMPL_HOOK_MCP_ALLOWLIST_AUDIT" && chmod +x "templates/hooks/mcp-allowlist-audit.sh"
+  mkdir -p templates/sage
+  write_file_if_new "templates/sage/mcp-allowlist-template.json" "$TMPL_SAGE_MCP_ALLOWLIST_TEMPLATE"
+  write_file_if_new "templates/sage/README.md" "$TMPL_SAGE_README"
+  mkdir -p templates/hooks/tests
+  write_file_if_new "templates/hooks/tests/test-mcp-allowlist-audit.sh" "$TMPL_TEST_MCP_ALLOWLIST" && chmod +x "templates/hooks/tests/test-mcp-allowlist-audit.sh"
+  write_file_if_new "templates/hooks/tests/test-detection-only-behavior.sh" "$TMPL_TEST_DETECTION_ONLY" && chmod +x "templates/hooks/tests/test-detection-only-behavior.sh"
+  write_file_if_new "templates/hooks/tests/measure-hook-time.py" "$TMPL_MEASURE_HOOK_TIME" && chmod +x "templates/hooks/tests/measure-hook-time.py"
+  write_file_if_new "scripts/sage-mcp-allowlist-audit.sh" "$TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT" && chmod +x "scripts/sage-mcp-allowlist-audit.sh"
   write_file_if_new "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   write_file_if_new "templates/settings/README.md" "$TMPL_SETTINGS_README"
 else
@@ -697,6 +721,15 @@ else
   update_file "templates/hooks/lethal-trifecta-detect.sh" "$TMPL_HOOK_LETHAL_TRIFECTA" && chmod +x "templates/hooks/lethal-trifecta-detect.sh"
   update_file "templates/hooks/secret-read-multi-layer.sh" "$TMPL_HOOK_SECRET_READ" && chmod +x "templates/hooks/secret-read-multi-layer.sh"
   update_file "templates/hooks/security-filter.sh" "$TMPL_HOOK_SECURITY_FILTER" && chmod +x "templates/hooks/security-filter.sh"
+  update_file "templates/hooks/mcp-allowlist-audit.sh" "$TMPL_HOOK_MCP_ALLOWLIST_AUDIT" && chmod +x "templates/hooks/mcp-allowlist-audit.sh"
+  mkdir -p templates/sage
+  update_file "templates/sage/mcp-allowlist-template.json" "$TMPL_SAGE_MCP_ALLOWLIST_TEMPLATE"
+  update_file "templates/sage/README.md" "$TMPL_SAGE_README"
+  mkdir -p templates/hooks/tests
+  update_file "templates/hooks/tests/test-mcp-allowlist-audit.sh" "$TMPL_TEST_MCP_ALLOWLIST" && chmod +x "templates/hooks/tests/test-mcp-allowlist-audit.sh"
+  update_file "templates/hooks/tests/test-detection-only-behavior.sh" "$TMPL_TEST_DETECTION_ONLY" && chmod +x "templates/hooks/tests/test-detection-only-behavior.sh"
+  update_file "templates/hooks/tests/measure-hook-time.py" "$TMPL_MEASURE_HOOK_TIME" && chmod +x "templates/hooks/tests/measure-hook-time.py"
+  update_file "scripts/sage-mcp-allowlist-audit.sh" "$TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT" && chmod +x "scripts/sage-mcp-allowlist-audit.sh"
   update_file "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   update_file "templates/settings/README.md" "$TMPL_SETTINGS_README"
 fi

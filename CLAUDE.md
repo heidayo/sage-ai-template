@@ -225,6 +225,9 @@ Runtime protection via `.claude/settings.json` hooks:
 | check-file-scope | TASK File Scope outside edits | standard(warn) / strict(block) |
 | session-start | (info) RUN logs, active TASKs, failures summary | minimal+ |
 | session-stop | (record) session metrics to .sage/metrics/ | minimal+ |
+| mcp-allowlist-audit | drift / supply-chain pin / OAuth callback (Phase 5, audit-only) | standard+ |
+
+MCP allowlist audit (supply-chain pinned, audit-only): SAGE が提供、詳細は [SPEC-0015](specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md) と [docs/codex-security.md](docs/codex-security.md) §2 末尾。
 
 Profile in `.sage/config.yaml` `hooks.profile`: minimal → standard → strict → none.
 Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`

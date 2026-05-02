@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="1.1.0"
+SAGE_VERSION="1.2.0"
 
 # === Embedded templates ===
 
@@ -680,7 +680,7 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | Lane 設計 | vibe / lite / standard / promotion の 4 Lane と昇格プロトコル (`scripts/sage-promote.sh`) |
 | File Scope | TASK ごとの変更可能ファイル明示と pre-commit hook |
 | Anti-pattern 学習 | `sage/anti-patterns.md`, `sage/failures.md` の蓄積枠組み |
-| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, Stop hook で全 RUN-*.yaml を per-file atomic redact)**) — pattern matching による補助ガード |
+| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, Stop hook で全 RUN-*.yaml を per-file atomic redact)** / **mcp-allowlist-audit (Phase 5, SessionStart audit-only with supply-chain pin)**) — pattern matching による補助ガード |
 | Settings template | `templates/settings/sandbox.json` + README (Phase 2B, **雛形のみ — 適用は user 責任**) — Claude Code sandbox / permission 推奨設定 |
 | AI agent 向け instruction | CLAUDE.md / AGENTS.md / `.claude/rules/` のテンプレート |
 | Skill / governance / traceability | `templates/skills/sage-*/`, 本ドキュメント, `sage/traceability.md` |
@@ -694,7 +694,7 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 |-----|-----------------|
 | **Claude Code / Codex 本体の runtime sandbox 強制** | filesystem isolation / network allowlist は Claude/Codex 側設定で実現する。SAGE は `templates/settings/` で雛形を示すのみ |
 | **Codex セッションでの hook 実行** | `templates/hooks/` は Claude Code の PreToolUse/PostToolUse 機構専用。**Codex セッションでは hook は直接動作しない** — Codex sandbox 設定 (`sandbox_mode` / `approval_policy` / `internet_access`) で同等防御を別途構築する。詳細は [AGENTS.md §2.1 Codex specificity](../AGENTS.md) |
-| **MCP server の実行時許可制御** | MCP runtime は Claude Code / Codex 本体の機能。SAGE は MCP allowlist テンプレート (Phase 5 予定) を示すが、強制は本体に依存 |
+| **MCP server の実行時許可制御** | runtime での起動 block は Claude/Codex 本体機能。**audit / drift / supply-chain pin (sha256 / version_pin / publisher) 検出は [SPEC-0015](../specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md) で提供** (audit-only) |
 | **GitHub branch protection の自動セットアップ** | GitHub token を要求して installer 権限が肥大化するため、opt-in script として別途提供予定 (SPEC-0012) |
 | **Production credential / secret の保管** | Vault / 1Password / GitHub Encrypted Secrets / cloud KMS で別途構築 |
 | **AI モデル自体の脆弱性検出・修正** | deterministic security scanner (gitleaks / trivy / semgrep / npm audit 等) と組み合わせる前提。SAGE 単独で safety を保証しない |
@@ -5900,6 +5900,1211 @@ exit 0
 
 __EOF_TMPL_HOOK_SECURITY_FILTER__
 
+read -r -d '' TMPL_HOOK_MCP_ALLOWLIST_AUDIT <<'__EOF_TMPL_HOOK_MCP_ALLOWLIST_AUDIT__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0123: mcp-allowlist-audit.sh (SPEC-0015)
+# Purpose:  SessionStart hook — audit .mcp.json (Claude Code) and
+#           repo-local .codex/config.toml (Codex CLI) against
+#           .sage/mcp-allowlist.json registry.
+# Profile:  none/minimal -> skip; standard -> warn; strict -> block on
+#           strict-block enum (drift1/5/6 anonymous/8/transport_mismatch).
+# Behavior: detection-only (audit-first / runtime-process-safe).
+#           NEVER kills processes — strict exit 1 = SessionStart block.
+# Schema:   .sage/audit/mcp-allowlist-YYYYMMDD.log (JSON-lines, NFR-04)
+# =============================================================================
+set -uo pipefail
+
+# --- Profile gating ---
+PROFILE="standard"
+if [ -f ".sage/config.yaml" ]; then
+  PROFILE=$(grep -A1 'hooks:' .sage/config.yaml 2>/dev/null | grep 'profile:' | awk '{print $2}' | tr -d '"' || echo "standard")
+  [ -z "$PROFILE" ] && PROFILE="standard"
+fi
+
+if [ "$PROFILE" = "minimal" ] || [ "$PROFILE" = "none" ]; then
+  exit 0
+fi
+
+# --- Read SessionStart stdin (best-effort, hook does not depend on input) ---
+if read -r -t 1 _ 2>/dev/null; then :; fi
+
+# --- Read user-global Codex opt-in (default off, SEC-06) ---
+INCLUDE_USER_GLOBAL=false
+if [ -f ".sage/config.yaml" ]; then
+  if grep -qE '^[[:space:]]*include_user_global_codex:[[:space:]]*true' .sage/config.yaml 2>/dev/null; then
+    INCLUDE_USER_GLOBAL=true
+  fi
+fi
+
+REGISTRY_PATH=".sage/mcp-allowlist.json"
+AUDIT_DIR=".sage/audit"
+TODAY="$(date -u +%Y%m%d)"
+AUDIT_LOG="${AUDIT_DIR}/mcp-allowlist-${TODAY}.log"
+BYPASS_LOG="${AUDIT_DIR}/mcp-allowlist-bypass.log"
+
+# --- Graceful degradation: registry absent ---
+if [ ! -f "$REGISTRY_PATH" ]; then
+  echo "WARN: .sage/mcp-allowlist.json not found. Initial setup recommended (SPEC-0015). Skipping MCP allowlist audit." >&2
+  exit 0
+fi
+
+# --- Graceful degradation: Python unavailable ---
+if ! command -v python3 &>/dev/null; then
+  echo "WARN: python3 not available. Skipping MCP allowlist audit." >&2
+  exit 0
+fi
+
+mkdir -p "$AUDIT_DIR"
+
+# --- Delegate to Python: parse registry + actual config + emit drift events ---
+EXIT_CODE_FILE="$(mktemp)"
+trap 'rm -f "$EXIT_CODE_FILE"' EXIT
+
+python3 - "$REGISTRY_PATH" "$AUDIT_LOG" "$BYPASS_LOG" "$PROFILE" "$INCLUDE_USER_GLOBAL" "$EXIT_CODE_FILE" <<'PYEOF'
+import json
+import os
+import sys
+import datetime
+import pathlib
+
+registry_path, audit_log, bypass_log, profile, include_user_global, exit_code_file = sys.argv[1:7]
+include_user_global = include_user_global == "true"
+
+# --- Strict-block enum set (SPEC FR-03 + Codex 4th/7th review) ---
+STRICT_BLOCK = {
+    "drift1_stdio_unknown_server",
+    "drift1_http_unknown_server",
+    "drift5_npm_integrity_mismatch",
+    "drift5_command_path_sha256_mismatch",
+    "drift5_tls_pin_sha256_mismatch",
+    "drift6_anonymous",
+    "drift8_oauth_callback_mismatch",
+    "transport_mismatch",
+}
+
+# --- Sensitive header canonical list (RFC 9110 §5.1, lowercase normalized) ---
+SENSITIVE_HEADERS = {
+    "authorization", "cookie", "set-cookie", "proxy-authorization",
+    "x-api-key", "x-auth-token", "x-token",
+}
+
+def emit(severity, drift_type, runtime, scope="server", server_name=None, **details_extra):
+    """Write JSON-line to audit log per NFR-04 schema."""
+    record = {
+        "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "runtime": runtime,
+        "drift_type": drift_type,
+        "severity": severity,
+        "details": {"scope": scope, "server_name": server_name, **details_extra},
+    }
+    with open(audit_log, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+def warn_msg(msg):
+    print(f"WARN: {msg}", file=sys.stderr)
+
+# --- Load registry (with secret-hygiene check) ---
+try:
+    with open(registry_path) as f:
+        registry = json.load(f)
+except json.JSONDecodeError as e:
+    warn_msg(f"registry parse failed: {e}; SPEC-0015 EC-01 — see .sage/mcp-allowlist.json")
+    pathlib.Path(exit_code_file).write_text("0")
+    sys.exit(0)
+
+policy = registry.get("policy", {})
+servers = registry.get("servers", [])
+oauth_callback = registry.get("oauth_callback", {})
+bypass = registry.get("bypass", {})
+
+# --- Bypass: skip all drift, but record bypass event (SEC-04) ---
+if bypass.get("enabled") is True:
+    with open(bypass_log, "a") as f:
+        f.write(json.dumps({
+            "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "reason": bypass.get("reason", ""),
+            "expires_at": bypass.get("expires_at", ""),
+        }) + "\n")
+    pathlib.Path(exit_code_file).write_text("0")
+    sys.exit(0)
+
+# --- Registry parse-stage: drift7 sensitive header check (SEC-07, FAIL) ---
+if policy.get("http_static_header_secret_check", True):
+    for srv in servers:
+        if srv.get("transport") != "http":
+            continue
+        headers = srv.get("http_headers", {})
+        for hkey in headers.keys():
+            if hkey.lower() in SENSITIVE_HEADERS:
+                emit(
+                    "fail", "drift7_sensitive_header", "registry-parse",
+                    server_name=srv.get("name"), header_name=hkey.lower(),
+                )
+                warn_msg(
+                    f"FAIL: registry server '{srv.get('name')}' has sensitive static header "
+                    f"'{hkey}'. Move to env_http_headers / bearer_token_env_var. (SEC-07 / drift7)"
+                )
+
+# --- Build registry index (name -> server_dict) ---
+reg_by_name = {srv["name"]: srv for srv in servers if "name" in srv}
+forbid_latest = policy.get("forbid_latest_tag", True)
+require_npm_integrity = policy.get("require_npm_integrity", False)
+http_require_auth = policy.get("http_require_auth", True)
+http_require_origin_pin = policy.get("http_require_url_origin_pin", True)
+oauth_require_match = policy.get("oauth_callback_require_match", True)
+
+# --- Load actual configs ---
+def load_mcp_json(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return None
+
+def load_codex_toml(path):
+    """Minimal TOML reader for [mcp_servers.<name>] sections (no external deps)."""
+    if not os.path.exists(path):
+        return None
+    servers_out = {}
+    top_level = {}
+    current = None
+    try:
+        with open(path) as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("[mcp_servers."):
+                    name = line.split("[mcp_servers.")[1].rstrip("]").strip()
+                    current = name
+                    servers_out.setdefault(current, {})
+                elif line.startswith("[") and not line.startswith("[mcp_servers"):
+                    current = None
+                elif "=" in line:
+                    k, _, v = line.partition("=")
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if current is None:
+                        # Top-level (e.g. mcp_oauth_callback_port)
+                        top_level[k] = v
+                    else:
+                        servers_out[current][k] = v
+    except OSError:
+        return None
+    return {"servers": servers_out, "top_level": top_level}
+
+mcp_json = load_mcp_json(".mcp.json")
+codex_repo = load_codex_toml(".codex/config.toml")
+codex_user = load_codex_toml(os.path.expanduser("~/.codex/config.toml")) if include_user_global else None
+
+# --- Build "actual" server map (from runtime configs) ---
+actual_servers = {}  # name -> {"transport": "stdio"|"http", "raw": {...}, "runtime": "..."}
+
+if mcp_json and "mcpServers" in mcp_json:
+    for name, conf in mcp_json["mcpServers"].items():
+        # Heuristic: presence of "url" => HTTP, else STDIO
+        transport = "http" if "url" in conf else "stdio"
+        actual_servers[name] = {"transport": transport, "raw": conf, "runtime": "claude-code"}
+
+for runtime_label, codex_data in (("codex-cli-repo-local", codex_repo), ("codex-cli-user-global", codex_user)):
+    if not codex_data:
+        continue
+    for name, conf in codex_data.get("servers", {}).items():
+        if name in actual_servers:
+            continue  # First-write-wins to avoid duplicates between runtimes
+        transport = "http" if "url" in conf else "stdio"
+        actual_servers[name] = {"transport": transport, "raw": conf, "runtime": runtime_label}
+
+# --- Drift detection ---
+fail_count = 0  # drift7 (FAIL)
+strict_block_count = 0
+
+for name, actual in actual_servers.items():
+    runtime = actual["runtime"]
+    raw = actual["raw"]
+    transport = actual["transport"]
+
+    if name not in reg_by_name:
+        # drift1 — unknown server
+        if transport == "stdio":
+            emit("warn", "drift1_stdio_unknown_server", runtime,
+                 server_name=name, actual_command=raw.get("command", ""))
+            warn_msg(f"drift1: unknown stdio server '{name}' (not in allowlist).")
+            strict_block_count += 1
+        else:
+            emit("warn", "drift1_http_unknown_server", runtime,
+                 server_name=name, actual_url=raw.get("url", ""))
+            warn_msg(f"drift1: unknown http server '{name}' (not in allowlist).")
+            strict_block_count += 1
+        continue
+
+    reg_srv = reg_by_name[name]
+    reg_transport = reg_srv.get("transport", "stdio")
+
+    if reg_transport != transport:
+        # transport mismatch (independent enum, Codex 7th review)
+        emit("warn", "transport_mismatch", runtime,
+             server_name=name,
+             expected_transport=reg_transport,
+             actual_transport=transport)
+        warn_msg(f"transport_mismatch: '{name}' expected {reg_transport}, got {transport}.")
+        strict_block_count += 1
+        continue
+
+    if transport == "stdio":
+        # drift2: args version mismatch
+        reg_args = reg_srv.get("args", [])
+        actual_args = raw.get("args", [])
+        if reg_args != actual_args:
+            emit("warn", "drift2_stdio_args_mismatch", runtime,
+                 server_name=name,
+                 expected_args=reg_args, actual_args=actual_args)
+            warn_msg(f"drift2: '{name}' args mismatch (registry vs actual).")
+        # drift4: @latest tag check
+        if forbid_latest:
+            for arg in actual_args:
+                if "@latest" in str(arg):
+                    emit("warn", "drift4_stdio_latest_tag", runtime,
+                         server_name=name, actual_command=raw.get("command", ""))
+                    warn_msg(f"drift4: '{name}' uses @latest (forbidden by policy).")
+                    break
+        # drift5: artifact integrity (npm_package only, optional check)
+        if require_npm_integrity and reg_srv.get("artifact_type") == "npm_package":
+            if not reg_srv.get("npm_integrity"):
+                emit("warn", "drift5_npm_integrity_mismatch", runtime,
+                     server_name=name,
+                     expected_integrity="(missing in registry)",
+                     actual_integrity="(not checked)")
+                warn_msg(f"drift5: '{name}' npm_integrity required but missing in registry.")
+                strict_block_count += 1
+    else:  # http
+        # drift2 http: url_origin mismatch
+        reg_origin = reg_srv.get("url_origin_pin", "")
+        actual_url = raw.get("url", "")
+        if reg_origin and not actual_url.startswith(reg_origin):
+            emit("warn", "drift2_http_url_origin_mismatch", runtime,
+                 server_name=name, expected_url=reg_origin, actual_url=actual_url)
+            warn_msg(f"drift2 http: '{name}' url_origin mismatch.")
+        # drift6: anonymous auth
+        reg_auth_mode = reg_srv.get("auth_mode", "none")
+        if http_require_auth and reg_auth_mode == "none":
+            emit("warn", "drift6_anonymous", runtime,
+                 server_name=name, actual_auth_mode=reg_auth_mode)
+            warn_msg(f"drift6: '{name}' anonymous (auth_mode: none) — strict will block.")
+            strict_block_count += 1
+        elif reg_auth_mode == "oauth":
+            emit("info", "drift6_oauth_approve", runtime,
+                 server_name=name, actual_auth_mode=reg_auth_mode)
+        elif reg_auth_mode == "bearer_env":
+            emit("info", "drift6_bearer_approve", runtime,
+                 server_name=name, actual_auth_mode=reg_auth_mode)
+
+# --- drift3: registry has server not in any actual config ---
+for name, reg_srv in reg_by_name.items():
+    if name not in actual_servers:
+        emit("info", "drift3_stdio_registry_only", "registry-parse",
+             server_name=name)
+
+# --- drift8: OAuth callback mismatch (top-level) ---
+if oauth_require_match and oauth_callback:
+    reg_port = str(oauth_callback.get("mcp_oauth_callback_port", ""))
+    reg_url = oauth_callback.get("mcp_oauth_callback_url", "")
+    for runtime_label, codex_data in (("codex-cli-repo-local", codex_repo), ("codex-cli-user-global", codex_user)):
+        if not codex_data:
+            continue
+        actual_port = codex_data["top_level"].get("mcp_oauth_callback_port", "")
+        actual_url = codex_data["top_level"].get("mcp_oauth_callback_url", "")
+        if reg_port and actual_port and reg_port != actual_port:
+            emit("warn", "drift8_oauth_callback_mismatch", runtime_label,
+                 scope="top_level", server_name=None,
+                 expected_port=reg_port, actual_port=actual_port,
+                 expected_url=reg_url, actual_url=actual_url)
+            warn_msg(f"drift8: OAuth callback port mismatch (registry={reg_port} vs actual={actual_port}).")
+            strict_block_count += 1
+        elif reg_url and actual_url and reg_url != actual_url:
+            emit("warn", "drift8_oauth_callback_mismatch", runtime_label,
+                 scope="top_level", server_name=None,
+                 expected_port=reg_port, actual_port=actual_port,
+                 expected_url=reg_url, actual_url=actual_url)
+            warn_msg(f"drift8: OAuth callback url mismatch.")
+            strict_block_count += 1
+
+# --- expired approvals ---
+today = datetime.date.today().isoformat()
+for srv in servers:
+    expires_at = srv.get("expires_at", "")
+    if expires_at and expires_at < today:
+        emit("warn", "expired_approval", "registry-parse",
+             server_name=srv.get("name"), expires_at=expires_at)
+        warn_msg(f"expired: '{srv.get('name')}' approval expired ({expires_at}).")
+
+# --- Strict profile: block (exit 1) on any strict-block drift OR drift7 FAIL ---
+fail_count_total = 0
+# Re-scan today's audit log for fail severity (drift7 emits fail above)
+if os.path.exists(audit_log):
+    with open(audit_log) as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+                # Only count today's fails (this run's emissions)
+                if rec.get("severity") == "fail" and rec.get("timestamp", "").startswith(datetime.datetime.utcnow().strftime("%Y-%m-%d")):
+                    fail_count_total += 1
+            except json.JSONDecodeError:
+                pass
+
+if profile == "strict" and (strict_block_count > 0 or fail_count_total > 0):
+    pathlib.Path(exit_code_file).write_text("1")
+else:
+    pathlib.Path(exit_code_file).write_text("0")
+
+sys.exit(0)
+PYEOF
+
+EXIT_CODE="$(cat "$EXIT_CODE_FILE" 2>/dev/null || echo 0)"
+exit "$EXIT_CODE"
+
+__EOF_TMPL_HOOK_MCP_ALLOWLIST_AUDIT__
+
+read -r -d '' TMPL_SAGE_MCP_ALLOWLIST_TEMPLATE <<'__EOF_TMPL_SAGE_MCP_ALLOWLIST_TEMPLATE__' || true
+{
+  "_comment_purpose": "SAGE MCP allowlist registry — declarative positive list of approved MCP servers. Audit hook (templates/hooks/mcp-allowlist-audit.sh) compares actual .mcp.json + repo-local .codex/config.toml against this registry on SessionStart. See SPEC-0015 for the full schema.",
+  "_comment_doctrine": "Positive list 原則: registry に明示列挙された server のみが承認済。新 server 追加は SPEC-ID または PR URL を approved_by に記録 (audit trail)。@latest は default で禁止 (policy.forbid_latest_tag: true)。HTTP MCP は anonymous 禁止 (policy.http_require_auth: true、auth_mode は bearer_env / oauth どちらか必須)。http_headers に Authorization / Cookie / X-Api-Key 等の機密 header 静的値 禁止 — 機密値は env_http_headers (env 名参照) または bearer_token_env_var で扱う。",
+
+  "version": "1.0",
+
+  "servers": [
+    {
+      "_comment": "Example 1: STDIO transport, npm_package artifact (browser automation MCP)",
+      "name": "playwright",
+      "transport": "stdio",
+      "artifact_type": "npm_package",
+      "command": "npx",
+      "args": ["@anthropic-ai/mcp-playwright@1.42.0"],
+      "version_pin": "1.42.0",
+      "npm_integrity": "sha512-PLACEHOLDER-COMPUTE-WITH-NPM-VIEW-OR-PACKAGE-LOCK",
+      "publisher": "anthropic",
+      "source_registry": "https://registry.npmjs.org",
+      "enabled_tools": ["browse", "screenshot"],
+      "approved_by": "SPEC-0015 / PR #21",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02",
+      "notes": "Browser automation MCP (STDIO + npm_package)."
+    },
+    {
+      "_comment": "Example 2: STDIO transport, local_binary artifact (filesystem MCP)",
+      "name": "filesystem-local",
+      "transport": "stdio",
+      "artifact_type": "local_binary",
+      "command": "/usr/local/bin/mcp-filesystem",
+      "args": ["--root", "/workspace"],
+      "version_pin": "0.5.1",
+      "command_path_sha256": "PLACEHOLDER-COMPUTE-WITH-shasum-a-256",
+      "publisher": "modelcontextprotocol",
+      "source_registry": "https://github.com/modelcontextprotocol/servers",
+      "enabled_tools": ["read_file", "list_directory"],
+      "approved_by": "SPEC-0015 / PR #21",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02",
+      "notes": "Filesystem MCP (STDIO + local_binary, command_path_sha256 で binary integrity 検証)."
+    },
+    {
+      "_comment": "Example 3: HTTP transport with bearer_env auth (company-internal search MCP)",
+      "name": "company-search",
+      "transport": "http",
+      "artifact_type": "remote_http",
+      "url": "https://mcp.example.com/v1",
+      "url_origin_pin": "https://mcp.example.com",
+      "auth_mode": "bearer_env",
+      "bearer_token_env_var": "COMPANY_MCP_TOKEN",
+      "http_headers": {
+        "User-Agent": "sage-mcp/1.0",
+        "X-Client-Name": "sage"
+      },
+      "env_http_headers": {
+        "X-Tenant": "TENANT_ID_ENV"
+      },
+      "tls_pin_sha256": "",
+      "enabled_tools": ["search"],
+      "approved_by": "SPEC-0015 / PR #21",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02",
+      "notes": "Remote search MCP (HTTP + bearer_env auth)."
+    },
+    {
+      "_comment": "Example 4: HTTP transport with OAuth (external SaaS MCP)",
+      "name": "external-oauth-mcp",
+      "transport": "http",
+      "artifact_type": "remote_http",
+      "url": "https://oauth-mcp.example.com/v1",
+      "url_origin_pin": "https://oauth-mcp.example.com",
+      "auth_mode": "oauth",
+      "oauth_provider": "google",
+      "oauth_scopes": ["openid", "profile"],
+      "http_headers": {
+        "User-Agent": "sage-mcp/1.0"
+      },
+      "tls_pin_sha256": "",
+      "enabled_tools": ["query"],
+      "approved_by": "SPEC-0015 / PR #21",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02",
+      "notes": "Remote MCP (HTTP + OAuth via google). Callback は top-level oauth_callback で declare (Codex は config.toml の top-level mcp_oauth_callback_* を参照)."
+    }
+  ],
+
+  "_comment_oauth_callback": "registry top-level oauth_callback section: auth_mode: 'oauth' の server がある場合に有効化。Codex 公式 (https://developers.openai.com/codex/mcp) は mcp_oauth_callback_port / mcp_oauth_callback_url を config.toml の TOP-LEVEL 設定として扱い、codex mcp login コマンドが利用する。本 registry も top-level で declare し、実 Codex config の top-level と比較する (drift8_oauth_callback_mismatch)。",
+  "oauth_callback": {
+    "mcp_oauth_callback_port": 8765,
+    "mcp_oauth_callback_url": ""
+  },
+
+  "_comment_policy": "Policy enforcement settings — organization 方針を declarative に表現。default は security 重視 (forbid_latest_tag / require_publisher / forbid_unknown_transport / http_require_url_origin_pin / http_require_auth / http_static_header_secret_check / oauth_callback_require_match 全て true)。require_npm_integrity は default false (user opt-in、計算負荷を考慮)。",
+  "policy": {
+    "forbid_latest_tag": true,
+    "require_npm_integrity": false,
+    "require_publisher": true,
+    "forbid_unknown_transport": true,
+    "http_require_url_origin_pin": true,
+    "http_require_auth": true,
+    "http_static_header_secret_check": true,
+    "oauth_callback_require_match": true
+  },
+
+  "_comment_bypass": "Bypass mechanism: warn を抑止できるが、bypass の事実自体は .sage/audit/mcp-allowlist-bypass.log に記録される (silent bypass 禁止、SEC-04)。enabled: true にする場合は reason 必須、expires_at で自動失効を設定すべき。",
+  "bypass": {
+    "enabled": false,
+    "reason": "",
+    "expires_at": ""
+  }
+}
+
+__EOF_TMPL_SAGE_MCP_ALLOWLIST_TEMPLATE__
+
+read -r -d '' TMPL_SAGE_README <<'__EOF_TMPL_SAGE_README__' || true
+# `templates/sage/`
+
+SAGE 内部 declarative registry / inventory のテンプレート配布元。`installer.sh` で `.sage/` 配下にコピーされる雛形。
+
+## ファイル一覧
+
+| ファイル | 配置先 | 目的 | 関連 SPEC |
+|---|---|---|---|
+| `mcp-allowlist-template.json` | `.sage/mcp-allowlist.json` | MCP allowlist registry (transport-aware、supply-chain pinned、audit-only) | [SPEC-0015](../../specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md) |
+
+## 使い方
+
+1. `installer.sh` を実行すると、各 template が `.sage/` 配下に配置される
+2. user が template をプロジェクトに合わせて編集
+3. SAGE の hook / doctor が config を read-only で audit (drift / 期限切れ等を検出)
+
+## doctrine
+
+- **declarative + audit-only**: SAGE は registry を読んで warn / FAIL を出すのみ。runtime での MCP 起動 block 等は本体機能 (Claude Code / Codex) の責任 (governance §9.2)
+- **positive list**: registry に明示列挙された entry のみ承認、新規追加は SPEC-ID または PR URL の audit trail 必須
+- **secret hygiene**: 機密値 (token / API key) を registry に直接書かない、env 変数名参照のみ
+
+__EOF_TMPL_SAGE_README__
+
+read -r -d '' TMPL_TEST_MCP_ALLOWLIST <<'__EOF_TMPL_TEST_MCP_ALLOWLIST__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0123: test-mcp-allowlist-audit.sh (SPEC-0015 AC-03)
+# Purpose:  Test mcp-allowlist-audit.sh hook (24 scenarios across stdio/http
+#           drift cases, registry absence, profile gating, secret hygiene,
+#           transport_mismatch, OAuth callback mismatch).
+# =============================================================================
+set -uo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_helpers.sh
+source "${TEST_DIR}/_helpers.sh"
+
+PASS=0
+FAIL=0
+
+# Helper: write registry to sandbox
+write_registry() {
+  local sandbox="$1"
+  local content="$2"
+  echo "$content" > "${sandbox}/.sage/mcp-allowlist.json"
+}
+
+# Helper: write actual .mcp.json
+write_mcp_json() {
+  local sandbox="$1"
+  local content="$2"
+  echo "$content" > "${sandbox}/.mcp.json"
+}
+
+# Helper: write actual .codex/config.toml (repo-local)
+write_codex_repo() {
+  local sandbox="$1"
+  local content="$2"
+  mkdir -p "${sandbox}/.codex"
+  echo "$content" > "${sandbox}/.codex/config.toml"
+}
+
+# Helper: set profile
+set_profile() {
+  local sandbox="$1"
+  local profile="$2"
+  cat > "${sandbox}/.sage/config.yaml" <<EOF
+hooks:
+  profile: ${profile}
+EOF
+}
+
+# Helper: assert audit log contains drift_type
+assert_audit_drift_type() {
+  local sandbox="$1"
+  local drift_type="$2"
+  local label="$3"
+  local audit_log
+  audit_log="$(ls "${sandbox}/.sage/audit/mcp-allowlist-"*.log 2>/dev/null | head -1)"
+  if [ -z "$audit_log" ]; then
+    FAIL=$((FAIL + 1))
+    echo "  not ok ${label}: no audit log found" >&2
+    return 1
+  fi
+  if grep -q "\"drift_type\": \"${drift_type}\"" "$audit_log"; then
+    PASS=$((PASS + 1))
+    echo "  ok   ${label} (drift_type=${drift_type})"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  not ok ${label}: drift_type ${drift_type} not in audit log" >&2
+    cat "$audit_log" >&2
+  fi
+}
+
+assert_no_audit_log() {
+  local sandbox="$1"
+  local label="$2"
+  # Match only date-stamped drift event log, exclude bypass/auxiliary logs (NFR-04).
+  # Tolerate missing audit dir (registry absent / minimal profile cases).
+  local found=""
+  if [ -d "${sandbox}/.sage/audit" ]; then
+    found="$(find "${sandbox}/.sage/audit" -name 'mcp-allowlist-2*.log' 2>/dev/null | head -1 || true)"
+  fi
+  if [ -n "$found" ]; then
+    FAIL=$((FAIL + 1))
+    echo "  not ok ${label}: drift event log unexpectedly present: $found" >&2
+  else
+    PASS=$((PASS + 1))
+    echo "  ok   ${label} (no drift event log)"
+  fi
+}
+
+# Base registry with one stdio + one http server
+BASE_REGISTRY='{
+  "version": "1.0",
+  "servers": [
+    {
+      "name": "playwright",
+      "transport": "stdio",
+      "artifact_type": "npm_package",
+      "command": "npx",
+      "args": ["@anthropic-ai/mcp-playwright@1.42.0"],
+      "version_pin": "1.42.0",
+      "publisher": "anthropic",
+      "source_registry": "https://registry.npmjs.org",
+      "approved_by": "SPEC-0015",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02"
+    },
+    {
+      "name": "company-search",
+      "transport": "http",
+      "artifact_type": "remote_http",
+      "url": "https://mcp.example.com/v1",
+      "url_origin_pin": "https://mcp.example.com",
+      "auth_mode": "bearer_env",
+      "bearer_token_env_var": "COMPANY_TOKEN",
+      "approved_by": "SPEC-0015",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02"
+    }
+  ],
+  "policy": {
+    "forbid_latest_tag": true,
+    "require_npm_integrity": false,
+    "require_publisher": true,
+    "forbid_unknown_transport": true,
+    "http_require_url_origin_pin": true,
+    "http_require_auth": true,
+    "http_static_header_secret_check": true,
+    "oauth_callback_require_match": true
+  },
+  "bypass": {"enabled": false}
+}'
+
+# ============================================================================
+# stdio drift cases
+# ============================================================================
+
+echo "# stdio drift cases"
+
+# --- drift1 stdio: unknown server ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"unknown-stdio": {"command": "node", "args": ["evil.js"]}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift1_stdio_unknown_server" "drift1 stdio unknown server"
+rm -rf "$sandbox"
+
+# --- drift2 stdio: args version mismatch ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"playwright": {"command": "npx", "args": ["@anthropic-ai/mcp-playwright@1.99.0"]}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift2_stdio_args_mismatch" "drift2 stdio args mismatch"
+rm -rf "$sandbox"
+
+# --- drift3 stdio: registry only ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift3_stdio_registry_only" "drift3 registry only"
+rm -rf "$sandbox"
+
+# --- drift4 stdio: @latest tag ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"playwright": {"command": "npx", "args": ["@anthropic-ai/mcp-playwright@latest"]}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift4_stdio_latest_tag" "drift4 stdio @latest"
+rm -rf "$sandbox"
+
+# --- drift5 npm_integrity mismatch (require_npm_integrity:true + missing field) ---
+echo "# drift5 npm_integrity"
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+REGISTRY_INTEGRITY="${BASE_REGISTRY//\"require_npm_integrity\": false/\"require_npm_integrity\": true}"
+write_registry "$sandbox" "$REGISTRY_INTEGRITY"
+write_mcp_json "$sandbox" '{"mcpServers": {"playwright": {"command": "npx", "args": ["@anthropic-ai/mcp-playwright@1.42.0"]}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift5_npm_integrity_mismatch" "drift5 npm_integrity mismatch"
+rm -rf "$sandbox"
+
+# ============================================================================
+# http drift cases
+# ============================================================================
+
+echo "# http drift cases"
+
+# --- drift1 http: unknown server ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"unknown-http": {"url": "https://evil.example.com"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift1_http_unknown_server" "drift1 http unknown server"
+rm -rf "$sandbox"
+
+# --- drift2 http: url_origin mismatch ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"company-search": {"url": "https://evil.com/v1"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift2_http_url_origin_mismatch" "drift2 http origin mismatch"
+rm -rf "$sandbox"
+
+# --- drift6 anonymous (registry has auth_mode: none + http_require_auth: true) ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+ANON_REGISTRY=$(echo "$BASE_REGISTRY" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+r['servers'].append({
+  'name':'anon-server','transport':'http','artifact_type':'remote_http',
+  'url':'https://anon.example.com','url_origin_pin':'https://anon.example.com',
+  'auth_mode':'none',
+  'approved_by':'SPEC-0015','approved_at':'2026-05-02','expires_at':'2027-05-02'
+})
+print(json.dumps(r))
+")
+write_registry "$sandbox" "$ANON_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"anon-server": {"url": "https://anon.example.com"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift6_anonymous" "drift6 anonymous"
+rm -rf "$sandbox"
+
+# --- drift6 OAuth approve (registry oauth + actual oauth = info, not block) ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+OAUTH_REGISTRY=$(echo "$BASE_REGISTRY" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+r['servers'].append({
+  'name':'oauth-server','transport':'http','artifact_type':'remote_http',
+  'url':'https://oauth.example.com','url_origin_pin':'https://oauth.example.com',
+  'auth_mode':'oauth','oauth_provider':'google','oauth_scopes':['openid'],
+  'approved_by':'SPEC-0015','approved_at':'2026-05-02','expires_at':'2027-05-02'
+})
+print(json.dumps(r))
+")
+write_registry "$sandbox" "$OAUTH_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"oauth-server": {"url": "https://oauth.example.com"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift6_oauth_approve" "drift6 OAuth approve"
+rm -rf "$sandbox"
+
+# --- drift6 Bearer approve (registry bearer_env + actual url match = info) ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"company-search": {"url": "https://mcp.example.com/v1"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift6_bearer_approve" "drift6 Bearer approve"
+rm -rf "$sandbox"
+
+# --- drift7 sensitive header (canonical case) ---
+echo "# drift7 sensitive header (4 case-insensitive variants)"
+for variant in "Authorization" "authorization" "AUTHORIZATION" "x-Api-Key"; do
+  sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+  BAD_REGISTRY=$(echo "$BASE_REGISTRY" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+r['servers'][1]['http_headers']={'${variant}': 'leaked-secret'}
+print(json.dumps(r))
+")
+  write_registry "$sandbox" "$BAD_REGISTRY"
+  run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+  assert_audit_drift_type "$sandbox" "drift7_sensitive_header" "drift7 sensitive header (${variant})"
+  rm -rf "$sandbox"
+done
+
+# --- drift8 OAuth callback mismatch ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+CB_REGISTRY=$(echo "$BASE_REGISTRY" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+r['oauth_callback']={'mcp_oauth_callback_port':'8765','mcp_oauth_callback_url':''}
+print(json.dumps(r))
+")
+write_registry "$sandbox" "$CB_REGISTRY"
+write_codex_repo "$sandbox" 'mcp_oauth_callback_port = "9000"
+[mcp_servers.test]
+url = "https://x"
+'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift8_oauth_callback_mismatch" "drift8 OAuth callback mismatch"
+rm -rf "$sandbox"
+
+# --- transport_mismatch ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+# playwright is stdio in registry; submit it as http in actual config
+write_mcp_json "$sandbox" '{"mcpServers": {"playwright": {"url": "https://fake.example.com"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "transport_mismatch" "transport_mismatch"
+rm -rf "$sandbox"
+
+# ============================================================================
+# Common scenarios
+# ============================================================================
+
+echo "# common scenarios"
+
+# --- expired approval ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+EXPIRED_REGISTRY=$(echo "$BASE_REGISTRY" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+r['servers'][0]['expires_at']='2020-01-01'
+print(json.dumps(r))
+")
+write_registry "$sandbox" "$EXPIRED_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"playwright": {"command": "npx", "args": ["@anthropic-ai/mcp-playwright@1.42.0"]}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "expired_approval" "expired approval"
+rm -rf "$sandbox"
+
+# --- registry absent → warn + skip (exit 0, no audit log) ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_eq "$HOOK_RC" "0" "registry absent exit 0"
+assert_no_audit_log "$sandbox" "registry absent no audit log"
+rm -rf "$sandbox"
+
+# --- profile=minimal → silent skip ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+set_profile "$sandbox" "minimal"
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"unknown": {"command": "evil"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_eq "$HOOK_RC" "0" "profile=minimal exit 0"
+assert_no_audit_log "$sandbox" "profile=minimal no audit log"
+rm -rf "$sandbox"
+
+# --- profile=strict + drift1 stdio → block (exit 1) ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+set_profile "$sandbox" "strict"
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"unknown-stdio": {"command": "evil"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_eq "$HOOK_RC" "1" "profile=strict drift1 stdio block"
+rm -rf "$sandbox"
+
+# --- profile=strict + drift7 → block (exit 1, FAIL) ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+set_profile "$sandbox" "strict"
+BAD7=$(echo "$BASE_REGISTRY" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+r['servers'][1]['http_headers']={'Authorization':'Bearer x'}
+print(json.dumps(r))
+")
+write_registry "$sandbox" "$BAD7"
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_eq "$HOOK_RC" "1" "profile=strict drift7 block (FAIL)"
+rm -rf "$sandbox"
+
+# --- audit log args redact (env name in registry, not env value) ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"unknown-stdio": {"command": "evil"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+audit_log="$(ls "${sandbox}/.sage/audit/mcp-allowlist-"*.log 2>/dev/null | head -1)"
+if grep -qE "Bearer|secret-value|leaked" "$audit_log" 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "  not ok audit log redact: leaked secret-pattern" >&2
+else
+  PASS=$((PASS + 1))
+  echo "  ok   audit log redact (no secret-pattern)"
+fi
+rm -rf "$sandbox"
+
+# --- default does NOT read user-global ~/.codex/config.toml ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+# (we cannot easily test ~/.codex/config.toml without polluting user env;
+#  instead: assert no audit log entry with runtime=codex-cli-user-global)
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+audit_log="$(ls "${sandbox}/.sage/audit/mcp-allowlist-"*.log 2>/dev/null | head -1)"
+if [ -n "$audit_log" ] && grep -q "codex-cli-user-global" "$audit_log"; then
+  FAIL=$((FAIL + 1))
+  echo "  not ok default user-global excluded" >&2
+else
+  PASS=$((PASS + 1))
+  echo "  ok   default does not read user-global codex config"
+fi
+rm -rf "$sandbox"
+
+# --- opt-in include_user_global_codex: true reads user-global ---
+# (skip: requires user env mutation; the gating logic itself is covered by config parse path)
+
+# --- bypass.enabled: true suppresses drift, records bypass log ---
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+BYPASS_REG=$(echo "$BASE_REGISTRY" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+r['bypass']={'enabled':True,'reason':'test','expires_at':'2026-12-31'}
+print(json.dumps(r))
+")
+write_registry "$sandbox" "$BYPASS_REG"
+write_mcp_json "$sandbox" '{"mcpServers": {"unknown": {"command": "evil"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_no_audit_log "$sandbox" "bypass enabled: no drift audit log"
+if [ -f "${sandbox}/.sage/audit/mcp-allowlist-bypass.log" ]; then
+  PASS=$((PASS + 1))
+  echo "  ok   bypass log written"
+else
+  FAIL=$((FAIL + 1))
+  echo "  not ok bypass log missing" >&2
+fi
+rm -rf "$sandbox"
+
+echo ""
+echo "SUMMARY pass=$PASS fail=$FAIL"
+[ "$FAIL" -eq 0 ]
+
+__EOF_TMPL_TEST_MCP_ALLOWLIST__
+
+read -r -d '' TMPL_TEST_DETECTION_ONLY <<'__EOF_TMPL_TEST_DETECTION_ONLY__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0124: test-detection-only-behavior.sh (SPEC-0015 SEC-01 / NFR-09)
+# Purpose:  Verify mcp-allowlist-audit.sh NEVER invokes kill family.
+#           Uses fake wrapper method (PATH manipulation), not grep —
+#           grep would false-positive on comments / strings, ps aux
+#           false-positives on the test's own grep process.
+# =============================================================================
+set -uo pipefail
+
+PASS=0
+FAIL=0
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+HOOK="${REPO_ROOT}/templates/hooks/mcp-allowlist-audit.sh"
+
+echo "# detection-only behavior (fake wrapper)"
+
+tempdir="$(mktemp -d -t sage-detection-XXXXXX)"
+trap "rm -rf $tempdir" EXIT
+INVOCATION_LOG="$tempdir/invocations.log"
+
+# Create fake kill / pkill / killall wrappers — record invocations
+for cmd in kill pkill killall; do
+  cat > "$tempdir/$cmd" <<WRAPPER
+#!/bin/sh
+echo "\$0 called with: \$*" >> "$INVOCATION_LOG"
+WRAPPER
+  chmod +x "$tempdir/$cmd"
+done
+
+# Create a minimal sandbox so the hook runs (registry absent → exit 0 silently)
+sandbox="$(mktemp -d -t sage-detection-sandbox-XXXXXX)"
+mkdir -p "${sandbox}/.sage"
+cat > "${sandbox}/.sage/config.yaml" <<EOF
+hooks:
+  profile: standard
+EOF
+
+# Run hook with fake wrappers in PATH
+export PATH="$tempdir:$PATH"
+( cd "$sandbox" && bash "$HOOK" < /dev/null ) >/dev/null 2>&1 || true
+
+if [ -s "$INVOCATION_LOG" ]; then
+  FAIL=$((FAIL + 1))
+  echo "  not ok detection-only violation: kill family invoked" >&2
+  cat "$INVOCATION_LOG" >&2
+else
+  PASS=$((PASS + 1))
+  echo "  ok   no kill / pkill / killall invocation"
+fi
+
+# Also test with a registry present + drift1 inject
+cat > "${sandbox}/.sage/mcp-allowlist.json" <<JSON
+{
+  "version": "1.0",
+  "servers": [
+    {"name":"playwright","transport":"stdio","artifact_type":"npm_package",
+     "command":"npx","args":["@anthropic-ai/mcp-playwright@1.42.0"],
+     "version_pin":"1.42.0","publisher":"anthropic",
+     "source_registry":"https://registry.npmjs.org",
+     "approved_by":"SPEC-0015","approved_at":"2026-05-02","expires_at":"2027-05-02"}
+  ],
+  "policy": {"forbid_latest_tag":true,"http_require_auth":true,"http_static_header_secret_check":true},
+  "bypass": {"enabled": false}
+}
+JSON
+cat > "${sandbox}/.mcp.json" <<JSON
+{"mcpServers": {"playwright": {"command": "npx", "args": ["@anthropic-ai/mcp-playwright@1.42.0"]}, "unknown-stdio": {"command": "node"}}}
+JSON
+
+: > "$INVOCATION_LOG"
+( cd "$sandbox" && bash "$HOOK" < /dev/null ) >/dev/null 2>&1 || true
+
+if [ -s "$INVOCATION_LOG" ]; then
+  FAIL=$((FAIL + 1))
+  echo "  not ok detection-only violation (with drift): kill family invoked" >&2
+  cat "$INVOCATION_LOG" >&2
+else
+  PASS=$((PASS + 1))
+  echo "  ok   no kill family invocation (with drift detection active)"
+fi
+
+rm -rf "$sandbox"
+
+echo ""
+echo "SUMMARY pass=$PASS fail=$FAIL"
+[ "$FAIL" -eq 0 ]
+
+__EOF_TMPL_TEST_DETECTION_ONLY__
+
+read -r -d '' TMPL_MEASURE_HOOK_TIME <<'__EOF_TMPL_MEASURE_HOOK_TIME__' || true
+#!/usr/bin/env python3
+# =============================================================================
+# TASK-0123: measure-hook-time.py (SPEC-0015 FR-05 / NFR-08)
+# Purpose:  Measure hook execution time over N runs, return median.
+#           Compare against threshold (default 200ms, env override).
+#           macOS / Linux portable (avoids GNU time -f incompat).
+# Usage:    python3 measure-hook-time.py <hook-script> [--runs 5] [--threshold-ms 200]
+# Exit:     0 if median < threshold, 1 if exceeds.
+# =============================================================================
+import argparse
+import os
+import statistics
+import subprocess
+import sys
+import time
+
+
+def measure_one(hook_path: str) -> float:
+    """Run hook with empty stdin, return wall-clock ms."""
+    start = time.perf_counter()
+    try:
+        subprocess.run(
+            ["bash", hook_path],
+            input="",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return float("inf")
+    elapsed = (time.perf_counter() - start) * 1000
+    return elapsed
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Measure hook execution time (median of N runs).")
+    parser.add_argument("hook", help="Path to hook script")
+    parser.add_argument("--runs", type=int, default=5, help="Number of runs (default 5)")
+    parser.add_argument(
+        "--threshold-ms",
+        type=int,
+        default=int(os.environ.get("SAGE_HOOK_TIME_THRESHOLD_MS", "200")),
+        help="Threshold in ms (default 200, env SAGE_HOOK_TIME_THRESHOLD_MS overrides)",
+    )
+    args = parser.parse_args()
+
+    if not os.path.isfile(args.hook):
+        print(f"ERROR: hook not found: {args.hook}", file=sys.stderr)
+        return 1
+
+    times = [measure_one(args.hook) for _ in range(args.runs)]
+    median = statistics.median(times)
+    minimum = min(times)
+    maximum = max(times)
+
+    print(f"hook:      {args.hook}")
+    print(f"runs:      {args.runs}")
+    print(f"runs(ms):  {[f'{t:.1f}' for t in times]}")
+    print(f"min:       {minimum:.1f}ms")
+    print(f"median:    {median:.1f}ms")
+    print(f"max:       {maximum:.1f}ms")
+    print(f"threshold: {args.threshold_ms}ms")
+
+    if median < args.threshold_ms:
+        print(f"PASS: median ({median:.1f}ms) < threshold ({args.threshold_ms}ms)")
+        return 0
+    else:
+        print(f"FAIL: median ({median:.1f}ms) >= threshold ({args.threshold_ms}ms)", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+__EOF_TMPL_MEASURE_HOOK_TIME__
+
+read -r -d '' TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT <<'__EOF_TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0124: sage-mcp-allowlist-audit.sh (SPEC-0015)
+# Purpose:  CLI wrapper for MCP allowlist drift detection (Python-based).
+#           Used by sage-doctor.sh as a separate process to avoid bash
+#           heredoc + $(...) command-substitution parsing issues.
+# Input:    $1 = registry path (.sage/mcp-allowlist.json)
+# Output:   TSV lines: <level>\t<check>\t<message>
+#           level: OK / WARN / FAIL
+# Exit:     0 always (FAIL is reported via output, not exit code)
+# =============================================================================
+set -uo pipefail
+
+REGISTRY_PATH="${1:-.sage/mcp-allowlist.json}"
+
+if ! command -v python3 &>/dev/null; then
+  echo "WARN	mcp_allowlist_python	python3 not in PATH"
+  exit 0
+fi
+
+if [ ! -f "$REGISTRY_PATH" ]; then
+  echo "WARN	mcp_allowlist_registry	Registry $REGISTRY_PATH not present"
+  exit 0
+fi
+
+python3 - "$REGISTRY_PATH" <<'PYEOF'
+import json
+import sys
+import os
+import datetime
+
+registry_path = sys.argv[1]
+
+SENSITIVE_HEADERS = {
+    "authorization", "cookie", "set-cookie", "proxy-authorization",
+    "x-api-key", "x-auth-token", "x-token",
+}
+
+# (b) registry validity + secret hygiene
+try:
+    with open(registry_path) as f:
+        reg = json.load(f)
+except json.JSONDecodeError as e:
+    print(f"FAIL\tregistry_validity\tJSON parse failed: {e}")
+    sys.exit(0)
+
+fail7 = []
+if reg.get("policy", {}).get("http_static_header_secret_check", True):
+    for srv in reg.get("servers", []):
+        if srv.get("transport") != "http":
+            continue
+        for hkey in srv.get("http_headers", {}).keys():
+            if hkey.lower() in SENSITIVE_HEADERS:
+                fail7.append((srv.get("name"), hkey))
+
+if fail7:
+    for name, hkey in fail7:
+        print(f"FAIL\tmcp_secret_hygiene\tdrift7 sensitive header in registry: server '{name}' has '{hkey}' (SEC-07)")
+else:
+    print("OK\tregistry_validity\tRegistry parses + secret hygiene clean")
+
+# (c) strict-block drift count from today's audit log
+today = datetime.date.today().strftime('%Y%m%d')
+log_path = f".sage/audit/mcp-allowlist-{today}.log"
+strict_types = {
+    "drift1_stdio_unknown_server", "drift1_http_unknown_server",
+    "drift5_npm_integrity_mismatch", "drift5_command_path_sha256_mismatch",
+    "drift5_tls_pin_sha256_mismatch", "drift6_anonymous",
+    "drift8_oauth_callback_mismatch", "transport_mismatch",
+}
+strict_n = 0
+if os.path.exists(log_path):
+    for line in open(log_path):
+        try:
+            rec = json.loads(line)
+            if rec.get("drift_type") in strict_types:
+                strict_n += 1
+        except json.JSONDecodeError:
+            pass
+
+if strict_n > 0:
+    print(f"WARN\tmcp_strict_block_drift\t{strict_n} strict-block drift event(s) in today's audit log — strict promotion blocked")
+else:
+    print("OK\tmcp_strict_block_drift\t0 strict-block drift events today")
+
+# (d) other warn-only drift count (INFO)
+other_types = {
+    "drift2_stdio_args_mismatch", "drift2_http_url_origin_mismatch",
+    "drift3_stdio_registry_only", "drift4_stdio_latest_tag",
+    "drift6_oauth_approve", "drift6_bearer_approve",
+}
+other_n = 0
+if os.path.exists(log_path):
+    for line in open(log_path):
+        try:
+            rec = json.loads(line)
+            if rec.get("drift_type") in other_types:
+                other_n += 1
+        except json.JSONDecodeError:
+            pass
+print(f"OK\tmcp_other_drift\t{other_n} warn-only drift event(s) (INFO)")
+
+# (e) expired approvals
+today_iso = datetime.date.today().isoformat()
+expired = [
+    s.get("name") for s in reg.get("servers", [])
+    if s.get("expires_at", "") and s.get("expires_at", "") < today_iso
+]
+if expired:
+    print(f"WARN\tmcp_expired_approval\t{len(expired)} expired approval(s): {', '.join(expired)}")
+else:
+    print("OK\tmcp_expired_approval\tNo expired approvals")
+PYEOF
+
+__EOF_TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT__
+
 read -r -d '' TMPL_SETTINGS_SANDBOX <<'__EOF_TMPL_SETTINGS_SANDBOX__' || true
 {
   "permissions": {
@@ -6678,6 +7883,15 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/hooks/lethal-trifecta-detect.sh" "$TMPL_HOOK_LETHAL_TRIFECTA" && chmod +x "templates/hooks/lethal-trifecta-detect.sh"
   write_file_if_new "templates/hooks/secret-read-multi-layer.sh" "$TMPL_HOOK_SECRET_READ" && chmod +x "templates/hooks/secret-read-multi-layer.sh"
   write_file_if_new "templates/hooks/security-filter.sh" "$TMPL_HOOK_SECURITY_FILTER" && chmod +x "templates/hooks/security-filter.sh"
+  write_file_if_new "templates/hooks/mcp-allowlist-audit.sh" "$TMPL_HOOK_MCP_ALLOWLIST_AUDIT" && chmod +x "templates/hooks/mcp-allowlist-audit.sh"
+  mkdir -p templates/sage
+  write_file_if_new "templates/sage/mcp-allowlist-template.json" "$TMPL_SAGE_MCP_ALLOWLIST_TEMPLATE"
+  write_file_if_new "templates/sage/README.md" "$TMPL_SAGE_README"
+  mkdir -p templates/hooks/tests
+  write_file_if_new "templates/hooks/tests/test-mcp-allowlist-audit.sh" "$TMPL_TEST_MCP_ALLOWLIST" && chmod +x "templates/hooks/tests/test-mcp-allowlist-audit.sh"
+  write_file_if_new "templates/hooks/tests/test-detection-only-behavior.sh" "$TMPL_TEST_DETECTION_ONLY" && chmod +x "templates/hooks/tests/test-detection-only-behavior.sh"
+  write_file_if_new "templates/hooks/tests/measure-hook-time.py" "$TMPL_MEASURE_HOOK_TIME" && chmod +x "templates/hooks/tests/measure-hook-time.py"
+  write_file_if_new "scripts/sage-mcp-allowlist-audit.sh" "$TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT" && chmod +x "scripts/sage-mcp-allowlist-audit.sh"
   write_file_if_new "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   write_file_if_new "templates/settings/README.md" "$TMPL_SETTINGS_README"
 else
@@ -6689,6 +7903,15 @@ else
   update_file "templates/hooks/lethal-trifecta-detect.sh" "$TMPL_HOOK_LETHAL_TRIFECTA" && chmod +x "templates/hooks/lethal-trifecta-detect.sh"
   update_file "templates/hooks/secret-read-multi-layer.sh" "$TMPL_HOOK_SECRET_READ" && chmod +x "templates/hooks/secret-read-multi-layer.sh"
   update_file "templates/hooks/security-filter.sh" "$TMPL_HOOK_SECURITY_FILTER" && chmod +x "templates/hooks/security-filter.sh"
+  update_file "templates/hooks/mcp-allowlist-audit.sh" "$TMPL_HOOK_MCP_ALLOWLIST_AUDIT" && chmod +x "templates/hooks/mcp-allowlist-audit.sh"
+  mkdir -p templates/sage
+  update_file "templates/sage/mcp-allowlist-template.json" "$TMPL_SAGE_MCP_ALLOWLIST_TEMPLATE"
+  update_file "templates/sage/README.md" "$TMPL_SAGE_README"
+  mkdir -p templates/hooks/tests
+  update_file "templates/hooks/tests/test-mcp-allowlist-audit.sh" "$TMPL_TEST_MCP_ALLOWLIST" && chmod +x "templates/hooks/tests/test-mcp-allowlist-audit.sh"
+  update_file "templates/hooks/tests/test-detection-only-behavior.sh" "$TMPL_TEST_DETECTION_ONLY" && chmod +x "templates/hooks/tests/test-detection-only-behavior.sh"
+  update_file "templates/hooks/tests/measure-hook-time.py" "$TMPL_MEASURE_HOOK_TIME" && chmod +x "templates/hooks/tests/measure-hook-time.py"
+  update_file "scripts/sage-mcp-allowlist-audit.sh" "$TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT" && chmod +x "scripts/sage-mcp-allowlist-audit.sh"
   update_file "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   update_file "templates/settings/README.md" "$TMPL_SETTINGS_README"
 fi

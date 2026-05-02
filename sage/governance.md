@@ -345,7 +345,7 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | Lane 設計 | vibe / lite / standard / promotion の 4 Lane と昇格プロトコル (`scripts/sage-promote.sh`) |
 | File Scope | TASK ごとの変更可能ファイル明示と pre-commit hook |
 | Anti-pattern 学習 | `sage/anti-patterns.md`, `sage/failures.md` の蓄積枠組み |
-| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, Stop hook で全 RUN-*.yaml を per-file atomic redact)**) — pattern matching による補助ガード |
+| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, Stop hook で全 RUN-*.yaml を per-file atomic redact)** / **mcp-allowlist-audit (Phase 5, SessionStart audit-only with supply-chain pin)**) — pattern matching による補助ガード |
 | Settings template | `templates/settings/sandbox.json` + README (Phase 2B, **雛形のみ — 適用は user 責任**) — Claude Code sandbox / permission 推奨設定 |
 | AI agent 向け instruction | CLAUDE.md / AGENTS.md / `.claude/rules/` のテンプレート |
 | Skill / governance / traceability | `templates/skills/sage-*/`, 本ドキュメント, `sage/traceability.md` |
@@ -359,7 +359,7 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 |-----|-----------------|
 | **Claude Code / Codex 本体の runtime sandbox 強制** | filesystem isolation / network allowlist は Claude/Codex 側設定で実現する。SAGE は `templates/settings/` で雛形を示すのみ |
 | **Codex セッションでの hook 実行** | `templates/hooks/` は Claude Code の PreToolUse/PostToolUse 機構専用。**Codex セッションでは hook は直接動作しない** — Codex sandbox 設定 (`sandbox_mode` / `approval_policy` / `internet_access`) で同等防御を別途構築する。詳細は [AGENTS.md §2.1 Codex specificity](../AGENTS.md) |
-| **MCP server の実行時許可制御** | MCP runtime は Claude Code / Codex 本体の機能。SAGE は MCP allowlist テンプレート (Phase 5 予定) を示すが、強制は本体に依存 |
+| **MCP server の実行時許可制御** | runtime での起動 block は Claude/Codex 本体機能。**audit / drift / supply-chain pin (sha256 / version_pin / publisher) 検出は [SPEC-0015](../specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md) で提供** (audit-only) |
 | **GitHub branch protection の自動セットアップ** | GitHub token を要求して installer 権限が肥大化するため、opt-in script として別途提供予定 (SPEC-0012) |
 | **Production credential / secret の保管** | Vault / 1Password / GitHub Encrypted Secrets / cloud KMS で別途構築 |
 | **AI モデル自体の脆弱性検出・修正** | deterministic security scanner (gitleaks / trivy / semgrep / npm audit 等) と組み合わせる前提。SAGE 単独で safety を保証しない |
