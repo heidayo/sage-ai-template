@@ -5,9 +5,10 @@
 #           1. SHA256SUMS POSIX format validation
 #           2. install.sh source contains --remote support (do_verify_checksum_remote)
 #           3. release.yml structural existence + permissions + tag pattern
-#           4. --verify-checksum --remote PASS scenario (mock curl returns matching SHA)
-#           5. --verify-checksum --remote FAIL scenario (mock curl returns mismatched SHA)
-#           6. --verify-checksum --remote graceful skip (mock curl fails / network unreachable)
+#           4. sage-validate Check 9 preserves remote installer bytes while hashing
+#           5. --verify-checksum --remote PASS scenario (mock curl returns matching SHA)
+#           6. --verify-checksum --remote FAIL scenario (mock curl returns mismatched SHA)
+#           7. --verify-checksum --remote graceful skip (mock curl fails / network unreachable)
 # =============================================================================
 set -uo pipefail
 
@@ -64,10 +65,46 @@ else
   echo "  not ok release.yml structural check failed" >&2
 fi
 
-# --- Scenarios 4-6: --verify-checksum --remote with mock curl ---
-# Skip Scenarios 4-6 if install.sh is stale (regen pending in TASK-0143).
+# --- Scenario 4: sage-validate Check 9 hashes remote bytes without stripping trailing newline ---
+VALIDATE_MOCK_DIR=$(mktemp -d)
+cat > "$VALIDATE_MOCK_DIR/curl" <<MOCK_VALIDATE_CURL
+#!/bin/bash
+out=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -o)
+      out="\$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "\$out" ]; then
+  cat "${INSTALL_SH}" > "\$out"
+else
+  cat "${INSTALL_SH}"
+fi
+MOCK_VALIDATE_CURL
+chmod +x "$VALIDATE_MOCK_DIR/curl"
+
+output_validate=$(PATH="$VALIDATE_MOCK_DIR:$PATH" bash "${REPO_ROOT}/scripts/sage-validate.sh" 2>&1)
+exit_validate=$?
+rm -rf "$VALIDATE_MOCK_DIR"
+if [ "$exit_validate" = "0" ] && echo "$output_validate" | grep -q "OK: local install.sh matches"; then
+  PASS=$((PASS + 1))
+  echo "  ok   sage-validate Check 9 hashes remote file bytes without newline loss"
+else
+  FAIL=$((FAIL + 1))
+  echo "  not ok sage-validate Check 9 byte-preserving hash regression: exit=$exit_validate" >&2
+  echo "$output_validate" | tail -40 >&2
+fi
+
+# --- Scenarios 5-7: --verify-checksum --remote with mock curl ---
+# Skip Scenarios 5-7 if install.sh is stale (regen pending in TASK-0143).
 if ! grep -q 'do_verify_checksum_remote' "$INSTALL_SH" 2>/dev/null; then
-  echo "  skip Scenarios 4-6 (install.sh has not been regenerated yet — TASK-0143 will regen)"
+  echo "  skip Scenarios 5-7 (install.sh has not been regenerated yet — TASK-0143 will regen)"
   echo ""
   echo "SUMMARY pass=$PASS fail=$FAIL"
   [ "$FAIL" -eq 0 ]
@@ -84,7 +121,7 @@ if command -v sha256sum >/dev/null 2>&1; then
 elif command -v shasum >/dev/null 2>&1; then
   ACTUAL_SHA=$(shasum -a 256 "$INSTALL_SH" | awk '{print $1}')
 else
-  echo "  skip Scenarios 4-6 (no sha256 tool available)"
+  echo "  skip Scenarios 5-7 (no sha256 tool available)"
   echo ""
   echo "SUMMARY pass=$PASS fail=$FAIL"
   [ "$FAIL" -eq 0 ]

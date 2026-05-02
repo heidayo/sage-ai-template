@@ -318,12 +318,16 @@ elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>
 else
   LOCAL_SHA=$(shasum -a 256 install.sh 2>/dev/null | awk '{print $1}')
   [ -z "$LOCAL_SHA" ] && LOCAL_SHA=$(sha256sum install.sh 2>/dev/null | awk '{print $1}')
-  REMOTE_CONTENT=$(curl -fsSL --max-time 10 "$INSTALLER_URL" 2>/dev/null || true)
-  if [ -z "$REMOTE_CONTENT" ]; then
+  # Keep remote bytes on disk while hashing. Command substitution strips trailing
+  # newlines, which creates false mismatches for byte-identical install.sh files.
+  REMOTE_TMP=$(mktemp "${TMPDIR:-/tmp}/sage-installer-remote.XXXXXX")
+  if ! curl -fsSL --max-time 10 "$INSTALLER_URL" -o "$REMOTE_TMP" 2>/dev/null || [ ! -s "$REMOTE_TMP" ]; then
+    rm -f "$REMOTE_TMP"
     echo "  SKIPPED: ${URL_FLAVOR} not reachable (offline or URL 404)"
   else
-    REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | shasum -a 256 2>/dev/null | awk '{print $1}')
-    [ -z "$REMOTE_SHA" ] && REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | sha256sum 2>/dev/null | awk '{print $1}')
+    REMOTE_SHA=$(shasum -a 256 "$REMOTE_TMP" 2>/dev/null | awk '{print $1}')
+    [ -z "$REMOTE_SHA" ] && REMOTE_SHA=$(sha256sum "$REMOTE_TMP" 2>/dev/null | awk '{print $1}')
+    rm -f "$REMOTE_TMP"
     if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
       echo "  OK: local install.sh matches ${URL_FLAVOR} publication (sha256)"
     else
