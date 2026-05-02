@@ -93,7 +93,7 @@
 - [ ] `scripts/sage-doctor.sh` に「MCP allowlist check」step が追加され、既存 step 数 + 1 に
 - [ ] registry 不在で WARN 出る (実機テスト: registry を一時削除して doctor 実行)
 - [ ] registry valid + drift なし で OK 出る
-- [ ] **strict-block drift WARN tests** (Codex 6th review P2 #3 反映、4 cases 全部 inject):
+- [ ] **strict-block drift WARN tests** (Codex 6th-8th review 反映、**5 logical cases / 8 enum 全部 inject**):
   - drift1 inject (registry にない server: `drift1_stdio_unknown_server` / `drift1_http_unknown_server`) で WARN 出る
   - drift5 inject (artifact integrity mismatch: `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch` / `drift5_tls_pin_sha256_mismatch`) で WARN 出る
   - drift6 anonymous inject (HTTP MCP `auth_mode: "none"` + `policy.http_require_auth: true`、drift_type: `drift6_anonymous`) で WARN 出る

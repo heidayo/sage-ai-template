@@ -233,7 +233,7 @@ Phase 1-3 で以下を整備:
 - **[NFR-01] パフォーマンス**: audit hook の **5 回測定中央値 < 200ms** (`templates/hooks/tests/measure-hook-time.py` で検証、Codex review P2 反映)
 - **[NFR-02] idempotency**: 同条件で複数回実行しても同 audit log 内容 (timestamp 除く)
 - **[NFR-03] graceful degradation**: registry 不在 / Codex CLI 未 install / `.codex/config.toml` 不在 / Python 不在 等で hook が fail しないこと
-- **[NFR-04] auditability + audit log JSON schema** (Codex 6th review P2 #2 反映で機械可読 schema を厳密化): 全 drift event を **JSON-lines** 形式で `.sage/audit/mcp-allowlist-YYYYMMDD.log` に保存。各行が独立 JSON object、必須 field 5 個:
+- **[NFR-04] auditability + audit log JSON schema** (Codex 6th-8th review 反映で機械可読 schema を厳密化): 全 drift event を **JSON-lines** 形式で **`.sage/audit/mcp-allowlist-YYYYMMDD.log`** (drift event 専用、bypass / incident / auxiliary log は別 filename で分離) に保存。各行が独立 JSON object、必須 field 5 個:
   - `timestamp` (ISO 8601 UTC、例: `"2026-05-02T01:23:45Z"`)
   - `runtime` (実 config source、`claude-code` / `codex-cli-repo-local` / `codex-cli-user-global`)
   - `drift_type` (**enum、人間向け文字列ではなく machine-readable**):
@@ -241,9 +241,20 @@ Phase 1-3 で以下を整備:
     - http: `drift1_http_unknown_server` / `drift2_http_url_origin_mismatch` / `drift5_tls_pin_sha256_mismatch` / `drift6_anonymous` / `drift6_oauth_approve` / `drift6_bearer_approve` / `drift7_sensitive_header` / `drift8_oauth_callback_mismatch`
     - 共通: `transport_mismatch` / `expired_approval`
   - `severity` (`info` / `warn` / `fail`)
-  - `details` (object、drift type ごとの構造化情報、args は redact 済)
+  - **`details`** (object、Codex 8th review P2 #2 反映で内部 schema 厳密化、grouping key を必須化):
+    - **`scope`** (enum、必須): `server` (server-scoped event、ほぼ全 drift_type) / `top_level` (registry top-level event、例: `drift8_oauth_callback_mismatch` の global config 比較)
+    - **`server_name`** (string、`scope: "server"` の場合 必須、`scope: "top_level"` の場合 null): drift event の対象 server の registry `name` field 値。failures.md aggregation の grouping key として使用 (NFR-04a の Python json.loads + `(server_name, drift_type)` Counter で root cause 集計)
+    - drift_type ごとの追加 field (drift_type に応じて条件付き必須、本 SPEC では下記 example で示し、詳細 schema は TASK-0123 実装時に確定):
+      - `drift1_*`: `actual_command` / `actual_url` (実 config から)
+      - `drift2_*`: `expected_args` / `actual_args` (registry vs 実)
+      - `drift5_*`: `expected_integrity` / `actual_integrity` (sha256 / npm_integrity / tls_pin)
+      - `drift6_anonymous`: `actual_auth_mode` (`none` / 不在)
+      - `drift7_sensitive_header`: `header_name` (lowercase 正規化済)
+      - `drift8_oauth_callback_mismatch`: `expected_port` / `actual_port` / `expected_url` / `actual_url`
+      - `transport_mismatch`: `expected_transport` (registry) / `actual_transport` (実 config)
+    - args / bearer_token_env_var / OAuth tokens の値は redact (env 名のみ記録、actual_* field は version / port / origin など非機密値のみ)
   - args / bearer_token_env_var の値は redact (env 名のみ記録)
-  - これにより OPS-05 / doctor は人間向け message 文字列ではなく `drift_type` enum で機械的に判定可能
+  - これにより OPS-05 / doctor / failures.md aggregation は人間向け message 文字列ではなく `drift_type` enum + `details.scope` + `details.server_name` で機械的に判定 / grouping 可能
 - **[NFR-04a] audit log reader (公式)**: `.sage/audit/mcp-allowlist-*.log` を読む全 consumer (doctor / OPS-05 promotion check / 外部 audit pipeline) は **Python stdlib `json.loads()` で 1 行ずつ parse** + `drift_type` field の enum 完全一致で判定。`grep` / `awk` の正規表現 patten 依存は不採用 (Codex 6th review P2 #2 反映で「未定義 log 文字列依存」を回避)
 - **[NFR-05] portability**: macOS / Linux 両対応 (BSD awk / GNU awk 差異吸収、bash 4+ 想定)
 - **[NFR-06] test scenario coverage**: shell script のため code coverage 概念は不適。代わりに以下のシナリオ網羅性を要求:
@@ -290,7 +301,7 @@ Phase 1-3 で以下を整備:
   | 昇格 | 条件 | 検証コマンド |
   |---|---|---|
   | minimal → standard | minimal で 7 日運用 + sage-doctor で 0 FAIL 維持 | `bash scripts/sage-doctor.sh && find .sage/audit -name 'mcp-allowlist-*.log' -mtime -7 -print0 \| xargs -0 -I{} python3 -c "import json,sys; [print(l) for l in open('{}') if json.loads(l).get('severity')=='warn']" \| wc -l` |
-  | standard → strict | standard で 14 日運用 + **strict 時 block 対象 8 enum 全 0 件** (Codex 5th-7th review 反映、`drift_type` enum で機械判定 + 14 日 window filter): `drift1_stdio_unknown_server` / `drift1_http_unknown_server` / `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch` / `drift5_tls_pin_sha256_mismatch` / `drift6_anonymous` / `drift8_oauth_callback_mismatch` / `transport_mismatch` (Codex 7th review P2 #1 反映で transport_mismatch 追加) | `python3 -c "import json,sys,glob,os,datetime; cutoff=(datetime.date.today()-datetime.timedelta(days=14)).strftime('%Y%m%d'); types={'drift1_stdio_unknown_server','drift1_http_unknown_server','drift5_npm_integrity_mismatch','drift5_command_path_sha256_mismatch','drift5_tls_pin_sha256_mismatch','drift6_anonymous','drift8_oauth_callback_mismatch','transport_mismatch'}; n=sum(1 for f in glob.glob('.sage/audit/mcp-allowlist-*.log') if os.path.basename(f).split('mcp-allowlist-')[1][:8] >= cutoff for l in open(f) if json.loads(l).get('drift_type') in types); sys.exit(0 if n==0 else 1)"` で exit 0 (Codex 7th review P2 #2 反映で filename `mcp-allowlist-YYYYMMDD.log` から日付抽出 + 14 日 window フィルタ、古い log が永続的に block しない) |
+  | standard → strict | standard で 14 日運用 + **strict 時 block 対象 8 enum 全 0 件** (Codex 5th-7th review 反映、`drift_type` enum で機械判定 + 14 日 window filter): `drift1_stdio_unknown_server` / `drift1_http_unknown_server` / `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch` / `drift5_tls_pin_sha256_mismatch` / `drift6_anonymous` / `drift8_oauth_callback_mismatch` / `transport_mismatch` | `python3 -c "import json,sys,glob,os,re,datetime; cutoff_dt=datetime.datetime.utcnow()-datetime.timedelta(days=14); pat=re.compile(r'^mcp-allowlist-(\d{8})\.log$'); types={'drift1_stdio_unknown_server','drift1_http_unknown_server','drift5_npm_integrity_mismatch','drift5_command_path_sha256_mismatch','drift5_tls_pin_sha256_mismatch','drift6_anonymous','drift8_oauth_callback_mismatch','transport_mismatch'}; files=[f for f in glob.glob('.sage/audit/mcp-allowlist-*.log') if (m:=pat.match(os.path.basename(f))) and datetime.datetime.strptime(m.group(1), '%Y%m%d') >= cutoff_dt.replace(hour=0,minute=0,second=0,microsecond=0)]; n=sum(1 for f in files for l in open(f) if json.loads(l).get('drift_type') in types); sys.exit(0 if n==0 else 1)"` で exit 0 (Codex 8th review P2 #1 反映: regex `^mcp-allowlist-(\d{8})\.log$` で drift event log のみ厳密 match、`bypass.log` / `incident.log` / `mcp-allowlist-old.log` 等の auxiliary log を skip。`datetime.strptime('%Y%m%d')` で UTC 基準日付 parse) |
   | strict 維持 | strict 時 block 対象 enum いずれか 1 件で即 incident response 起動 | `bash scripts/sage-incident-trigger.sh mcp-supply-chain` (本 SPEC 範囲外、SECURITY.md IR 手順) |
 
   各段階の昇格は `.sage/config.yaml` `hooks.profile` 更新 PR で実施、PR body に上記検証コマンド出力を貼る (auditability)。
@@ -403,17 +414,24 @@ Step 3 [昇格]
 - **いつ**: 同 server / 同 `drift_type` enum 値で 2 回以上同種 event が記録された時 (Codex 7th review P3 反映で NFR-04a doctrine 準拠、awk ではなく Python `json.loads()` + `drift_type` enum で集計):
 
   ```bash
-  # 集計コマンド例 (NFR-04a 準拠):
+  # 集計コマンド例 (NFR-04 + NFR-04a 準拠、Codex 8th review P2 反映で regex match + scope-aware):
   python3 -c "
-  import json, glob, collections
+  import json, glob, os, re, collections
+  pat = re.compile(r'^mcp-allowlist-(\d{8})\.log$')   # drift event log のみ、bypass.log 等を除外
   counts = collections.Counter()
   for f in glob.glob('.sage/audit/mcp-allowlist-*.log'):
+      if not pat.match(os.path.basename(f)):
+          continue
       for line in open(f):
           rec = json.loads(line)
-          counts[(rec['details'].get('server_name'), rec['drift_type'])] += 1
-  for (server, dt), n in counts.items():
+          # NFR-04 schema: details.scope = 'server' なら details.server_name 必須、'top_level' は server-agnostic
+          scope = rec['details'].get('scope', 'server')
+          key = (scope, rec['details'].get('server_name'), rec['drift_type'])
+          counts[key] += 1
+  for (scope, server, dt), n in counts.items():
       if n >= 2:
-          print(f'{server} {dt}: {n} events (failures.md 候補)')
+          label = f'{scope}:{server}' if scope == 'server' else scope
+          print(f'{label} {dt}: {n} events (failures.md 候補)')
   "
   ```
 
