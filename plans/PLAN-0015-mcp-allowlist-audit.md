@@ -14,12 +14,15 @@
 
 SPEC-0015 (Codex review 後 scope 縮小、agent identity は SPEC-0017 に分離) の 6 機能要件 (FR-01..FR-06) を独立性が高い 4 TASK に分割する。
 
-**設計上の判断 (Codex review P1/P2 反映)**:
+**設計上の判断 (Codex review 1st + 2nd 反映)**:
 - registry schema は **JSON 形式** (Python stdlib `json` で安定 parse、awk-based shape comparison 不採用)
-- registry に **supply-chain pin field** (sha256 / version_pin / publisher / source_registry) を必須化
+- **transport-aware** (Codex review 2nd P1 反映): `transport: "stdio" | "http"` を必須化、HTTP MCP は `url` / `url_origin_pin` / `bearer_token_env_var` 等の独立 field
+- **artifact_type 区別** (Codex review 2nd P2-1 反映): `npm_package` (npm_integrity 第一級) / `local_binary` (command_path_sha256) / `remote_http` (tls_pin_sha256 optional)
+- supply-chain pin field 必須化 (version_pin / publisher / source_registry / npm_integrity)
 - audit hook の default 比較対象は **repo-local config** のみ、user-global `~/.codex/config.toml` は opt-in
-- audit log で **args を redact** (raw command line / API key 漏洩防止)
-- Performance test helper を追加して `time` 単発の flakiness を回避
+- audit log で **args / bearer_token_env_var の値を redact** (env name のみ記録)
+- Performance test helper は **Python ベース** (Codex review 2nd P2-3 反映、`/usr/bin/time -f` macOS 不対応問題回避)
+- Detection-only behavior test は **fake wrapper 方式** (Codex review 2nd P2-2 反映、grep / `ps aux` 方式の false positive/negative 回避)
 
 ## 影響レイヤー
 
@@ -45,11 +48,11 @@ SPEC-0015 (Codex review 後 scope 縮小、agent identity は SPEC-0017 に分�
 | TASK | 責務 | FR/AC mapping | 依存 | 並列可 | 見積 |
 |---|---|---|---|---|---|
 | TASK-0122 | MCP allowlist registry schema + JSON template (`templates/sage/mcp-allowlist-template.json`) | FR-01, FR-02 / AC-01 | - | No (foundation) | 30m |
-| TASK-0123 | MCP allowlist audit hook + tests + performance test helper | FR-03, FR-05 / AC-02, AC-03, AC-05, AC-07, AC-11, AC-12, AC-13, NFR-01..NFR-07 | TASK-0122 | No | 120m (旧 90m + perf helper + parser robustness 改善で +30m) |
+| TASK-0123 | MCP allowlist audit hook (transport-aware) + tests (17 シナリオ) + Python performance test helper | FR-03, FR-05 / AC-02, AC-03, AC-05, AC-07, AC-11, AC-12, AC-13, NFR-01..NFR-09 | TASK-0122 | No | 150m (Codex 2nd review P1 transport-aware + P2 Python helper / fake wrapper で +30m) |
 | TASK-0124 | sage-doctor.sh に MCP allowlist check 追加 + detection-only behavior test | FR-04 / AC-04, AC-09 | TASK-0123 (logic re-use) | No | 60m (旧 45m + behavior test で +15m) |
 | TASK-0126 | Documentation 更新 (5 ファイル) + installer regeneration | FR-06 / AC-06, AC-08, AC-10 | TASK-0122..0124 | No (最後) | 45m |
 
-合計見積: 255 min (4.25 h)
+合計見積: 285 min (4.75 h、Codex 2nd review 反映で TASK-0123 が +30m)
 **TASK-0125 (agent identity) は本 PLAN から削除済 → SPEC-0017 へ移動**
 
 ## 依存グラフ
@@ -73,10 +76,10 @@ TASK-0126 (doc + installer regen, 45m)
 
 | 検証 | 方法 |
 |---|---|
-| Unit test | `bash templates/hooks/tests/run-tests.sh` で 109 + 13 シナリオ = 122+ 全 PASS |
+| Unit test | `bash templates/hooks/tests/run-tests.sh` で 109 + 17 シナリオ = 126+ 全 PASS (transport-aware に拡張) |
 | Integration test | `bash scripts/sage-doctor.sh` で MCP allowlist check が新ステップとして OK 返す |
-| Performance | `bash templates/hooks/tests/measure-hook-time.sh templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (機械判定) |
-| Detection-only behavior | `! grep -nE "\\b(kill\|pkill\|killall)\\b" templates/hooks/mcp-allowlist-audit.sh` で 0 件 (Codex review P2 反映) |
+| Performance | `python3 templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (Python `time.perf_counter()` で macOS / Linux 互換、Codex review 2nd P2-3 反映) |
+| Detection-only behavior | `bash templates/hooks/tests/test-detection-only-behavior.sh` で fake wrapper 方式 PASS (kill 系 wrapper 呼び出し 0 件、Codex review 2nd P2-2 反映で grep / `ps aux` 方式 完全廃止) |
 | Doctrine alignment | `bash scripts/sage-doc-drift.sh` PASS |
 | Doc cross-ref | `grep -rn "SPEC-0015\|mcp-allowlist-audit" SECURITY.md sage/governance.md AGENTS.md CLAUDE.md docs/codex-security.md` で各 1+ 件 |
 | R7 increment check | `wc -l` で 5 文書ファイル各 +3 行以内 |

@@ -53,36 +53,44 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
 
 2. `templates/hooks/tests/test-mcp-allowlist-audit.sh` 新規:
    - sandbox 作成 + cleanup
-   - test cases (最低 13、NFR-06 シナリオ網羅性):
-     - **drift 1**: registry にない server を `.mcp.json` に作る → warn
-     - **drift 2**: args version mismatch → warn
-     - **drift 3**: registry にあるが `.mcp.json` にない → info
-     - **drift 4**: `.mcp.json` に `@latest` (`policy.forbid_latest_tag: true` 時) → warn
-     - **drift 5**: sha256 mismatch (`policy.require_sha256: true` 時) → warn (重大)
-     - expired approval → warn
-     - registry 不在 → warn + skip (exit 0)
-     - profile=`minimal` → 完全 skip (exit 0、log なし)
-     - profile=`strict` で drift 1 → block (exit 1)
-     - profile=`strict` で drift 5 → block (exit 1)
-     - audit log で args が **redact** されている (raw command line 不在を grep で検証)
-     - **default で user-global `~/.codex/config.toml` を読まない** (Codex review P2-3 反映の test)
-     - opt-in 設定時のみ user-global を読む (`.sage/config.yaml` で `mcp_audit.include_user_global_codex: true` 明示時)
+   - test cases (最低 17、NFR-06 シナリオ網羅性、transport-aware):
+     - **stdio drift**:
+       - drift 1 stdio: registry にない stdio server を `.mcp.json` に作る → warn
+       - drift 2 stdio: args version mismatch → warn
+       - drift 3 stdio: registry にあるが `.mcp.json` にない → info
+       - drift 4 stdio: `@latest` (`policy.forbid_latest_tag: true` 時) → warn
+       - drift 5 stdio: npm_integrity mismatch (`policy.require_npm_integrity: true` 時) → warn (重大)
+     - **http drift** (Codex review P1 反映):
+       - drift 1 http: registry にない HTTP MCP server を `.mcp.json` に作る → warn (重大)
+       - drift 2 http: url_origin mismatch (登録 origin と異なる url) → warn
+       - drift 6: HTTP MCP に `bearer_token_env_var` 不在 + `policy.http_require_bearer_token_env: true` → warn
+       - transport mismatch: 実 config が STDIO server だが registry が `transport: "http"` (またはその逆) → drift 1 として warn
+     - **共通**:
+       - expired approval → warn
+       - registry 不在 → warn + skip (exit 0)
+       - profile=`minimal` → 完全 skip (exit 0、log なし)
+       - profile=`strict` で drift 1 (stdio / http 両方) → block (exit 1)
+       - profile=`strict` で drift 5 (artifact integrity mismatch) → block (exit 1)
+       - audit log で args / bearer_token_env_var の値が **redact** (env name のみ記録、env value は記録しない)
+       - default で user-global `~/.codex/config.toml` を読まない (Codex review P2 反映)
+       - opt-in 設定時のみ user-global を読む (`.sage/config.yaml` で `mcp_audit.include_user_global_codex: true` 明示時)
    - bypass.enabled=true での suppress 確認
 
-3. `templates/hooks/tests/measure-hook-time.sh` 新規 (Codex review P2-5 反映):
-   - 引数: hook script path
-   - 5 回実行、各実行時間を `time` で計測 (`/usr/bin/time -f "%e"` で wall-clock 時間取得)
-   - 中央値 (median) を bash で算出
-   - 環境変数 `SAGE_HOOK_TIME_THRESHOLD_MS` (default 200) と比較
-   - 中央値 < 閾値 → exit 0 + 結果を stdout
+3. `templates/hooks/tests/measure-hook-time.py` 新規 (Codex review P2-3 反映、macOS / Linux 完全互換のため Python ベース):
+   - Python 3 stdlib のみ (`time.perf_counter()` + `subprocess` + `statistics` + `argparse`)
+   - 引数: hook script path (positional)、`--runs 5` (default)、`--threshold-ms 200` (default、env `SAGE_HOOK_TIME_THRESHOLD_MS` で override 可)
+   - 各 run で `subprocess.run(...)` 前後の `time.perf_counter()` 差分を ms 単位で記録
+   - `statistics.median()` で中央値算出
+   - 中央値 < 閾値 → exit 0 + 結果を stdout (median / min / max / 全 runs)
    - 超過 → exit 1 + 結果を stderr
-   - `time` 単発の flakiness を回避
+   - macOS の `/usr/bin/time -f` 非互換問題を完全回避
+   - shebang `#!/usr/bin/env python3`、Python 3 不在環境では shell wrapper で graceful skip (NFR-03)
 
 ## File Scope（変更許可範囲）
 
 - 作成: `templates/hooks/mcp-allowlist-audit.sh`
 - 作成: `templates/hooks/tests/test-mcp-allowlist-audit.sh`
-- 作成: `templates/hooks/tests/measure-hook-time.sh`
+- 作成: `templates/hooks/tests/measure-hook-time.py` (Codex review P2-3 反映で Python ベースに変更、shell ベースの `.sh` は不採用)
 - 削除: なし
 
 ## 禁止事項
@@ -100,10 +108,10 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
 
 - [ ] `templates/hooks/mcp-allowlist-audit.sh` 存在 + executable bit
 - [ ] shellcheck で error 0 件
-- [ ] `! grep -nE "\\b(kill\|pkill\|killall)\\b" templates/hooks/mcp-allowlist-audit.sh` で 0 件 (SEC-01 自動検証、TASK-0124 で再確認)
-- [ ] `templates/hooks/tests/test-mcp-allowlist-audit.sh` の 13 シナリオ全 PASS
-- [ ] `bash templates/hooks/tests/run-tests.sh` で 109 + 13 = 122+ 全 PASS
-- [ ] `templates/hooks/tests/measure-hook-time.sh templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (機械判定 exit code)
+- [ ] **detection-only behavior は TASK-0124 の `test-detection-only-behavior.sh` で検証** (fake wrapper 方式、grep 不採用、Codex review P2-2 反映)
+- [ ] `templates/hooks/tests/test-mcp-allowlist-audit.sh` の 17 シナリオ全 PASS (transport-aware に拡張)
+- [ ] `bash templates/hooks/tests/run-tests.sh` で 109 + 17 = 126+ 全 PASS
+- [ ] `python3 templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (Python `time.perf_counter()` で macOS / Linux 互換、機械判定 exit code)
 - [ ] graceful degradation: registry 不在 / Codex CLI 不在 / `.mcp.json` 不在 / Python 不在 のいずれでも exit 0
 - [ ] audit log が `.sage/audit/mcp-allowlist-YYYYMMDD.log` に append-only で書かれる
 - [ ] audit log に raw command line 不在 (args redact 検証 grep で 0 件)

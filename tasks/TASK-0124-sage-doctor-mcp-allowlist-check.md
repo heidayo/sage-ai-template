@@ -42,12 +42,35 @@
    - hook (`templates/hooks/mcp-allowlist-audit.sh`) と doctor 両方が source または call で reuse
    - hook 側 logic が十分 modular なら本 script は wrapper のみ
 
-3. `templates/hooks/tests/test-detection-only-behavior.sh` 新規 (Codex review P2-5 反映):
-   - `templates/hooks/mcp-allowlist-audit.sh` を **subprocess として実行**
-   - 実行中に `ps aux | grep -E "kill|pkill|killall"` で kill 系プロセスが新規起動していないことを確認
-   - hook 終了後 PID 一覧の差分で 「new kill 系 child process 0 件」を assertion
-   - grep ベース検査 (`! grep -E "kill|pkill|killall" hook.sh`) はコメント / 文字列にも反応するため不採用、**挙動 test** で実際の process spawn を監視
-   - もし behavior test の OS 依存が高い場合 fallback として AST-level check (`bash -n` + token scan) も併用
+3. `templates/hooks/tests/test-detection-only-behavior.sh` 新規 (**fake wrapper 方式**、Codex review P2-2 反映):
+   - **setup**: tempdir に fake `kill` / `pkill` / `killall` 実行可能 wrapper を作成、各 wrapper は呼び出し時に `$INVOCATION_LOG` に追記
+   - **PATH manipulation**: `PATH="$tempdir:$PATH"` で fake wrapper を先頭に置く
+   - **execute**: `templates/hooks/mcp-allowlist-audit.sh` を subprocess として実行 (sample stdin 付き)
+   - **assertion**: `[ ! -s "$INVOCATION_LOG" ]` (= log file が空) を確認、非空なら FAIL
+   - **cleanup**: tempdir 削除
+   - `ps aux | grep` 方式は採用しない (test 自身の grep プロセス / SPEC コメント記述が false fail を起こすため、Codex review P2-2 で却下)
+   - 副次効果: hook 内で `kill` を文字列として `echo` する場合は wrapper が呼ばれないので false fail にならない (= 真の behavior 検証)
+
+   ```bash
+   # 概念実装イメージ:
+   tempdir=$(mktemp -d)
+   trap "rm -rf $tempdir" EXIT
+   INVOCATION_LOG="$tempdir/invocations.log"
+   for cmd in kill pkill killall; do
+     cat > "$tempdir/$cmd" <<'WRAPPER'
+   #!/bin/sh
+   echo "$0 called with: $*" >> "$INVOCATION_LOG"
+   WRAPPER
+     chmod +x "$tempdir/$cmd"
+   done
+   PATH="$tempdir:$PATH" bash templates/hooks/mcp-allowlist-audit.sh < /dev/null
+   if [ -s "$INVOCATION_LOG" ]; then
+     echo "FAIL: detection-only violation, kill family invoked:"
+     cat "$INVOCATION_LOG"
+     exit 1
+   fi
+   echo "PASS: no kill family invocation"
+   ```
 
 ## File Scope（変更許可範囲）
 
@@ -62,7 +85,7 @@
 - doctor から MCP server を kill / restart しない (audit-only)
 - `.sage/audit/*.log` の内容を改変 / rotate しない (本 TASK は read-only)
 - Phase 1-3 の test 109/109 を破壊しない (regression)
-- behavior test を grep のみで代替しない (Codex review P2-5 反映、コメント/文字列 false positive 回避)
+- behavior test を grep / `ps aux` ベースで実装しない (Codex review P2-2 反映、test 自身の grep プロセス混入で false fail、または SPEC/PLAN コメント記述で false positive、**fake wrapper 方式必須**)
 
 ## 完了条件
 

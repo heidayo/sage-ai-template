@@ -28,13 +28,19 @@
 
 ## 出力
 
-1. `templates/sage/mcp-allowlist-template.json` 新規:
-   - 必須 field 9 個: `name`, `command`, `args`, `version_pin`, `publisher`, `source_registry`, `approved_by`, `approved_at`, `expires_at`
-   - 推奨 field 1 個: `sha256` (`policy.require_sha256: true` で必須化可能)
-   - optional field 1 個: `notes`
-   - top-level `version: "1.0"` + `policy: { forbid_latest_tag: true, require_sha256: false, require_publisher: true }` + `bypass: { enabled: false }`
-   - 例として 2 server entry (`playwright` + `filesystem`) — 各々 SPEC-ID + 日付 + 期限 + version_pin + publisher 全揃い
-   - inline コメント (JSON では `_comment` field で代替) で「positive list」「`@latest` 禁止」「server 追加時は SPEC-ID を `approved_by` に記録」を案内
+1. `templates/sage/mcp-allowlist-template.json` 新規 (**transport-aware**, Codex review P1 反映):
+
+   - **stdio transport 必須 field**: `name`, `transport: "stdio"`, `artifact_type` (npm_package / local_binary), `command`, `args`, `version_pin`, `publisher`, `source_registry`, `approved_by`, `approved_at`, `expires_at`
+   - **stdio 推奨 field**: `npm_integrity` (npm_package 用、`policy.require_npm_integrity: true` で必須化可能)、`enabled_tools` / `disabled_tools`
+   - **http transport 必須 field**: `name`, `transport: "http"`, `artifact_type: "remote_http"`, `url`, `url_origin_pin`, `bearer_token_env_var`, `approved_by`, `approved_at`, `expires_at`
+   - **http 推奨 field**: `http_headers`, `env_http_headers`, `tls_pin_sha256`, `enabled_tools` / `disabled_tools`
+   - **共通 optional**: `notes`, `startup_timeout_sec`, `tool_timeout_sec`, `enabled`, `required`
+   - top-level: `version: "1.0"` + `policy: { forbid_latest_tag: true, require_npm_integrity: false, require_publisher: true, forbid_unknown_transport: true, http_require_url_origin_pin: true, http_require_bearer_token_env: true }` + `bypass: { enabled: false }`
+   - 例として **3 server entry**:
+     - `playwright` (transport: stdio, artifact_type: npm_package、SPEC 例の主要)
+     - `filesystem-local` (transport: stdio, artifact_type: local_binary、command_path_sha256 例)
+     - `company-search` (transport: http, artifact_type: remote_http、url_origin_pin + bearer_token_env_var 例)
+   - inline コメント (JSON `_comment` field) で「positive list」「`@latest` 禁止」「server 追加時 SPEC-ID 記入」「HTTP MCP は anonymous 禁止 (bearer_token_env_var 必須)」を案内
 
 2. `templates/sage/README.md` 新規 (もし不在なら):
    - `templates/sage/` ディレクトリの位置づけ (registry / inventory 雛形配布元)
@@ -59,10 +65,14 @@
 
 - [ ] `templates/sage/mcp-allowlist-template.json` 存在
 - [ ] `version`, `servers`, `policy`, `bypass` の 4 top-level key 存在
-- [ ] `servers` に 2+ example entry、各々 9 必須 field + 推奨 sha256 全揃い
+- [ ] `servers` に 3+ example entry (stdio/npm_package, stdio/local_binary, http/remote_http の 3 transport-artifact 組合せ)
+- [ ] 各 entry に必須 field 全揃い (transport ごとの schema validation 可能)
 - [ ] policy.forbid_latest_tag = true (default)
-- [ ] policy.require_publisher = true (default)
-- [ ] policy.require_sha256 = false (default、user opt-in)
-- [ ] `_comment` 形式で positive list 原則 / SPEC-ID 記入ルール / `@latest` 禁止を案内
+- [ ] policy.require_publisher = true (default、stdio 用)
+- [ ] policy.require_npm_integrity = false (default、user opt-in)
+- [ ] policy.forbid_unknown_transport = true (default)
+- [ ] policy.http_require_url_origin_pin = true (default)
+- [ ] policy.http_require_bearer_token_env = true (default、HTTP MCP の anonymous 禁止)
+- [ ] `_comment` 形式で positive list 原則 / SPEC-ID 記入ルール / `@latest` 禁止 / HTTP MCP の auth 必須を案内
 - [ ] JSON parse で error 0 件 (`python3 -c "import json; json.load(open('templates/sage/mcp-allowlist-template.json'))"`)
 - [ ] commit message に `TASK-0122:` を含む
