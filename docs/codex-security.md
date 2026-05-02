@@ -72,8 +72,10 @@ approval_policy = "on-request"
 #    Add specific upstream allowlist if your workflow needs it.
 network_access = false
 
-# 4. Optional: tighten writable roots beyond the default cwd.
-# writable_roots = ["./src", "./tests"]
+# 4. Optional: ADD additional writable roots beyond the default cwd.
+#    Note: writable_roots EXTENDS write access — it does NOT restrict it.
+#    To narrow write scope, launch Codex from a smaller working directory.
+# writable_roots = ["/tmp/codex-output"]
 
 [mcp_servers]
 # 5. List ONLY trusted MCP servers explicitly. Do NOT import from a
@@ -115,13 +117,14 @@ network_access = false
 ### 公式リファレンス
 
 - [Codex Cloud / web — Internet Access](https://developers.openai.com/codex/cloud/internet-access)
-- 環境管理画面で audit log を有効化し、agent phase の outbound を月次レビュー
+- 公式表現 (引用): "allow only the domains and HTTP methods you need, and review the agent output and work log."
+- 運用: agent phase 完了後に **agent output** と **work log** を必ず review (公式 docs で明示されている唯一の監視手段)
 
 ### Codex Cloud で避ける運用
 
 - すべての environment を internet access on にする
 - prompt injection 由来で agent が外部サーバへ POST する経路を許す (例: webhook.site / pastebin)
-- environment 単位の audit log を無効化したまま運用する
+- agent output / work log を review せずに merge / 反映する
 
 ---
 
@@ -206,20 +209,29 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          # PR's merge commit (公式 README example 準拠)
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
-      # 2. branch / PR title / body は env 経由で渡す。shell に直挿ししない。
+      # 2. allow-users + safety-strategy: drop-sudo + sandbox: workspace-write + last-step-only
+      #    branch / PR title / body は prompt heredoc 内で expression として参照しても、
+      #    Codex は CLI sandbox 内で実行されるため shell injection 経路にならない。
+      #    ただし `run:` で展開する場合は env 経由 + double quote 必須 (本 sample は `uses:` のみ)。
       - name: Codex review (last step)
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          PR_BRANCH: ${{ github.head_ref }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        # 3. allow-users + drop-sudo + last-step-only
         uses: openai/codex-action@<PIN_TO_SHA>  # commit SHA pin (tag は再現性低)
         with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           allow-users: 'YOUR_TRUSTED_USER,ANOTHER_REVIEWER'
-          drop-sudo: true
+          safety-strategy: drop-sudo  # 既定値、明示で意図を残す
+          sandbox: workspace-write
+          prompt: |
+            Review PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
+
+            Title: ${{ github.event.pull_request.title }}
+            Body:
+            ${{ github.event.pull_request.body }}
+
+            Focus on: security, correctness, primary-source citations.
+            Be concise. Prioritize findings as P1/P2/P3.
 ```
 
 ### 禁止事項
@@ -243,8 +255,14 @@ jobs:
 #    https://platform.openai.com/api-keys
 
 # 2. GitHub audit log で Codex 関連 PR / commit を特定
+#    audit log REST API は organization (または enterprise) scope のみ。
+#    repos/* の audit-log endpoint は存在しない (404)。
+#    要件: org owner/admin 権限 + PAT に `read:audit_log` scope。
+#    org plan によっては Enterprise Cloud / Audit Log Streaming が必要。
 gh api -H "Accept: application/vnd.github+json" \
-  "repos/<OWNER>/<REPO>/audit-log?phrase=actor:openai-codex" 2>&1 | head -50
+  "orgs/<ORG>/audit-log?phrase=actor:openai-codex" 2>&1 | head -50
+# Enterprise の場合:
+# gh api "enterprises/<ENTERPRISE>/audit-log?phrase=actor:openai-codex"
 
 # 3. 影響 PR / branch / commit のリスト化
 gh pr list --repo <OWNER>/<REPO> --state all --search "author:app/openai-codex created:>2026-XX-XX"
