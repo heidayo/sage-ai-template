@@ -430,3 +430,58 @@ SAGE 採用組織は以下を別途構築する:
 - [ATTRIBUTION.md](../ATTRIBUTION.md) — 一次ソース・統合知識源
 - [CLAUDE.md](../CLAUDE.md) §0 — Claude Code 向け template-trust callout
 - [AGENTS.md](../AGENTS.md) §0 — Codex 向け template-trust callout
+
+## 10. AI Agent Doc Pairing Doctrine
+
+[SPEC-0023](../specs/SPEC-0023-claude-collaboration-pairing.md) で formalize された、CLAUDE.md ↔ AGENTS.md 整合性運用ルール。SPEC-0022 (Codex Delegation Packet) → SPEC-0023 (Claude Collaboration Brief) が最初の paired SPEC 事例。
+
+### 10.1 趣旨
+
+Codex / Claude Code は実務上の特性が異なる (delegation vs collaboration、短く速い vs 説明厚い)。SAGE はどちらにも対応するため、**全 rule を identical 維持** ではなく **shared rules / CLI-specific rules を分離** し、CLI-specific guidance の追加に paired-update 手続を要求する。
+
+### 10.2 Shared rules (両 doc で identical 維持必須)
+
+以下は CLAUDE.md / AGENTS.md / templates/{claude,agents}-md-snippet.md 全てで semantic identical を維持する:
+
+- SAGE 7-phase lifecycle (Specify → Plan → Slice → Execute → Verify → Merge → Observe)
+- Quality Gate 1-5
+- Lane 設計 (vibe / lite / standard / promotion)
+- Traceability (SPEC-ID → PLAN-ID → TASK-ID → COMMIT-ID)
+- Forbidden Shortcuts
+- File Scope rules
+- Language rules
+- Template-trust callout
+
+### 10.3 CLI-specific rules (divergence 許容)
+
+以下は CLI 別に divergence してよい:
+
+- Codex Delegation Packet (`docs/codex-delegation-packet.md`) — Codex 専用 input 形式
+- Claude Collaboration Brief (`docs/claude-collaboration-brief.md`) — Claude 専用 engagement guide
+- Hook implementation (templates/hooks/) — Claude Code `PreToolUse`/`PostToolUse` 専用、Codex は AGENTS.md prompt-level guidance で代替
+- slash commands (`.claude/skills/`) — Claude Code 専用、Codex には skill 概念なし
+- Plan Mode / auto memory / model aliases — Claude Code 専用機能
+- Codex sandbox / approval / network 推奨設定 (`docs/codex-security.md`) — Codex CLI/Cloud 専用
+
+### 10.4 Paired-update 要件
+
+CLI-specific guidance を片側 (例: AGENTS.md) に追加する SPEC は、以下のいずれかを満たす必要がある:
+
+1. 同 PR で対側 (CLAUDE.md) を parallel update する (例: SPEC-0022 + SPEC-0023 を同 PR で merge する pattern)
+2. 別 SPEC として paired SPEC-ID を起票し、SPEC body に「paired with SPEC-XXXX」を明記する (SPEC-0022 → SPEC-0023 の現実例)
+3. 「対側に該当機能なし」を明示する場合は、対側 SPEC の SPEC body に「N/A: <理由>」を 1 文以上で記述する
+
+### 10.5 Drift 検知
+
+`templates/hooks/tests/test-claude-collaboration-pairing.sh` (SPEC-0023 TASK-0155) が CI で常時検証:
+
+- CLAUDE.md / AGENTS.md §2 doctrine が semantic alignment 文言を含む
+- claude-md-snippet.md / agents-md-snippet.md に CLI-specific guidance が parallel に存在
+- governance.md §10 (本節) の存在
+- docs/{codex-delegation-packet, claude-collaboration-brief}.md の必須セクション存在
+
+drift 検出時は CI fail → paired SPEC 起票または対側 update を要求。
+
+### 10.6 例外
+
+CLI 一方にしか存在しない機能 (例: Plan Mode は Claude 専用、Codex App computer use は Codex 専用) は対側 SPEC で「N/A: <理由>」を明示すれば paired 完了とみなす。例: 将来「SPEC-XXXX: Codex App computer use guide」が起票された場合、Claude 側 paired SPEC は「N/A: Claude Code には computer use 機能がないため」と SPEC body に記述すれば doctrine 遵守。

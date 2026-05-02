@@ -52,3 +52,6 @@ echo ""
 # SPEC-0022: Codex delegation packet
 embed_file "TMPL_CODEX_DELEGATION_PACKET" "$ROOT/docs/codex-delegation-packet.md"
 echo ""
+# SPEC-0023: Claude collaboration brief (paired with SPEC-0022 Codex delegation packet)
+embed_file "TMPL_CLAUDE_COLLABORATION_BRIEF" "$ROOT/docs/claude-collaboration-brief.md"
+echo ""
