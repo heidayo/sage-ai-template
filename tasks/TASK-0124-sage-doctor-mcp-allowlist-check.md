@@ -30,11 +30,12 @@
 
 1. `scripts/sage-doctor.sh` 拡張:
    - 新 step「MCP allowlist check」を既存 step 群の後に追加 (出力 format 統一)
-   - 4 観点の check:
+   - 5 観点の check (Codex 5th review P2 #3 反映で strict-block drift type を全部 doctor にも反映):
      - **(a) registry 存在**: `.sage/mcp-allowlist.json` 存在しなければ WARN (initial setup 案内)
      - **(b) registry validity**: JSON parse 不能 → FAIL (Python stdlib `json.loads()`)
-     - **(c) drift count**: TASK-0123 hook の drift 検出 logic を reuse して件数報告。drift1 / drift5 件数 > 0 → WARN
-     - **(d) expired approvals 集計**: `expires_at` < 今日の server 数を WARN
+     - **(c) strict-block drift count**: TASK-0123 hook の drift 検出 logic を reuse して件数報告。**strict 時 block 対象 4 cases (drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch) のいずれか 1 件 > 0 で WARN** (Codex 5th review P2 #3 反映: doctor が事前に検出することで strict 昇格時の予期せぬ block を防ぐ)
+     - **(d) other drift count** (warn-only category): drift2 / drift3 / drift4 / drift6 OAuth approve / drift6 Bearer approve / drift7 sensitive header / transport mismatch の合計件数を INFO レベルで報告
+     - **(e) expired approvals 集計**: `expires_at` < 今日の server 数を WARN
    - 出力 format: `[N/M] MCP allowlist check...` + 各 sub-check で `OK: ...` / `WARN: ...` / `FAIL: ...`
    - 既存 summary line (`OK: X  WARN: Y  FAIL: Z`) に集計反映
 

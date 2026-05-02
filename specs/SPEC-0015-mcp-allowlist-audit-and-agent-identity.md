@@ -278,8 +278,8 @@ Phase 1-3 で以下を整備:
   | 昇格 | 条件 | 検証コマンド |
   |---|---|---|
   | minimal → standard | minimal で 7 日運用 + sage-doctor で 0 FAIL 維持 | `bash scripts/sage-doctor.sh && find .sage/audit -name 'mcp-allowlist-*.log' -mtime -7 \| xargs grep -c WARN` |
-  | standard → strict | standard で 14 日運用 + drift1 / drift5 (artifact integrity mismatch、artifact_type ごと) 各 0 件 | `awk '/drift1\|drift5/' .sage/audit/mcp-allowlist-*.log \| wc -l` で 0 |
-  | strict 維持 | artifact integrity mismatch 1 件で即 incident response 起動 | `bash scripts/sage-incident-trigger.sh mcp-supply-chain` (本 SPEC 範囲外、SECURITY.md IR 手順) |
+  | standard → strict | standard で 14 日運用 + **strict 時 block 対象 4 cases 全 0 件** (drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch、Codex 5th review P2 反映で drift6/drift8 を昇格条件に追加) | `awk '/drift1\|drift5\|drift6 anonymous\|drift8/' .sage/audit/mcp-allowlist-*.log \| wc -l` で 0 |
+  | strict 維持 | strict 時 block 対象 4 cases いずれか 1 件で即 incident response 起動 | `bash scripts/sage-incident-trigger.sh mcp-supply-chain` (本 SPEC 範囲外、SECURITY.md IR 手順) |
 
   各段階の昇格は `.sage/config.yaml` `hooks.profile` 更新 PR で実施、PR body に上記検証コマンド出力を貼る (auditability)。
 
@@ -300,7 +300,7 @@ Phase 1-3 で以下を整備:
     - drift 6 anonymous (HTTP MCP の `auth_mode: "none"` または auth_mode 不在 + `policy.http_require_auth: true`) で warn (standard) / **block (strict)** (Codex 4th review P2 #4 反映)
     - drift 6 OAuth approve (HTTP MCP の `auth_mode: "oauth"` で oauth_provider 等が registry と一致 → 通常承認)
     - drift 6 Bearer approve (HTTP MCP の `auth_mode: "bearer_env"` で bearer_token_env_var が registry と一致 → 通常承認)
-    - **drift 7 sensitive header — case-insensitive matching tests** (Codex 4th review P2 #2 反映): 以下 3 variant 全て FAIL:
+    - **drift 7 sensitive header — case-insensitive matching tests** (Codex 4th-5th review 反映): 以下 4 variant 全て FAIL:
       - `http_headers: { "Authorization": "Bearer ..." }` (canonical case)
       - `http_headers: { "authorization": "Bearer ..." }` (lowercase)
       - `http_headers: { "AUTHORIZATION": "Bearer ..." }` (uppercase)
@@ -317,7 +317,7 @@ Phase 1-3 で以下を整備:
 - [ ] AC-04: `scripts/sage-doctor.sh` 実行で MCP allowlist check が新ステップとして OK / WARN / FAIL を返す
 - [ ] AC-05: Performance test helper `templates/hooks/tests/measure-hook-time.py` (Python ベース) が 5 回 `time.perf_counter()` 測定中央値で AC-11 を機械的判定 (exit code で fail/pass、Codex review P2-3 反映で macOS / Linux 完全互換)
 - [ ] AC-06: `SECURITY.md` / `sage/governance.md` §9.1 / §9.2 / `AGENTS.md` / `CLAUDE.md` / `docs/codex-security.md` の 5 ファイルに本 SPEC の cross-reference / 追記が反映 (各最大 +3 行、R7 厳守)
-- [ ] AC-07: `bash templates/hooks/tests/run-tests.sh` 全 PASS (109 + 24 シナリオ = 133+、Codex 4th review P2 #2/#3/#4 反映で case-insensitive header 3 variant + drift8 OAuth callback + drift6 strict block test 追加)
+- [ ] AC-07: `bash templates/hooks/tests/run-tests.sh` 全 PASS (109 + 24 シナリオ = 133+、Codex 4th-5th review 反映で case-insensitive header **4 variant** + drift8 OAuth callback + drift6 strict block test 追加)
 - [ ] AC-08: `bash scripts/sage-validate.sh` PASS
 - [ ] AC-09: `bash scripts/sage-doctor.sh` 0 FAIL (新ステップ含む)
 - [ ] AC-10: `bash scripts/sage-doc-drift.sh` PASS

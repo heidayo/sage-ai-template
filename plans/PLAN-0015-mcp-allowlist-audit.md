@@ -61,7 +61,7 @@ SPEC-0015 (Codex review 後 scope 縮小、agent identity は SPEC-0017 に分�
 TASK-0122 (foundation, 30m)
     │
     ▼
-TASK-0123 (audit hook + perf helper, 150m、Codex 2nd review 反映で transport-aware + Python helper / fake wrapper で +30m)
+TASK-0123 (audit hook + perf helper, 165m、Codex 2nd-4th review 累積で +45m: transport-aware + Python helper + fake wrapper + auth_mode + secret hygiene + OAuth top-level + drift6 strict + case-insensitive)
     │
     ▼
 TASK-0124 (doctor + behavior test, 60m)
@@ -104,12 +104,12 @@ Phase 1-3 で確立した cross-model adversarial review pattern を本 SPEC で
 |---|---|
 | **R1** (no branch protection auto-config) | 本 SPEC で branch protection / Ruleset を触らない |
 | **R2** (sandbox_mode template only, runtime change なし) | 本 SPEC は audit-only、MCP runtime / process 起動は SAGE 範囲外 (governance §9.2 維持)。`audit-first` / `runtime-process-safe` 用語で精緻化 (Codex review continued doctrine 反映) |
-| **R3** (Lethal Trifecta warn-only) | 本 SPEC の drift detection も warn-only ベース、strict profile のみ block (drift1 / drift5)。R3 と同方向 |
+| **R3** (Lethal Trifecta warn-only) | 本 SPEC の drift detection も warn-only ベース、strict profile のみ block (**drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch の 4 cases**、Codex 4th-5th review 反映で http_require_auth + oauth_callback_require_match policy と挙動を整合)。R3 と同方向 |
 | **R4** (no SecPass thresholds) | 本 SPEC で「100% drift 0 必須」のような硬い閾値を設定しない。OPS-05 の昇格条件は運用 doctrine、強制ではない |
 | **R5** (RUN log redaction first) | 本 SPEC の audit log は drift event 集計用、args は **redact** (Codex review P2 反映)、secret 漏洩防止 |
 | **R6** (license vs security 分離) | 本 SPEC は security 専念 |
 | **R7** (CLAUDE/AGENTS 肥大化禁止) | TASK-0126 で AGENTS / CLAUDE 各 +1 行のみ、長文は SPEC + docs/codex-security.md (§2 末尾 1 行) に集約 |
-| **R8** (hook tests required) | TASK-0123 で 13 シナリオ test 必須、test 抜きの hook 追加禁止 |
+| **R8** (hook tests required) | TASK-0123 で **24 シナリオ** test 必須 (Codex 1st: 13 → 2nd: 17 → 3rd: 20 → 4th: 24)、test 抜きの hook 追加禁止 |
 | **R9** (shellcheck required) | TASK-0123 で `mcp-allowlist-audit.sh` に shellcheck error 0 件必須 |
 | **R10** (一次ソース引用) | OWASP Agentic Skills Top 10 / OpenAI Codex config reference / SAGE governance §9.2 を一次ソースとして引用 |
 

@@ -43,8 +43,12 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
    - **opt-in 比較対象**: `.sage/config.yaml` の `mcp_audit.include_user_global_codex: true` を明示時のみ `~/.codex/config.toml` も対象
    - registry parse: **Python stdlib `json`** (`python3 -c "import json,sys; ..."`、awk 不採用)
    - Python 不在時: `command -v python3` 失敗で warn + skip (graceful degradation NFR-03)
-   - drift 検出 5 case (drift1..drift5 + expired)、各 case に warn 文言 + audit log 出力
-   - profile=`none`/`minimal` で完全 skip (true silent)、`standard` で warn (exit 0)、`strict` で drift1 / drift5 を block (exit 1)
+   - drift 検出 8+ case (Codex 4th review 反映で transport + auth-aware に拡張):
+     - **stdio**: drift1 (registry にない server) / drift2 (args version mismatch) / drift3 (registry only) / drift4 (`@latest`) / drift5 (artifact integrity mismatch — npm_integrity / command_path_sha256 / tls_pin_sha256)
+     - **http**: drift1 http / drift2 http (url_origin mismatch) / drift6 anonymous (auth_mode: "none") / drift6 OAuth approve / drift6 Bearer approve / drift7 sensitive header (case-insensitive 4 variant) / drift8 OAuth callback mismatch
+     - **共通**: transport mismatch (drift1 として判定) / expired approval
+     - 各 case に warn 文言 + audit log 出力
+   - profile=`none`/`minimal` で完全 skip (true silent)、`standard` で warn (exit 0)、**`strict` で drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch の 4 cases を block (exit 1)** (Codex 4th review P2 #4 反映で http_require_auth policy 名と挙動の整合)
    - audit log 書き先: `.sage/audit/mcp-allowlist-$(date -u +%Y%m%d).log` (ディレクトリ自動作成)
    - **args redact**: log には raw command line でなく `<command> <package-name>@<version>` 形式に正規化 (Codex review P2 反映)
    - registry 不在: 1 回 warn + skip
@@ -53,7 +57,7 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
 
 2. `templates/hooks/tests/test-mcp-allowlist-audit.sh` 新規:
    - sandbox 作成 + cleanup
-   - test cases (最低 17、NFR-06 シナリオ網羅性、transport-aware):
+   - test cases (最低 24、NFR-06 シナリオ網羅性、transport + auth-aware):
      - **stdio drift**:
        - drift 1 stdio: registry にない stdio server を `.mcp.json` に作る → warn
        - drift 2 stdio: args version mismatch → warn
