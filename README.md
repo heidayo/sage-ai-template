@@ -145,31 +145,37 @@ graph TD
 
 ## 導入方法
 
-> **⚠️ Trust First**: SAGE installer は約 364KB の large generated shell script (source は SPEC-0014 で `scripts/generator/` 7 module に分割済、配布は単一 file 維持) で、`.git/hooks` / `.github/workflows` / `.claude/settings.json` 等を一括書き換えます。**未検証で実行しないでください**。Phase 1 (SPEC-0010) で provenance 表示と dry-run プレビューを実装済みです — 下記の推奨手順 (Step 1A) を使ってください。詳細は [SECURITY.md](SECURITY.md) を参照。
+> **⚠️ Trust First**: SAGE installer は約 364KB の large generated shell script (source は SPEC-0014 で `scripts/generator/` 7 module に分割済、配布は単一 file 維持) で、`.git/hooks` / `.github/workflows` / `.claude/settings.json` 等を一括書き換えます。**未検証で実行しないでください**。Phase 1 (SPEC-0010) で provenance 表示と dry-run プレビュー、Phase 6.1 ([SPEC-0018](specs/SPEC-0018-installer-supply-chain-hardening.md)) で **GitHub Releases primary distribution + SHA256SUMS 公開 + `--verify-checksum --remote`** を実装済 — 下記の推奨手順 (Step 1A) を使ってください。詳細は [SECURITY.md](SECURITY.md) を参照。
 
-### Step 1A: 推奨手順 (download → verify → preview → review → execute)
+### Step 1A: 推奨手順 (download → verify checksum → preview → review → execute)
 
 ```bash
 cd /path/to/your-project
 
-# 1. Download (実行はしない)
-curl -fsSL -o install.sh https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh
+# 1. Download install.sh + SHA256SUMS from GitHub Releases (primary, immutable per tag)
+curl -fsSL -o install.sh    https://github.com/heidayo/sage-ai-template/releases/latest/download/install.sh
+curl -fsSL -o SHA256SUMS    https://github.com/heidayo/sage-ai-template/releases/latest/download/SHA256SUMS
 
-# 2. Verify provenance (SHA256 / 由来 / ライセンス確認)
+# 2. Verify SHA256 against the published SHA256SUMS (SPEC-0018)
+shasum -a 256 -c SHA256SUMS    # macOS / BSD
+# or: sha256sum -c SHA256SUMS   # Linux GNU coreutils
+
+# 3. Verify provenance (SHA256 / 由来 / ライセンス確認)
 bash install.sh --print-provenance
 
-# 3. Preview without writing (dry-run で副作用なし内容確認)
+# 4. Preview without writing (dry-run で副作用なし内容確認)
 bash install.sh --dry-run
 
-# 4. (任意) install.sh 自体を読む / shellcheck で検査
+# 5. (任意) install.sh 自体を読む / shellcheck で検査
 less install.sh
 shellcheck install.sh
 
-# 5. Execute
+# 6. Execute
 bash install.sh
 
-# 6. Post-install drift detection (任意・推奨)
-bash install.sh --verify-checksum
+# 7. Post-install drift detection (任意・推奨)
+bash install.sh --verify-checksum                # local state vs current files
+bash install.sh --verify-checksum --remote       # local installer vs release SHA256SUMS (SPEC-0018)
 ```
 
 ### Step 1B: 一行導入 (隔離環境・dev container 等で sandbox 済の場合のみ)
@@ -178,7 +184,11 @@ bash install.sh --verify-checksum
 
 ```bash
 cd /path/to/your-project
-curl -fsSL https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh | bash
+# Primary (GitHub Releases, immutable per tag, recommended for production):
+curl -fsSL https://github.com/heidayo/sage-ai-template/releases/latest/download/install.sh | bash
+
+# Legacy fallback (Gist, mutable, kept for backward compat with existing .sage/config.yaml users):
+# curl -fsSL https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh | bash
 ```
 
 または既に repository を clone 済の場合:
@@ -434,11 +444,16 @@ graph TD
 
 ### 更新通知（推奨）
 
-`.sage/config.yaml` に `installer_url` を設定するだけ：
+`.sage/config.yaml` に `installer_url` を設定するだけ。SPEC-0018 以降は GitHub Releases URL を推奨 (immutable per tag、SHA256SUMS で verification 可)：
 
 ```yaml
 auto_update:
-  installer_url: "https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh"
+  # Primary (recommended for production, SPEC-0018):
+  installer_url: "https://github.com/heidayo/sage-ai-template/releases/latest/download/install.sh"
+  # Tag-pinned for full reproducibility (auto-update notification は skip される):
+  # installer_url: "https://github.com/heidayo/sage-ai-template/releases/download/v1.6.0/install.sh"
+  # Legacy fallback (Gist):
+  # installer_url: "https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh"
 ```
 
 ```mermaid
