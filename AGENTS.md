@@ -37,6 +37,9 @@ SAGE の `templates/hooks/` は Claude Code の `PreToolUse`/`PostToolUse` 機�
 - **Codex 利用者向け詳細ガイド**: [docs/codex-security.md](docs/codex-security.md) (config.toml 推奨設定 / Codex Cloud / CODEX_HOME 対策 / codex-action hardening / IR 手順)
 
 SAGE が提供する Codex 向け価値は: SPEC/PLAN/TASK lifecycle / File Scope / anti-pattern 学習枠組み / AGENTS.md ルール — **runtime enforcement ではなく仕様駆動の構造設計**。
+- Codex は委任型 agent として扱う。詳細は [docs/codex-delegation-packet.md](docs/codex-delegation-packet.md) を参照する。
+- 標準レーンで Goal / Scope / Non-goals / File Scope / Acceptance Criteria / Tests が不足する場合は、実装前に packet または SPEC/TASK を整える。
+- Claude Code 固有ファイル (`CLAUDE.md`, `.claude/`) の修正は Claude 側 task に分離し、Codex は直接編集しない。
 
 ## 3. SAGE Lifecycle Protocol
 

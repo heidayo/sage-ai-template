@@ -49,3 +49,6 @@ embed_file "TMPL_PROMOTE" "$ROOT/scripts/sage-promote.sh"
 echo ""
 embed_file "TMPL_RETRO_SPEC" "$ROOT/scripts/sage-retro-spec.sh"
 echo ""
+# SPEC-0022: Codex delegation packet
+embed_file "TMPL_CODEX_DELEGATION_PACKET" "$ROOT/docs/codex-delegation-packet.md"
+echo ""

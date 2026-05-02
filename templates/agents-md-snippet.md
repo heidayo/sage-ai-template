@@ -11,6 +11,8 @@
 - Development lanes: explore (`vibe/*`, no gates) | lite (`fix/*` / `chore/*` / `docs/*`, TASK-ID + max 3 files + no contract changes + Gate 1+3) | standard (`feature/*`, full SPEC + Gate 1-4) | promotion (`promote/*`, Retro-SPEC + TASK-ID + Gate 1-4).
 - `vibe/*` → `main` direct merge is prohibited. Use `promote/*` with Retro-SPEC.
 - Do not modify `sage/` without human approval.
+- Codex delegation packet: follow `docs/codex-delegation-packet.md`; standard-lane tasks need Goal / Scope / Non-goals / File Scope / Acceptance Criteria / Tests before implementation.
+- Codex-only boundary: do not edit Claude Code-specific files (`CLAUDE.md`, `.claude/`) unless a human explicitly assigns that scope to Codex. Record them as Claude follow-up otherwise.
 
 Prohibited:
 - Implementing without a SPEC
