@@ -20,6 +20,14 @@ gate_results:
 # Optional fields — accepted by the validator but not required:
 error_log: ""                       # free-form error trace if status == fail
 
+# SPEC-0017 runtime observation fields (optional, validator warn on mismatch
+# with .sage/agent-inventory.yaml). All default to "unknown" when unset:
+#
+# runtime: claude-code              # claude-code | codex-cli | codex-cloud | cron | human | unknown
+# tool_runtime: ""                  # free-form, e.g. "claude-code-2.1.x", "codex-cli-0.23.x"
+# approval_policy: on-request       # on-request | never | always | unknown
+# network_mode: off                 # off | allowlist | unrestricted | unknown
+
 # Harness-only extensions (validator ignores unknown keys):
 # Uncomment and populate when the run is orchestrated by sage-harness.
 #

@@ -68,6 +68,11 @@ run_log_schema:
       architecture: "pass | fail | skipped"
       release: "pass | fail | skipped"
     error_log: ""
+    # SPEC-0017 runtime observation fields (optional, validator warn on mismatch)
+    runtime: "claude-code | codex-cli | codex-cloud | cron | human | unknown"
+    tool_runtime: "free-form, e.g. claude-code-2.1.x"
+    approval_policy: "on-request | never | always | unknown"
+    network_mode: "off | allowlist | unrestricted | unknown"
 
 # --- ID Schema ---
 id_schema:

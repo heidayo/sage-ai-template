@@ -1,0 +1,65 @@
+# SAGE agent identity inventory (SPEC-0017)
+#
+# Declares which runtime context each agent_id is expected to run in.
+# RUN log validator (scripts/sage-runlog-validate.sh) compares the
+# observed runtime / approval_policy / network_mode in each RUN log
+# against this declaration and warns on mismatch.
+#
+# Doctrine:
+# - declarative-only (no runtime authentication, governance §9.2)
+# - inventory absent → validator falls back to existing agent_id enum check
+# - new agent role → update this inventory in the same PR (audit trail)
+
+version: "1.0"
+
+agents:
+  - agent_id: spec
+    expected_runtime: ["claude-code", "human"]
+    expected_tool_runtime_pattern: "(claude-code|human)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Spec authoring agent — runs in Claude Code or by human."
+
+  - agent_id: planning
+    expected_runtime: ["claude-code", "human"]
+    expected_tool_runtime_pattern: "(claude-code|human)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Planning agent — same runtime profile as spec."
+
+  - agent_id: implementation
+    expected_runtime: ["claude-code", "codex-cli"]
+    expected_tool_runtime_pattern: "(claude-code-2|codex-cli-0)\\."
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    restricted_to_branches: ["feature/*", "fix/*", "chore/*", "vibe/*"]
+    notes: "Implementation agent — claude-code or codex-cli, sandbox-write."
+
+  - agent_id: review
+    expected_runtime: ["codex-cli", "codex-cloud", "claude-code", "human"]
+    expected_tool_runtime_pattern: "(codex|claude-code|human)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Review agent — cross-model adversarial review (Codex preferred)."
+
+  - agent_id: test
+    expected_runtime: ["claude-code", "codex-cli", "cron"]
+    expected_tool_runtime_pattern: "(claude-code|codex|cron)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Test agent — also valid for CI cron runs."
+
+  - agent_id: security
+    expected_runtime: ["codex-cli", "claude-code", "human"]
+    expected_tool_runtime_pattern: "(codex|claude-code|human)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Security review agent — Codex preferred for adversarial review."
+
+  - agent_id: operations
+    expected_runtime: ["claude-code", "human", "cron"]
+    expected_tool_runtime_pattern: "(claude-code|human|cron)"
+    expected_approval_policy: "always"
+    expected_network_mode: "allowlist"
+    restricted_to_branches: ["main", "production"]
+    notes: "Operations agent — production changes, network access for deploys."
