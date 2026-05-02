@@ -93,6 +93,7 @@ SAGE が想定する **主要な脅威カテゴリ** は以下です。これら
 | AI 生成コードの security correctness 低さ (Endor: 23.5%)         | [partial] Gate 2 (functional) 提供。FuncPass/SecPass 概念分離は Phase 4 |
 | Recursive hallucination spiral (693行迷走パターン)                | [partial] anti-pattern AP-07 (SPEC-0007) で記載済 |
 | MCP allowlist supply-chain drift (`@latest` 差し替え / sha256 改ざん / 未承認 server 追加 / OAuth callback 乗っ取り) | [provided] mcp-allowlist-audit hook + `templates/sage/mcp-allowlist-template.json` ([SPEC-0015](specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md), Phase 5, audit-only with supply-chain pin) |
+| Agent identity drift (declared agent_id vs observed runtime mismatch — implementation agent run from unexpected runtime, approval policy weakened, network access broadened) | [provided] sage-runlog-validate.sh inventory check + `templates/sage/agent-inventory-template.yaml` ([SPEC-0017](specs/SPEC-0017-agent-identity-inventory.md), Phase 5+, validator-only) |
 
 ---
 

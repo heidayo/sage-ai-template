@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="1.2.1"
+SAGE_VERSION="1.3.0"
 
 # === Embedded templates ===
 
@@ -680,7 +680,7 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | Lane 設計 | vibe / lite / standard / promotion の 4 Lane と昇格プロトコル (`scripts/sage-promote.sh`) |
 | File Scope | TASK ごとの変更可能ファイル明示と pre-commit hook |
 | Anti-pattern 学習 | `sage/anti-patterns.md`, `sage/failures.md` の蓄積枠組み |
-| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, Stop hook で全 RUN-*.yaml を per-file atomic redact)** / **mcp-allowlist-audit (Phase 5, SessionStart audit-only with supply-chain pin)**) — pattern matching による補助ガード |
+| Hook テンプレート | `templates/hooks/` (block-dangerous-commands / protect-sage-files / check-file-scope / session-start / session-stop / **lethal-trifecta-detect (Phase 2B, warn-only)** / **secret-read-multi-layer (Phase 2B)** / **security-filter (Phase 2B, Stop hook で全 RUN-*.yaml を per-file atomic redact)** / **mcp-allowlist-audit (Phase 5, SessionStart audit-only with supply-chain pin)**) — pattern matching による補助ガード。**agent identity inventory (Phase 5+, SPEC-0017, validator-only)** で declared vs observed runtime drift を検出 |
 | Settings template | `templates/settings/sandbox.json` + README (Phase 2B, **雛形のみ — 適用は user 責任**) — Claude Code sandbox / permission 推奨設定 |
 | AI agent 向け instruction | CLAUDE.md / AGENTS.md / `.claude/rules/` のテンプレート |
 | Skill / governance / traceability | `templates/skills/sage-*/`, 本ドキュメント, `sage/traceability.md` |
@@ -1413,6 +1413,11 @@ run_log_schema:
       architecture: "pass | fail | skipped"
       release: "pass | fail | skipped"
     error_log: ""
+    # SPEC-0017 runtime observation fields (optional, validator warn on mismatch)
+    runtime: "claude-code | codex-cli | codex-cloud | cron | human | unknown"
+    tool_runtime: "free-form, e.g. claude-code-2.1.x"
+    approval_policy: "on-request | never | always | unknown"
+    network_mode: "off | allowlist | unrestricted | unknown"
 
 # --- ID Schema ---
 id_schema:
@@ -7255,6 +7260,342 @@ PYEOF
 
 __EOF_TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT__
 
+read -r -d '' TMPL_SAGE_AGENT_INVENTORY <<'__EOF_TMPL_SAGE_AGENT_INVENTORY__' || true
+# SAGE agent identity inventory (SPEC-0017)
+#
+# Declares which runtime context each agent_id is expected to run in.
+# RUN log validator (scripts/sage-runlog-validate.sh) compares the
+# observed runtime / approval_policy / network_mode in each RUN log
+# against this declaration and warns on mismatch.
+#
+# Doctrine:
+# - declarative-only (no runtime authentication, governance §9.2)
+# - inventory absent → validator falls back to existing agent_id enum check
+# - new agent role → update this inventory in the same PR (audit trail)
+
+version: "1.0"
+
+agents:
+  - agent_id: spec
+    expected_runtime: ["claude-code", "human"]
+    expected_tool_runtime_pattern: "(claude-code|human)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Spec authoring agent — runs in Claude Code or by human."
+
+  - agent_id: planning
+    expected_runtime: ["claude-code", "human"]
+    expected_tool_runtime_pattern: "(claude-code|human)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Planning agent — same runtime profile as spec."
+
+  - agent_id: implementation
+    expected_runtime: ["claude-code", "codex-cli"]
+    expected_tool_runtime_pattern: "(claude-code-2|codex-cli-0)\\."
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    restricted_to_branches: ["feature/*", "fix/*", "chore/*", "vibe/*"]
+    notes: "Implementation agent — claude-code or codex-cli, sandbox-write."
+
+  - agent_id: review
+    expected_runtime: ["codex-cli", "codex-cloud", "claude-code", "human"]
+    expected_tool_runtime_pattern: "(codex|claude-code|human)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Review agent — cross-model adversarial review (Codex preferred)."
+
+  - agent_id: test
+    expected_runtime: ["claude-code", "codex-cli", "cron"]
+    expected_tool_runtime_pattern: "(claude-code|codex|cron)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Test agent — also valid for CI cron runs."
+
+  - agent_id: security
+    expected_runtime: ["codex-cli", "claude-code", "human"]
+    expected_tool_runtime_pattern: "(codex|claude-code|human)"
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+    notes: "Security review agent — Codex preferred for adversarial review."
+
+  - agent_id: operations
+    expected_runtime: ["claude-code", "human", "cron"]
+    expected_tool_runtime_pattern: "(claude-code|human|cron)"
+    expected_approval_policy: "always"
+    expected_network_mode: "allowlist"
+    restricted_to_branches: ["main", "production"]
+    notes: "Operations agent — production changes, network access for deploys."
+
+__EOF_TMPL_SAGE_AGENT_INVENTORY__
+
+read -r -d '' TMPL_TEST_AGENT_INVENTORY <<'__EOF_TMPL_TEST_AGENT_INVENTORY__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0128: test-agent-inventory-validator.sh (SPEC-0017 AC-04)
+# Purpose:  Test sage-runlog-validate.sh inventory drift detection.
+#           6+ scenarios: inventory absent / runtime missing / runtime
+#           mismatch / approval mismatch / network mismatch / backward compat.
+# =============================================================================
+set -uo pipefail
+
+PASS=0
+FAIL=0
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+VALIDATOR="${REPO_ROOT}/scripts/sage-runlog-validate.sh"
+
+write_inventory() {
+  local sandbox="$1"
+  cat > "${sandbox}/.sage/agent-inventory.yaml" <<'YAML'
+version: "1.0"
+agents:
+  - agent_id: implementation
+    expected_runtime: ["claude-code", "codex-cli"]
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+YAML
+}
+
+write_run_log() {
+  local path="$1"
+  local extra_fields="$2"
+  cat > "$path" <<YAML
+run_id: RUN-9001
+task_id: TASK-9001
+agent_id: implementation
+started_at: "2026-05-02T00:00:00Z"
+completed_at: "2026-05-02T00:01:00Z"
+status: pass
+files_changed: []
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: pass
+${extra_fields}
+YAML
+}
+
+assert_validator() {
+  local label="$1"
+  local sandbox="$2"
+  local expect_warn="$3"  # "yes" or "no"
+  local rc out
+  out="$(cd "$sandbox" && bash "$VALIDATOR" "${sandbox}/.sage/runs/RUN-9001.yaml" 2>&1 || true)"
+  rc=$?
+  # Validator should always exit 0 (warnings are non-blocking)
+  if [ "$rc" -ne 0 ]; then
+    FAIL=$((FAIL + 1))
+    echo "  not ok ${label}: validator exit $rc (expected 0)" >&2
+    echo "    output: $out" >&2
+    return
+  fi
+  if [ "$expect_warn" = "yes" ]; then
+    if echo "$out" | grep -q "WARN:"; then
+      PASS=$((PASS + 1))
+      echo "  ok   ${label} (warn detected)"
+    else
+      FAIL=$((FAIL + 1))
+      echo "  not ok ${label}: expected WARN, got none" >&2
+      echo "    output: $out" >&2
+    fi
+  else
+    if echo "$out" | grep -q "WARN:"; then
+      FAIL=$((FAIL + 1))
+      echo "  not ok ${label}: unexpected WARN" >&2
+      echo "    output: $out" >&2
+    else
+      PASS=$((PASS + 1))
+      echo "  ok   ${label} (no warn, as expected)"
+    fi
+  fi
+}
+
+setup_sandbox() {
+  local s
+  s="$(mktemp -d -t sage-inv-test-XXXXXX)"
+  mkdir -p "${s}/.sage/runs"
+  echo "$s"
+}
+
+echo "# agent inventory validator (SPEC-0017)"
+
+# --- Scenario 1: inventory absent → no warn (backward compat) ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_run_log "${sandbox}/.sage/runs/RUN-9001.yaml" ""
+assert_validator "inventory absent" "$sandbox" "no"
+rm -rf "$sandbox"
+
+# --- Scenario 2: inventory present, RUN log lacks runtime → warn ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_inventory "$sandbox"
+write_run_log "${sandbox}/.sage/runs/RUN-9001.yaml" ""
+assert_validator "RUN log lacks runtime field" "$sandbox" "yes"
+rm -rf "$sandbox"
+
+# --- Scenario 3: runtime mismatch → warn ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_inventory "$sandbox"
+write_run_log "${sandbox}/.sage/runs/RUN-9001.yaml" 'runtime: codex-cloud'
+assert_validator "runtime not in expected" "$sandbox" "yes"
+rm -rf "$sandbox"
+
+# --- Scenario 4: runtime match → no warn ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_inventory "$sandbox"
+write_run_log "${sandbox}/.sage/runs/RUN-9001.yaml" 'runtime: claude-code
+approval_policy: on-request
+network_mode: "off"'
+assert_validator "all fields match expected" "$sandbox" "no"
+rm -rf "$sandbox"
+
+# --- Scenario 5: approval_policy mismatch → warn ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_inventory "$sandbox"
+write_run_log "${sandbox}/.sage/runs/RUN-9001.yaml" 'runtime: claude-code
+approval_policy: never'
+assert_validator "approval_policy mismatch" "$sandbox" "yes"
+rm -rf "$sandbox"
+
+# --- Scenario 6: network_mode mismatch → warn ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_inventory "$sandbox"
+write_run_log "${sandbox}/.sage/runs/RUN-9001.yaml" 'runtime: claude-code
+network_mode: unrestricted'
+assert_validator "network_mode mismatch" "$sandbox" "yes"
+rm -rf "$sandbox"
+
+# --- Scenario 7: existing RUN log without 4 new fields → no warn (backward compat) ---
+# (Same as scenario 2 but agent_id is NOT in inventory → silent)
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+cat > "${sandbox}/.sage/agent-inventory.yaml" <<'YAML'
+version: "1.0"
+agents:
+  - agent_id: spec
+    expected_runtime: ["claude-code"]
+    expected_approval_policy: "on-request"
+    expected_network_mode: "off"
+YAML
+# RUN log has agent_id: implementation, NOT in inventory → silent
+write_run_log "${sandbox}/.sage/runs/RUN-9001.yaml" ""
+assert_validator "agent_id not in inventory (silent)" "$sandbox" "no"
+rm -rf "$sandbox"
+
+echo ""
+echo "SUMMARY pass=$PASS fail=$FAIL"
+[ "$FAIL" -eq 0 ]
+
+__EOF_TMPL_TEST_AGENT_INVENTORY__
+
+read -r -d '' TMPL_SCRIPT_AGENT_INVENTORY <<'__EOF_TMPL_SCRIPT_AGENT_INVENTORY__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0129: sage-agent-inventory-audit.sh (SPEC-0017)
+# Purpose:  CLI wrapper for agent inventory drift summary (used by sage-doctor.sh).
+# Input:    none — reads .sage/agent-inventory.yaml + .sage/runs/RUN-*.yaml
+# Output:   TSV lines: <level>\t<check>\t<message>
+# Exit:     0 always
+# =============================================================================
+set -uo pipefail
+
+INVENTORY_PATH=".sage/agent-inventory.yaml"
+RUNS_DIR=".sage/runs"
+RECENT_N="${SAGE_INVENTORY_RECENT_N:-10}"
+
+if ! command -v python3 &>/dev/null; then
+  echo "WARN	agent_inventory_python	python3 not in PATH"
+  exit 0
+fi
+
+if [ ! -f "$INVENTORY_PATH" ]; then
+  echo "WARN	agent_inventory_present	$INVENTORY_PATH not found (SPEC-0017 inventory recommended)"
+  exit 0
+fi
+
+if [ ! -d "$RUNS_DIR" ]; then
+  echo "OK	agent_inventory_runs	No RUN logs to audit"
+  exit 0
+fi
+
+python3 - "$INVENTORY_PATH" "$RUNS_DIR" "$RECENT_N" <<'PYEOF'
+import os
+import sys
+import glob
+
+try:
+    import yaml
+except ImportError:
+    print("WARN\tagent_inventory_python_yaml\tpython yaml module unavailable")
+    sys.exit(0)
+
+inventory_path, runs_dir, recent_n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+
+try:
+    with open(inventory_path) as f:
+        inv_data = yaml.safe_load(f)
+except (yaml.YAMLError, OSError) as e:
+    print(f"FAIL\tagent_inventory_validity\t{e}")
+    sys.exit(0)
+
+if not isinstance(inv_data, dict) or "agents" not in inv_data:
+    print("FAIL\tagent_inventory_validity\tinvalid schema")
+    sys.exit(0)
+
+inv = {a["agent_id"]: a for a in inv_data["agents"] if isinstance(a, dict) and "agent_id" in a}
+
+# Collect recent N RUN logs
+files = sorted(glob.glob(f"{runs_dir}/RUN-*.yaml"))[-recent_n:]
+if not files:
+    print("OK\tagent_inventory_runs\tNo RUN logs in directory")
+    sys.exit(0)
+
+def coerce(v):
+    if isinstance(v, bool):
+        return {True: "on", False: "off"}[v]
+    return v
+
+missing_runtime = 0
+mismatch_count = 0
+total = 0
+for f in files:
+    try:
+        with open(f) as fh:
+            doc = yaml.safe_load(fh)
+    except (yaml.YAMLError, OSError):
+        continue
+    if not isinstance(doc, dict):
+        continue
+    agent_id = doc.get("agent_id")
+    if agent_id not in inv:
+        continue
+    total += 1
+    runtime = coerce(doc.get("runtime"))
+    if runtime is None:
+        missing_runtime += 1
+        continue
+    expected = inv[agent_id].get("expected_runtime", [])
+    if runtime != "unknown" and expected and runtime not in expected:
+        mismatch_count += 1
+
+if total == 0:
+    print("OK\tagent_inventory_runs\tNo declared agent_id RUN logs in window")
+else:
+    if missing_runtime > 0:
+        print(f"OK\tagent_inventory_missing_runtime\t{missing_runtime}/{total} RUN log(s) lack runtime field (SPEC-0017 optional, INFO)")
+    else:
+        print(f"OK\tagent_inventory_runtime_field\tAll {total} declared RUN log(s) have runtime field")
+    if mismatch_count > 0:
+        print(f"WARN\tagent_inventory_drift\t{mismatch_count}/{total} RUN log(s) have runtime not in expected list")
+    else:
+        print(f"OK\tagent_inventory_drift\t0 declared-vs-observed mismatches in last {recent_n} runs")
+
+print(f"OK\tagent_inventory_summary\tinventory contains {len(inv)} declared agent_id(s)")
+PYEOF
+
+__EOF_TMPL_SCRIPT_AGENT_INVENTORY__
+
 read -r -d '' TMPL_SETTINGS_SANDBOX <<'__EOF_TMPL_SETTINGS_SANDBOX__' || true
 {
   "permissions": {
@@ -8042,6 +8383,9 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/hooks/tests/test-detection-only-behavior.sh" "$TMPL_TEST_DETECTION_ONLY" && chmod +x "templates/hooks/tests/test-detection-only-behavior.sh"
   write_file_if_new "templates/hooks/tests/measure-hook-time.py" "$TMPL_MEASURE_HOOK_TIME" && chmod +x "templates/hooks/tests/measure-hook-time.py"
   write_file_if_new "scripts/sage-mcp-allowlist-audit.sh" "$TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT" && chmod +x "scripts/sage-mcp-allowlist-audit.sh"
+  write_file_if_new "templates/sage/agent-inventory-template.yaml" "$TMPL_SAGE_AGENT_INVENTORY"
+  write_file_if_new "templates/hooks/tests/test-agent-inventory-validator.sh" "$TMPL_TEST_AGENT_INVENTORY" && chmod +x "templates/hooks/tests/test-agent-inventory-validator.sh"
+  write_file_if_new "scripts/sage-agent-inventory-audit.sh" "$TMPL_SCRIPT_AGENT_INVENTORY" && chmod +x "scripts/sage-agent-inventory-audit.sh"
   write_file_if_new "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   write_file_if_new "templates/settings/README.md" "$TMPL_SETTINGS_README"
 else
@@ -8062,6 +8406,9 @@ else
   update_file "templates/hooks/tests/test-detection-only-behavior.sh" "$TMPL_TEST_DETECTION_ONLY" && chmod +x "templates/hooks/tests/test-detection-only-behavior.sh"
   update_file "templates/hooks/tests/measure-hook-time.py" "$TMPL_MEASURE_HOOK_TIME" && chmod +x "templates/hooks/tests/measure-hook-time.py"
   update_file "scripts/sage-mcp-allowlist-audit.sh" "$TMPL_SCRIPT_MCP_ALLOWLIST_AUDIT" && chmod +x "scripts/sage-mcp-allowlist-audit.sh"
+  update_file "templates/sage/agent-inventory-template.yaml" "$TMPL_SAGE_AGENT_INVENTORY"
+  update_file "templates/hooks/tests/test-agent-inventory-validator.sh" "$TMPL_TEST_AGENT_INVENTORY" && chmod +x "templates/hooks/tests/test-agent-inventory-validator.sh"
+  update_file "scripts/sage-agent-inventory-audit.sh" "$TMPL_SCRIPT_AGENT_INVENTORY" && chmod +x "scripts/sage-agent-inventory-audit.sh"
   update_file "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   update_file "templates/settings/README.md" "$TMPL_SETTINGS_README"
 fi
