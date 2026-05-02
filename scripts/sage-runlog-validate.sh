@@ -115,8 +115,95 @@ def validate(path: Path) -> list[str]:
     return errors
 
 
+# SPEC-0017: agent inventory drift check (warn-only, backward compat).
+# Returns list of warning strings (NOT errors — does not fail validation).
+RUNTIME_VALUES = {"claude-code", "codex-cli", "codex-cloud", "cron", "human", "unknown"}
+APPROVAL_VALUES = {"on-request", "never", "always", "unknown"}
+NETWORK_VALUES = {"off", "allowlist", "unrestricted", "unknown"}
+
+
+def load_inventory(root: Path):
+    """Load .sage/agent-inventory.yaml if present. Returns dict (agent_id -> spec) or None."""
+    inv_path = root / ".sage" / "agent-inventory.yaml"
+    if not inv_path.exists():
+        return None
+    try:
+        with open(inv_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict) or "agents" not in data:
+            return None
+        return {a["agent_id"]: a for a in data["agents"] if isinstance(a, dict) and "agent_id" in a}
+    except (yaml.YAMLError, OSError):
+        return None
+
+
+def _coerce_yaml_str(v):
+    """YAML 1.1 parses bareword off/on/yes/no as bool. Coerce back to string
+    for enum comparison so users can write `network_mode: off` unquoted."""
+    if isinstance(v, bool):
+        return {True: "on", False: "off"}[v]
+    return v
+
+
+def inventory_warnings(doc: dict, inv: dict) -> list[str]:
+    warnings: list[str] = []
+    agent_id = doc.get("agent_id")
+    if agent_id not in inv:
+        return warnings  # agent not declared → silent (existing enum check covers it)
+    expected = inv[agent_id]
+
+    runtime = _coerce_yaml_str(doc.get("runtime", None))
+    if runtime is None:
+        warnings.append("runtime field missing (SPEC-0017 recommends declaring observed runtime)")
+    elif runtime not in RUNTIME_VALUES:
+        warnings.append(f"runtime not in enum {sorted(RUNTIME_VALUES)}: got {runtime!r}")
+    elif runtime != "unknown":
+        exp_runtime = expected.get("expected_runtime", [])
+        if exp_runtime and runtime not in exp_runtime:
+            warnings.append(
+                f"runtime '{runtime}' not in inventory expected_runtime {exp_runtime} for agent_id={agent_id}"
+            )
+
+    ap = _coerce_yaml_str(doc.get("approval_policy"))
+    if ap is not None and ap not in APPROVAL_VALUES:
+        warnings.append(f"approval_policy not in enum: got {ap!r}")
+    elif ap and ap != "unknown":
+        exp_ap = expected.get("expected_approval_policy")
+        if exp_ap and ap != exp_ap:
+            warnings.append(
+                f"approval_policy '{ap}' != inventory expected '{exp_ap}' for agent_id={agent_id}"
+            )
+
+    nm = _coerce_yaml_str(doc.get("network_mode"))
+    if nm is not None and nm not in NETWORK_VALUES:
+        warnings.append(f"network_mode not in enum: got {nm!r}")
+    elif nm and nm != "unknown":
+        exp_nm = expected.get("expected_network_mode")
+        if exp_nm and nm != exp_nm:
+            warnings.append(
+                f"network_mode '{nm}' != inventory expected '{exp_nm}' for agent_id={agent_id}"
+            )
+
+    return warnings
+
+
+# Determine repo root from the first RUN log file's location, or cwd
 files = [Path(p) for p in sys.argv[1:]]
+if files:
+    # Walk up to find .sage/
+    candidate = files[0].resolve().parent
+    while candidate != candidate.parent:
+        if (candidate / ".sage").is_dir():
+            break
+        candidate = candidate.parent
+    repo_root = candidate
+else:
+    repo_root = Path.cwd()
+
+inventory = load_inventory(repo_root)
+
 total_failures = 0
+total_warnings = 0
 for path in files:
     errs = validate(path)
     if errs:
@@ -125,10 +212,28 @@ for path in files:
         for e in errs:
             print(f"  - {e}")
     else:
-        print(f"OK   {path}")
+        # Run inventory check only when validate() passed
+        warns = []
+        if inventory is not None:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    doc = yaml.safe_load(f)
+                if isinstance(doc, dict):
+                    warns = inventory_warnings(doc, inventory)
+            except (yaml.YAMLError, OSError):
+                pass
+        if warns:
+            total_warnings += len(warns)
+            print(f"OK   {path} (with {len(warns)} inventory warning(s))")
+            for w in warns:
+                print(f"  WARN: {w}")
+        else:
+            print(f"OK   {path}")
 
 if total_failures:
     print(f"{total_failures} file(s) failed validation", file=sys.stderr)
     sys.exit(1)
+if total_warnings:
+    print(f"{total_warnings} inventory warning(s) total (SPEC-0017, non-blocking)", file=sys.stderr)
 sys.exit(0)
 PY

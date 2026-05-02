@@ -70,12 +70,12 @@ emit() {
 }
 
 # ============================================================
-# [1/4] File Existence & Integrity Check (TASK-0046)
+# [1/5] File Existence & Integrity Check (TASK-0046)
 # ============================================================
 if [ "$JSON_OUTPUT" = false ]; then
   echo "=== SAGE Doctor ==="
   echo ""
-  echo "[1/4] File existence & integrity check..."
+  echo "[1/5] File existence & integrity check..."
 fi
 
 # Parse install-state.yaml (lightweight: grep-based)
@@ -145,10 +145,10 @@ process_entry
 if [ "$JSON_OUTPUT" = false ]; then echo ""; fi
 
 # ============================================================
-# [2/4] AI Control Plane Security Check (TASK-0047)
+# [2/5] AI Control Plane Security Check (TASK-0047)
 # ============================================================
 if [ "$JSON_OUTPUT" = false ]; then
-  echo "[2/4] AI Control Plane security check..."
+  echo "[2/5] AI Control Plane security check..."
 fi
 
 # Secret patterns
@@ -247,10 +247,10 @@ fi
 if [ "$JSON_OUTPUT" = false ]; then echo ""; fi
 
 # ============================================================
-# [3/4] MCP allowlist health check (TASK-0124 / SPEC-0015)
+# [3/5] MCP allowlist health check (TASK-0124 / SPEC-0015)
 # ============================================================
 if [ "$JSON_OUTPUT" = false ]; then
-  echo "[3/4] MCP allowlist check..."
+  echo "[3/5] MCP allowlist check..."
 fi
 
 MCP_REGISTRY=".sage/mcp-allowlist.json"
@@ -277,12 +277,33 @@ fi
 if [ "$JSON_OUTPUT" = false ]; then echo ""; fi
 
 # ============================================================
-# [4/4] Summary & Failure Candidate Output (TASK-0048)
+# [4/5] Agent inventory drift check (TASK-0129 / SPEC-0017)
+# ============================================================
+if [ "$JSON_OUTPUT" = false ]; then
+  echo "[4/5] Agent inventory check..."
+fi
+
+if command -v python3 &>/dev/null; then
+  AGENT_INV_OUT="$(bash scripts/sage-agent-inventory-audit.sh 2>&1)"
+  while IFS=$'\t' read -r level check msg; do
+    [ -z "$level" ] && continue
+    emit "$level" "$msg"
+    add_result "$level" "$check" "$msg"
+  done <<< "$AGENT_INV_OUT"
+else
+  emit "WARN" "python3 unavailable — agent inventory check skipped"
+  add_result "WARN" "agent_inventory_python" "python3 not in PATH"
+fi
+
+if [ "$JSON_OUTPUT" = false ]; then echo ""; fi
+
+# ============================================================
+# [5/5] Summary & Failure Candidate Output (TASK-0048)
 # ============================================================
 TOTAL=$((FAIL_COUNT + WARN_COUNT + OK_COUNT))
 
 if [ "$JSON_OUTPUT" = false ]; then
-  echo "[4/4] Summary..."
+  echo "[5/5] Summary..."
   echo "  OK: $OK_COUNT  WARN: $WARN_COUNT  FAIL: $FAIL_COUNT  (Total: $TOTAL)"
   echo ""
 fi
