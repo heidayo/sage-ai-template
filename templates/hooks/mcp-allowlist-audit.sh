@@ -162,36 +162,75 @@ def load_mcp_json(path):
         return None
 
 def load_codex_toml(path):
-    """Minimal TOML reader for [mcp_servers.<name>] sections (no external deps)."""
+    """TOML reader for Codex config — uses tomllib (Python 3.11+).
+
+    Falls back to a documented-limitation minimal reader for older Python:
+    only top-level scalars and [mcp_servers.<name>] direct scalar fields.
+    Codex review P2 #1 reflected: avoid array/nested-table false positives.
+    """
     if not os.path.exists(path):
         return None
-    servers_out = {}
-    top_level = {}
-    current = None
+    # Try tomllib (Python 3.11+) — handles arrays + nested tables correctly
     try:
-        with open(path) as f:
-            for raw_line in f:
-                line = raw_line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if line.startswith("[mcp_servers."):
-                    name = line.split("[mcp_servers.")[1].rstrip("]").strip()
-                    current = name
-                    servers_out.setdefault(current, {})
-                elif line.startswith("[") and not line.startswith("[mcp_servers"):
-                    current = None
-                elif "=" in line:
-                    k, _, v = line.partition("=")
-                    k = k.strip()
-                    v = v.strip().strip('"').strip("'")
-                    if current is None:
-                        # Top-level (e.g. mcp_oauth_callback_port)
-                        top_level[k] = v
-                    else:
-                        servers_out[current][k] = v
-    except OSError:
-        return None
-    return {"servers": servers_out, "top_level": top_level}
+        import tomllib  # type: ignore[import-not-found]
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        except (tomllib.TOMLDecodeError, OSError):
+            return None
+        servers_out = {}
+        for name, conf in data.get("mcp_servers", {}).items():
+            # Skip nested tables (e.g. [mcp_servers.foo.http_headers]) — those
+            # are subkeys of the server, not separate servers
+            if isinstance(conf, dict):
+                # Strip nested-table values to keep simple comparison logic;
+                # leave scalar / list values intact (args is a list).
+                flat = {k: v for k, v in conf.items() if not isinstance(v, dict)}
+                servers_out[name] = flat
+        top_level = {k: v for k, v in data.items() if k != "mcp_servers" and not isinstance(v, dict)}
+        return {"servers": servers_out, "top_level": top_level}
+    except ImportError:
+        # Pre-3.11 fallback: minimal scalar-only reader, with explicit warning
+        print(
+            "WARN: Python <3.11 detected; tomllib unavailable. "
+            "Codex TOML parse limited to scalar fields only. "
+            "Upgrade to Python 3.11+ for full TOML support.",
+            file=sys.stderr,
+        )
+        servers_out = {}
+        top_level = {}
+        current = None
+        try:
+            with open(path) as f:
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("[mcp_servers."):
+                        # Reject nested table sections to avoid false-positive servers
+                        section = line.split("[mcp_servers.")[1].rstrip("]").strip()
+                        if "." in section:
+                            current = None  # e.g. [mcp_servers.foo.http_headers]
+                            continue
+                        current = section
+                        servers_out.setdefault(current, {})
+                    elif line.startswith("[") and not line.startswith("[mcp_servers"):
+                        current = None
+                    elif "=" in line:
+                        k, _, v = line.partition("=")
+                        k = k.strip()
+                        v = v.strip()
+                        # Skip lists/arrays (start with [) — fallback can't safely parse them
+                        if v.startswith("["):
+                            continue
+                        v = v.strip('"').strip("'")
+                        if current is None:
+                            top_level[k] = v
+                        else:
+                            servers_out[current][k] = v
+        except OSError:
+            return None
+        return {"servers": servers_out, "top_level": top_level}
 
 mcp_json = load_mcp_json(".mcp.json")
 codex_repo = load_codex_toml(".codex/config.toml")
@@ -253,14 +292,19 @@ for name, actual in actual_servers.items():
 
     if transport == "stdio":
         # drift2: args version mismatch
+        # Codex review P1 #1 (CWE-532): NEVER log raw actual_args — they may
+        # contain tokens / API keys. Log only argv-shape (count + length sketch)
+        # plus the full registry-approved args (those are reviewed in PRs).
         reg_args = reg_srv.get("args", [])
         actual_args = raw.get("args", [])
         if reg_args != actual_args:
             emit("warn", "drift2_stdio_args_mismatch", runtime,
                  server_name=name,
-                 expected_args=reg_args, actual_args=actual_args)
-            warn_msg(f"drift2: '{name}' args mismatch (registry vs actual).")
-        # drift4: @latest tag check
+                 expected_args=reg_args,
+                 actual_args="[REDACTED]",
+                 actual_args_count=len(actual_args) if isinstance(actual_args, list) else None)
+            warn_msg(f"drift2: '{name}' args mismatch (registry vs actual; actual REDACTED).")
+        # drift4: @latest tag check (scan actual_args without logging them)
         if forbid_latest:
             for arg in actual_args:
                 if "@latest" in str(arg):
@@ -279,25 +323,74 @@ for name, actual in actual_servers.items():
                 strict_block_count += 1
     else:  # http
         # drift2 http: url_origin mismatch
+        # Codex review P1 #2 (WHATWG URL origin): use urlsplit + exact tuple
+        # comparison. startswith() lets `https://mcp.example.com.evil.test`
+        # pass a pin of `https://mcp.example.com`.
         reg_origin = reg_srv.get("url_origin_pin", "")
         actual_url = raw.get("url", "")
-        if reg_origin and not actual_url.startswith(reg_origin):
-            emit("warn", "drift2_http_url_origin_mismatch", runtime,
-                 server_name=name, expected_url=reg_origin, actual_url=actual_url)
-            warn_msg(f"drift2 http: '{name}' url_origin mismatch.")
+        if reg_origin:
+            from urllib.parse import urlsplit
+            try:
+                a = urlsplit(actual_url)
+                r = urlsplit(reg_origin)
+                # Effective port: explicit port if set, else scheme default
+                def _effective_port(parts):
+                    if parts.port:
+                        return parts.port
+                    return {"https": 443, "http": 80}.get(parts.scheme, None)
+                origin_match = (
+                    a.scheme == r.scheme
+                    and a.scheme in ("https", "http")
+                    and a.hostname is not None
+                    and r.hostname is not None
+                    and a.hostname == r.hostname
+                    and _effective_port(a) == _effective_port(r)
+                )
+            except (ValueError, AttributeError):
+                origin_match = False  # fail closed
+            if not origin_match:
+                emit("warn", "drift2_http_url_origin_mismatch", runtime,
+                     server_name=name, expected_url=reg_origin, actual_url=actual_url)
+                warn_msg(f"drift2 http: '{name}' url_origin mismatch.")
         # drift6: anonymous auth
+        # Codex review P1 #3: infer ACTUAL auth_mode from actual config fields,
+        # not from registry. If actual config lacks auth, must report as
+        # anonymous regardless of what registry declares.
         reg_auth_mode = reg_srv.get("auth_mode", "none")
-        if http_require_auth and reg_auth_mode == "none":
+        # Heuristic: actual config has bearer if it has Authorization-style
+        # env reference, oauth if it has oauth_provider, else none.
+        actual_has_bearer = bool(raw.get("bearer_token_env_var")) or any(
+            k.lower() == "authorization" for k in (raw.get("env_http_headers") or {}).keys()
+        )
+        actual_has_oauth = bool(raw.get("oauth_provider"))
+        if actual_has_oauth:
+            actual_auth_mode = "oauth"
+        elif actual_has_bearer:
+            actual_auth_mode = "bearer_env"
+        else:
+            actual_auth_mode = "none"
+
+        if http_require_auth and actual_auth_mode == "none":
             emit("warn", "drift6_anonymous", runtime,
-                 server_name=name, actual_auth_mode=reg_auth_mode)
-            warn_msg(f"drift6: '{name}' anonymous (auth_mode: none) — strict will block.")
+                 server_name=name,
+                 expected_auth_mode=reg_auth_mode,
+                 actual_auth_mode=actual_auth_mode)
+            warn_msg(f"drift6: '{name}' anonymous (actual auth_mode: none) — strict will block.")
             strict_block_count += 1
-        elif reg_auth_mode == "oauth":
+        elif reg_auth_mode != actual_auth_mode:
+            # Auth-mode drift (registry expects X, actual is Y) — block in strict
+            emit("warn", "drift6_anonymous", runtime,
+                 server_name=name,
+                 expected_auth_mode=reg_auth_mode,
+                 actual_auth_mode=actual_auth_mode)
+            warn_msg(f"drift6: '{name}' auth_mode mismatch (registry={reg_auth_mode} vs actual={actual_auth_mode}).")
+            strict_block_count += 1
+        elif actual_auth_mode == "oauth":
             emit("info", "drift6_oauth_approve", runtime,
-                 server_name=name, actual_auth_mode=reg_auth_mode)
-        elif reg_auth_mode == "bearer_env":
+                 server_name=name, actual_auth_mode=actual_auth_mode)
+        elif actual_auth_mode == "bearer_env":
             emit("info", "drift6_bearer_approve", runtime,
-                 server_name=name, actual_auth_mode=reg_auth_mode)
+                 server_name=name, actual_auth_mode=actual_auth_mode)
 
 # --- drift3: registry has server not in any actual config ---
 for name, reg_srv in reg_by_name.items():
@@ -306,27 +399,27 @@ for name, reg_srv in reg_by_name.items():
              server_name=name)
 
 # --- drift8: OAuth callback mismatch (top-level) ---
-if oauth_require_match and oauth_callback:
-    reg_port = str(oauth_callback.get("mcp_oauth_callback_port", ""))
-    reg_url = oauth_callback.get("mcp_oauth_callback_url", "")
+# Codex review P2 #2: emit drift8 whenever oauth_callback_require_match is true
+# AND either side declares values that don't EXACTLY match the other side
+# (including missing/undeclared on one side).
+if oauth_require_match:
+    reg_port = str(oauth_callback.get("mcp_oauth_callback_port", "")) if oauth_callback else ""
+    reg_url = oauth_callback.get("mcp_oauth_callback_url", "") if oauth_callback else ""
     for runtime_label, codex_data in (("codex-cli-repo-local", codex_repo), ("codex-cli-user-global", codex_user)):
         if not codex_data:
             continue
-        actual_port = codex_data["top_level"].get("mcp_oauth_callback_port", "")
+        actual_port = str(codex_data["top_level"].get("mcp_oauth_callback_port", ""))
         actual_url = codex_data["top_level"].get("mcp_oauth_callback_url", "")
-        if reg_port and actual_port and reg_port != actual_port:
+        # Mismatch = exact-match fails on either field where at least one side is non-empty
+        port_mismatch = (reg_port or actual_port) and reg_port != actual_port
+        url_mismatch = (reg_url or actual_url) and reg_url != actual_url
+        if port_mismatch or url_mismatch:
             emit("warn", "drift8_oauth_callback_mismatch", runtime_label,
                  scope="top_level", server_name=None,
                  expected_port=reg_port, actual_port=actual_port,
-                 expected_url=reg_url, actual_url=actual_url)
-            warn_msg(f"drift8: OAuth callback port mismatch (registry={reg_port} vs actual={actual_port}).")
-            strict_block_count += 1
-        elif reg_url and actual_url and reg_url != actual_url:
-            emit("warn", "drift8_oauth_callback_mismatch", runtime_label,
-                 scope="top_level", server_name=None,
-                 expected_port=reg_port, actual_port=actual_port,
-                 expected_url=reg_url, actual_url=actual_url)
-            warn_msg(f"drift8: OAuth callback url mismatch.")
+                 expected_url=reg_url, actual_url=actual_url,
+                 mismatch_kind=("port" if port_mismatch else "url"))
+            warn_msg(f"drift8: OAuth callback mismatch (port: '{reg_port}' vs '{actual_port}', url: '{reg_url}' vs '{actual_url}').")
             strict_block_count += 1
 
 # --- expired approvals ---

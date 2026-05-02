@@ -232,15 +232,17 @@ r['servers'].append({
 print(json.dumps(r))
 ")
 write_registry "$sandbox" "$OAUTH_REGISTRY"
-write_mcp_json "$sandbox" '{"mcpServers": {"oauth-server": {"url": "https://oauth.example.com"}}}'
+# actual config also declares oauth_provider so auth-infer matches registry
+write_mcp_json "$sandbox" '{"mcpServers": {"oauth-server": {"url": "https://oauth.example.com", "oauth_provider": "google"}}}'
 run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
 assert_audit_drift_type "$sandbox" "drift6_oauth_approve" "drift6 OAuth approve"
 rm -rf "$sandbox"
 
-# --- drift6 Bearer approve (registry bearer_env + actual url match = info) ---
+# --- drift6 Bearer approve (registry bearer_env + actual bearer_token_env_var match = info) ---
 sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
 write_registry "$sandbox" "$BASE_REGISTRY"
-write_mcp_json "$sandbox" '{"mcpServers": {"company-search": {"url": "https://mcp.example.com/v1"}}}'
+# actual config also declares bearer_token_env_var so auth-infer matches registry
+write_mcp_json "$sandbox" '{"mcpServers": {"company-search": {"url": "https://mcp.example.com/v1", "bearer_token_env_var": "COMPANY_TOKEN"}}}'
 run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
 assert_audit_drift_type "$sandbox" "drift6_bearer_approve" "drift6 Bearer approve"
 rm -rf "$sandbox"
@@ -359,6 +361,61 @@ if grep -qE "Bearer|secret-value|leaked" "$audit_log" 2>/dev/null; then
 else
   PASS=$((PASS + 1))
   echo "  ok   audit log redact (no secret-pattern)"
+fi
+rm -rf "$sandbox"
+
+# --- drift2 args secret redaction (Codex review P1 #1, CWE-532) ---
+echo "# drift2 args redaction (CWE-532)"
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+# Actual config args contain a fake token-like secret
+write_mcp_json "$sandbox" '{"mcpServers": {"playwright": {"command": "npx", "args": ["@anthropic-ai/mcp-playwright@1.42.0", "--token", "sk-FAKE-LEAKED-SECRET-12345"]}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+audit_log="$(find "${sandbox}/.sage/audit" -name 'mcp-allowlist-2*.log' 2>/dev/null | head -1)"
+if [ -n "$audit_log" ] && grep -q "FAKE-LEAKED-SECRET" "$audit_log"; then
+  FAIL=$((FAIL + 1))
+  echo "  not ok drift2 args redact: secret leaked into audit log" >&2
+  cat "$audit_log" >&2
+else
+  PASS=$((PASS + 1))
+  echo "  ok   drift2 actual_args redacted (no secret leak)"
+fi
+# Also assert the [REDACTED] placeholder is present
+if [ -n "$audit_log" ] && grep -q "REDACTED" "$audit_log"; then
+  PASS=$((PASS + 1))
+  echo "  ok   drift2 actual_args contains [REDACTED] placeholder"
+else
+  FAIL=$((FAIL + 1))
+  echo "  not ok drift2 [REDACTED] placeholder missing" >&2
+fi
+rm -rf "$sandbox"
+
+# --- URL origin prefix attack (Codex review P1 #2, WHATWG origin) ---
+echo "# URL origin prefix attack defense"
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_registry "$sandbox" "$BASE_REGISTRY"
+# Attacker URL: registry pin is https://mcp.example.com but actual is
+# https://mcp.example.com.evil.test (suffix appended to pin)
+write_mcp_json "$sandbox" '{"mcpServers": {"company-search": {"url": "https://mcp.example.com.evil.test/v1"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+assert_audit_drift_type "$sandbox" "drift2_http_url_origin_mismatch" "URL prefix attack detected as drift"
+rm -rf "$sandbox"
+
+# --- drift6 actual auth_mode infer (Codex review P1 #3) ---
+echo "# drift6 actual auth_mode infer"
+sandbox="$(create_sandbox)"; trap "rm -rf $sandbox" EXIT
+# Registry says bearer_env, but actual config has no bearer_token_env_var
+# (i.e. actual is anonymous despite registry saying bearer_env)
+write_registry "$sandbox" "$BASE_REGISTRY"
+write_mcp_json "$sandbox" '{"mcpServers": {"company-search": {"url": "https://mcp.example.com/v1"}}}'
+run_hook "mcp-allowlist-audit.sh" "" "$sandbox"
+audit_log="$(find "${sandbox}/.sage/audit" -name 'mcp-allowlist-2*.log' 2>/dev/null | head -1)"
+if [ -n "$audit_log" ] && grep -q "drift6_anonymous" "$audit_log"; then
+  PASS=$((PASS + 1))
+  echo "  ok   drift6 detects actual anonymous despite registry bearer_env"
+else
+  FAIL=$((FAIL + 1))
+  echo "  not ok drift6 fails to detect actual anonymous (registry-only inference bug)" >&2
 fi
 rm -rf "$sandbox"
 
