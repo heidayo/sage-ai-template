@@ -126,6 +126,67 @@ do_verify_checksum() {
   return 0
 }
 
+# SPEC-0018 FR-05: --verify-checksum --remote
+# Compare the local installer's SHA256 against the release-published SHA256SUMS.
+# Network unavailable => warn + return 0 (graceful, EC-04).
+# SHA256SUMS format invalid or mismatch => return 1.
+do_verify_checksum_remote() {
+  local sha_cmd
+  sha_cmd=$(_sha256_cmd)
+  if [ -z "$sha_cmd" ]; then
+    echo "ERROR: sha256sum/shasum not found, cannot verify."
+    return 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "ERROR: curl not found, cannot fetch remote SHA256SUMS."
+    return 1
+  fi
+
+  local installer_path="${0}"
+  if [ ! -f "$installer_path" ]; then
+    echo "ERROR: cannot locate installer at $installer_path (run via 'bash install.sh' from a saved file, not piped via curl)."
+    return 1
+  fi
+
+  local remote_url="https://github.com/heidayo/sage-ai-template/releases/latest/download/SHA256SUMS"
+  local remote_sums
+  if ! remote_sums=$(curl -fsSL --max-time 10 "$remote_url" 2>/dev/null); then
+    echo "WARN: remote SHA256SUMS fetch failed; verification skipped (offline or release unavailable)" >&2
+    echo "      URL: $remote_url" >&2
+    return 0
+  fi
+  if [ -z "$remote_sums" ]; then
+    echo "WARN: remote SHA256SUMS fetched empty content; verification skipped" >&2
+    return 0
+  fi
+
+  # FR-02 + EC-05: validate format. Each line must be '<64-hex-sha256>  <filename>'.
+  if ! printf '%s\n' "$remote_sums" | grep -Eq '^[0-9a-f]{64}  install\.sh$'; then
+    echo "FAIL: SHA256SUMS line format invalid (expected '<sha256>  install.sh')"
+    echo "  fetched content (first 5 lines):"
+    printf '%s\n' "$remote_sums" | head -5 | sed 's/^/    /'
+    return 1
+  fi
+
+  local expected_sha
+  expected_sha=$(printf '%s\n' "$remote_sums" | awk '$2=="install.sh" {print $1; exit}')
+  local actual_sha
+  actual_sha=$($sha_cmd -- "$installer_path" 2>/dev/null | awk '{print $1}')
+
+  if [ "$expected_sha" = "$actual_sha" ]; then
+    echo "OK: install.sh matches release SHA256SUMS"
+    echo "  sha256: $actual_sha"
+    echo "  source: $remote_url"
+    return 0
+  else
+    echo "FAIL: remote SHA256 mismatch"
+    echo "  expected (from release): $expected_sha"
+    echo "  actual   (local file):   $actual_sha"
+    echo "  source:                  $remote_url"
+    return 1
+  fi
+}
+
 write_file_if_new() {
   local path="$1"
   local content="$2"
@@ -342,12 +403,24 @@ setup_gitignore() {
 # --- Parse arguments ---
 MODE="install"
 DRY_RUN=false
+# SPEC-0018: --remote modifier for --verify-checksum (pre-scan to allow flag in any order)
+REMOTE_VERIFY=false
+for arg in "$@"; do
+  if [ "$arg" = "--remote" ]; then REMOTE_VERIFY=true; fi
+done
 for arg in "$@"; do
   case "$arg" in
     --update) MODE="update" ;;
     --version) show_version; exit 0 ;;
     --print-provenance) do_print_provenance; exit 0 ;;
-    --verify-checksum) do_verify_checksum; exit $? ;;
+    --verify-checksum)
+      if [ "$REMOTE_VERIFY" = "true" ]; then
+        do_verify_checksum_remote; exit $?
+      else
+        do_verify_checksum; exit $?
+      fi
+      ;;
+    --remote) ;;  # SPEC-0018: pre-scanned above, no-op here
     --dry-run) DRY_RUN=true ;;
     --help)
       cat <<HELP_EOF
@@ -358,6 +431,9 @@ Usage: bash install.sh [OPTIONS]
   --version              Show SAGE version
   --dry-run              Preview without writing any files (SPEC-0010)
   --verify-checksum      Verify installed files against .sage/install-state.yaml
+  --verify-checksum --remote
+                         Verify the local installer against the GitHub Release
+                         SHA256SUMS (SPEC-0018). Network unavailable => warn + exit 0.
   --print-provenance     Print installer SHA256, version, and license info
   --help                 Show this help
 
