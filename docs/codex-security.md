@@ -284,6 +284,7 @@ jobs:
 
 ### TL;DR
 - Codex 関連 incident を疑ったら: ① Codex session 停止、② OpenAI API key rotate、③ GitHub audit log で影響 PR 特定、④ branch revert / force-push 可否を判断、⑤ SECURITY.md report
+- SAGE side: `bash scripts/sage-runlog-search.sh --agent-id review --status fail --since YYYY-MM-DD` で Codex 関連 RUN log を抽出 ([SPEC-0016](../specs/SPEC-0016-runlog-sqlite-fts.md))
 
 ### 即時対応手順
 

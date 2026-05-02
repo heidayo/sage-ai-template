@@ -236,8 +236,9 @@ prompt-level guidance (this document) rather than runtime interception.
 | session-stop | (record) session metrics to .sage/metrics/ | minimal+ |
 | mcp-allowlist-audit | drift / supply-chain pin / OAuth callback (Phase 5, audit-only) | standard+ |
 | agent-inventory-validator | RUN log declared-vs-observed runtime drift (Phase 5+, validator-only) | minimal+ |
+| runlog-index | SQLite FTS5 indexer for RUN log + audit events (Phase 5+, SPEC-0016) | minimal+ |
 
-Phase 5+: MCP allowlist audit (SPEC-0015) + agent identity inventory (SPEC-0017) — declarative registry + RUN log runtime drift detection.
+Phase 5+: MCP allowlist audit (SPEC-0015) + agent identity inventory (SPEC-0017) + RUN log SQLite-FTS (SPEC-0016) — search via `bash scripts/sage-runlog-search.sh --task-id TASK-XXXX`.
 
 Profile in `.sage/config.yaml` `hooks.profile`: minimal → standard → strict → none.
 Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
