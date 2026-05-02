@@ -1,0 +1,41 @@
+run_id: RUN-0005
+task_id: TASK-0144
+agent_id: implementation
+started_at: "2026-05-02T15:20:00Z"
+completed_at: "2026-05-02T15:27:30Z"
+status: pass
+runtime: "codex-cli"
+tool_runtime: "codex-desktop"
+approval_policy: "never"
+network_mode: "unrestricted"
+files_changed:
+  - "tasks/TASK-0144-codex-review-followup.md"
+  - "scripts/sage-validate.sh"
+  - "templates/hooks/tests/test-release-workflow.sh"
+  - "install.sh"
+  - "SHA256SUMS"
+  - ".sage/install-state.yaml"
+  - ".sage/runs/RUN-0005.yaml"
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: |
+  Codex follow-up for SPEC-0018 after Claude implementation.
+  Fixed a byte-level installer_url sync regression in scripts/sage-validate.sh:
+  command substitution stripped trailing newlines before hashing remote install.sh,
+  which could report false mismatches for byte-identical artifacts.
+
+  Verification summary:
+    - bash templates/hooks/tests/test-release-workflow.sh: pass (8/8)
+    - bash templates/hooks/tests/run-tests.sh: pass (174/174)
+    - bash scripts/generate-installer.sh > /tmp/sage-install-regen-after-testfix.sh && diff -q install.sh /tmp/sage-install-regen-after-testfix.sh: pass
+    - shasum -a 256 -c SHA256SUMS: pass
+    - bash scripts/sage-validate.sh: pass (Check 9 warns on legacy Gist mismatch on non-main)
+    - bash scripts/sage-doctor.sh: pass, 0 FAIL (6 existing WARN)
+    - bash scripts/sage-doc-drift.sh: pass
+    - shellcheck changed shell scripts: pass
+    - gitleaks detect --no-git --redact --source .: pass
+    - actionlint: skipped (not installed locally)

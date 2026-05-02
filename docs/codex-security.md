@@ -101,6 +101,7 @@ network_access = false
 ### SAGE side audit (supply-chain pinned)
 
 SAGE は `templates/sage/mcp-allowlist-template.json` で declarative registry を提供、SessionStart hook で drift + version pin + sha256 + OAuth callback mismatch 検出 (詳細は [SPEC-0015](../specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md))。Codex run の RUN log を SAGE で記録する場合、`templates/sage/agent-inventory-template.yaml` で expected runtime / approval_policy / network_mode を declare し、validator が declared vs observed drift を warn ([SPEC-0017](../specs/SPEC-0017-agent-identity-inventory.md))。
+SAGE installer 自体の supply chain は GitHub Releases primary distribution + SHA256SUMS で hardening されている ([SPEC-0018](../specs/SPEC-0018-installer-supply-chain-hardening.md))。Codex CI で SAGE を導入する場合は `releases/download/v<X.Y.Z>/install.sh` の tag-pinned URL を使用し、`bash install.sh --verify-checksum --remote` で SHA256 整合性を確認すること。
 
 ---
 

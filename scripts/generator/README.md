@@ -15,7 +15,7 @@
 | # | Module | 責務 | 主な内容 |
 |---|---|---|---|
 | 01 | `01-templates.sh` | SPEC/PLAN/TASK + sage governance テンプレ | TMPL_SPEC / TMPL_PLAN / TMPL_TASK / TMPL_CHARTER / TMPL_GOVERNANCE / TMPL_FAILURES / TMPL_ANTIPATTERNS / TMPL_QUALITY_GATES / TMPL_ADOPTION / TMPL_TRACEABILITY |
-| 02 | `02-config.sh` | .sage/config.yaml + claude/agents snippets + commit hook | TMPL_CONFIG / TMPL_CLAUDE_SNIPPET / TMPL_AGENTS_SNIPPET / TMPL_COMMIT_HOOK |
+| 02 | `02-config.sh` | .sage/config.yaml + claude/agents snippets + commit hook (Phase 6.1: TMPL_CONFIG installer_url を Releases URL に sed substitute、SPEC-0018 FR-04) | TMPL_CONFIG / TMPL_CLAUDE_SNIPPET / TMPL_AGENTS_SNIPPET / TMPL_COMMIT_HOOK |
 | 03 | `03-rules.sh` | rules + skills + base scripts | TMPL_RULES_* (5) / TMPL_SKILL_* (8) / TMPL_VALIDATE / TMPL_ID_GEN / TMPL_TRACE_CHECK / TMPL_UPDATE_CHECK / TMPL_PROMOTE / TMPL_RETRO_SPEC |
 | 04 | `04-hooks-base.sh` | Phase 1-2A hooks (5) | TMPL_HOOK_BLOCK_DANGEROUS / PROTECT_SAGE / CHECK_SCOPE / SESSION_START / SESSION_STOP |
 | 05 | `05-hooks-phase2b.sh` | Phase 2B hooks (3) | TMPL_HOOK_LETHAL_TRIFECTA / SECRET_READ / SECURITY_FILTER |

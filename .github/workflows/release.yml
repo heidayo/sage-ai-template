@@ -1,0 +1,137 @@
+name: SAGE Release (SPEC-0018)
+
+# SPEC-0018 Phase 6.1: Installer Supply Chain Hardening
+# Tag push (v*.*.*) で発火し、install.sh + SHA256SUMS を release artifact として attach する。
+# - byte-identical 検証で install.sh と generate-installer.sh の同期を保証
+# - SHA256SUMS を公開 (利用者が `--verify-checksum --remote` で検証可能)
+# - URL pinning (releases/download/vX.Y.Z/install.sh で immutable per version)
+# cosign 署名 (SPEC-0019) / SLSA provenance (SPEC-0020) は本 workflow で扱わない。
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# SEC-01: least privilege — release 作成のみ。`packages: write` / `id-token: write` は cosign 導入時に追加。
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # AC-15 異常系: tag が semver でない場合 (`v1.0` / `1.6.0` / `vX.Y.Z-rc1` 等) は exit 1。
+      - name: Validate tag format
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Invalid tag::tag '$TAG' is not v<major>.<minor>.<patch> (pre-release suffix not supported in Phase 6.1)"
+            exit 1
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      # AC-03 / FR-01 step 2: install.sh が generate-installer.sh と乖離していないことを保証。
+      # 乖離 = commit 漏れ → release を中止して maintainer に通知。
+      - name: Byte-identical install.sh check
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/generate-installer.sh > /tmp/install-regen.sh
+          if ! diff -q install.sh /tmp/install-regen.sh > /dev/null; then
+            echo "::error title=install.sh drift::install.sh and generate-installer.sh output diverge. Run 'bash scripts/generate-installer.sh > install.sh && git commit' before tagging."
+            diff install.sh /tmp/install-regen.sh | head -50
+            exit 1
+          fi
+          echo "install.sh is byte-identical with generate-installer.sh output."
+
+      # FR-02: SHA256SUMS は POSIX format (`<sha256>  install.sh`)、改行は LF、utf-8。
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum install.sh > SHA256SUMS
+          else
+            shasum -a 256 install.sh > SHA256SUMS
+          fi
+          # validate format: 64-char hex + 2 spaces + filename
+          if ! grep -Eq '^[0-9a-f]{64}  install\.sh$' SHA256SUMS; then
+            echo "::error title=SHA256SUMS format invalid::expected '<sha256>  install.sh', got:"
+            cat SHA256SUMS
+            exit 1
+          fi
+          echo "SHA256SUMS contents:"
+          cat SHA256SUMS
+
+      - name: Generate release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA256=$(awk '{print $1}' SHA256SUMS)
+          INSTALLER_SIZE=$(wc -c < install.sh | tr -d ' ')
+          cat > /tmp/release-notes.md <<NOTES
+          # SAGE Development System ${TAG}
+
+          ## Installation
+
+          \`\`\`bash
+          curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/install.sh | bash
+          \`\`\`
+
+          ## Verification (recommended for production adoption)
+
+          \`\`\`bash
+          curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/install.sh -o install.sh
+          curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS -o SHA256SUMS
+          shasum -a 256 -c SHA256SUMS
+          bash install.sh
+          \`\`\`
+
+          Or, after install:
+
+          \`\`\`bash
+          bash install.sh --verify-checksum --remote
+          \`\`\`
+
+          ## Artifacts
+
+          - \`install.sh\` (${INSTALLER_SIZE} bytes, SHA256: \`${SHA256}\`)
+          - \`SHA256SUMS\`
+
+          ## Distribution channels
+
+          - **Primary**: GitHub Releases (this artifact, immutable per tag) — recommended for production adoption
+          - **Legacy fallback**: Gist (\`https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh\`) — kept for backward compat (existing \`.sage/config.yaml\` users)
+
+          See [SECURITY.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/SECURITY.md) and [SPEC-0018](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/specs/SPEC-0018-installer-supply-chain-hardening.md) for the supply chain hardening doctrine.
+
+          cosign keyless signing (SPEC-0019) and SLSA provenance (SPEC-0020) are scheduled for Phase 6.2 / 6.3.
+          NOTES
+          echo "Generated release notes at /tmp/release-notes.md"
+
+      # AC-17 異常系: 同 tag で 2 度発火した場合 `gh release create` が exit 1 を返す。
+      # workflow は clean fail し、既存 release artifact を上書きしない。
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error title=Release exists::release $TAG already exists. Delete it first ('gh release delete $TAG --yes && git push --delete origin $TAG') and re-tag."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            install.sh \
+            SHA256SUMS \
+            --title "SAGE ${TAG}" \
+            --notes-file /tmp/release-notes.md \
+            --verify-tag
+          echo "Released ${TAG}: $(gh release view "$TAG" --json url --jq .url)"

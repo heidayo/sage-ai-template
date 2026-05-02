@@ -230,6 +230,7 @@ Runtime protection via `.claude/settings.json` hooks:
 | runlog-index | SQLite FTS5 indexer for RUN log + audit events (Phase 5+, SPEC-0016) | minimal+ |
 
 Phase 5+: MCP allowlist audit (SPEC-0015) + agent identity inventory (SPEC-0017) + RUN log SQLite-FTS (SPEC-0016) — search via `bash scripts/sage-runlog-search.sh --task-id TASK-XXXX`. Installer modular structure (SPEC-0014): `scripts/generator/` 7 modules.
+Phase 6.1: Installer supply chain hardening (SPEC-0018) — GitHub Releases primary distribution + SHA256SUMS + URL pinning. Verify with `bash install.sh --verify-checksum --remote`. cosign (SPEC-0019) / SLSA (SPEC-0020) は後続。
 
 Profile in `.sage/config.yaml` `hooks.profile`: minimal → standard → strict → none.
 Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`

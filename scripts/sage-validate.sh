@@ -290,12 +290,23 @@ else
 fi
 echo ""
 
-# --- Check 9: installer_url 3-path sync (SPEC-0008 TASK-0081) ---
-# Compare local install.sh sha256 with the Gist-published version. Offline
-# or unreachable Gist => SKIPPED (not a failure). On main (GITHUB_REF_NAME=main)
+# --- Check 9: installer_url 3-path sync (SPEC-0008 TASK-0081 / SPEC-0018 expanded) ---
+# Compare local install.sh sha256 with the published artifact at installer_url.
+# URL-agnostic: works for both Gist (gist.githubusercontent.com/.../raw/install.sh) and
+# GitHub Releases (github.com/.../releases/{latest,download/v*}/download/install.sh).
+# Offline or unreachable URL => SKIPPED (not a failure). On main (GITHUB_REF_NAME=main)
 # a mismatch is a FAIL; elsewhere the mismatch is a warning.
 echo "[9/9] installer_url 3 経路同期チェック..."
 INSTALLER_URL=$(grep -E '^\s*installer_url:' .sage/config.yaml 2>/dev/null | head -1 | sed -E 's/^[^"]*"([^"]*)".*/\1/')
+# SPEC-0018: detect URL flavor for clearer messaging
+case "$INSTALLER_URL" in
+  *gist.githubusercontent.com*)        URL_FLAVOR="Gist (legacy)" ;;
+  *github.com*releases/latest/*)       URL_FLAVOR="GitHub Releases (latest)" ;;
+  *github.com*releases/download/*)     URL_FLAVOR="GitHub Releases (tag-pinned)" ;;
+  '')                                  URL_FLAVOR="" ;;
+  *)                                   URL_FLAVOR="custom" ;;
+esac
+
 if [ -z "$INSTALLER_URL" ]; then
   echo "  SKIPPED: installer_url not set in .sage/config.yaml"
 elif [ ! -f install.sh ]; then
@@ -307,19 +318,23 @@ elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>
 else
   LOCAL_SHA=$(shasum -a 256 install.sh 2>/dev/null | awk '{print $1}')
   [ -z "$LOCAL_SHA" ] && LOCAL_SHA=$(sha256sum install.sh 2>/dev/null | awk '{print $1}')
-  REMOTE_CONTENT=$(curl -fsSL --max-time 10 "$INSTALLER_URL" 2>/dev/null || true)
-  if [ -z "$REMOTE_CONTENT" ]; then
-    echo "  SKIPPED: Gist not reachable (offline or URL 404)"
+  # Keep remote bytes on disk while hashing. Command substitution strips trailing
+  # newlines, which creates false mismatches for byte-identical install.sh files.
+  REMOTE_TMP=$(mktemp "${TMPDIR:-/tmp}/sage-installer-remote.XXXXXX")
+  if ! curl -fsSL --max-time 10 "$INSTALLER_URL" -o "$REMOTE_TMP" 2>/dev/null || [ ! -s "$REMOTE_TMP" ]; then
+    rm -f "$REMOTE_TMP"
+    echo "  SKIPPED: ${URL_FLAVOR} not reachable (offline or URL 404)"
   else
-    REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | shasum -a 256 2>/dev/null | awk '{print $1}')
-    [ -z "$REMOTE_SHA" ] && REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | sha256sum 2>/dev/null | awk '{print $1}')
+    REMOTE_SHA=$(shasum -a 256 "$REMOTE_TMP" 2>/dev/null | awk '{print $1}')
+    [ -z "$REMOTE_SHA" ] && REMOTE_SHA=$(sha256sum "$REMOTE_TMP" 2>/dev/null | awk '{print $1}')
+    rm -f "$REMOTE_TMP"
     if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
-      echo "  OK: local install.sh matches Gist publication (sha256)"
+      echo "  OK: local install.sh matches ${URL_FLAVOR} publication (sha256)"
     else
       echo "  MISMATCH:"
       echo "    local  sha256: $LOCAL_SHA"
       echo "    remote sha256: $REMOTE_SHA"
-      echo "    URL:           $INSTALLER_URL"
+      echo "    URL:           $INSTALLER_URL (${URL_FLAVOR})"
       if [ "${GITHUB_REF_NAME:-}" = "main" ]; then
         echo "  FAIL: on main branch, mismatch is not allowed"
         ERRORS=$((ERRORS + 1))
