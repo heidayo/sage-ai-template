@@ -70,12 +70,12 @@ emit() {
 }
 
 # ============================================================
-# [1/3] File Existence & Integrity Check (TASK-0046)
+# [1/4] File Existence & Integrity Check (TASK-0046)
 # ============================================================
 if [ "$JSON_OUTPUT" = false ]; then
   echo "=== SAGE Doctor ==="
   echo ""
-  echo "[1/3] File existence & integrity check..."
+  echo "[1/4] File existence & integrity check..."
 fi
 
 # Parse install-state.yaml (lightweight: grep-based)
@@ -145,10 +145,10 @@ process_entry
 if [ "$JSON_OUTPUT" = false ]; then echo ""; fi
 
 # ============================================================
-# [2/3] AI Control Plane Security Check (TASK-0047)
+# [2/4] AI Control Plane Security Check (TASK-0047)
 # ============================================================
 if [ "$JSON_OUTPUT" = false ]; then
-  echo "[2/3] AI Control Plane security check..."
+  echo "[2/4] AI Control Plane security check..."
 fi
 
 # Secret patterns
@@ -247,12 +247,42 @@ fi
 if [ "$JSON_OUTPUT" = false ]; then echo ""; fi
 
 # ============================================================
-# [3/3] Summary & Failure Candidate Output (TASK-0048)
+# [3/4] MCP allowlist health check (TASK-0124 / SPEC-0015)
+# ============================================================
+if [ "$JSON_OUTPUT" = false ]; then
+  echo "[3/4] MCP allowlist check..."
+fi
+
+MCP_REGISTRY=".sage/mcp-allowlist.json"
+
+# (a) registry existence
+if [ ! -f "$MCP_REGISTRY" ]; then
+  emit "WARN" "MCP allowlist registry not found ($MCP_REGISTRY) — initial setup recommended (SPEC-0015)"
+  add_result "WARN" "mcp_allowlist_registry" "Registry $MCP_REGISTRY not present"
+else
+  # (b) registry validity + secret hygiene (drift7) — delegate to companion script
+  if command -v python3 &>/dev/null; then
+    MCP_DOCTOR_OUT="$(bash scripts/sage-mcp-allowlist-audit.sh "$MCP_REGISTRY" 2>&1)"
+    while IFS=$'\t' read -r level check msg; do
+      [ -z "$level" ] && continue
+      emit "$level" "$msg"
+      add_result "$level" "$check" "$msg"
+    done <<< "$MCP_DOCTOR_OUT"
+  else
+    emit "WARN" "python3 unavailable — MCP allowlist check skipped"
+    add_result "WARN" "mcp_allowlist_python" "python3 not in PATH"
+  fi
+fi
+
+if [ "$JSON_OUTPUT" = false ]; then echo ""; fi
+
+# ============================================================
+# [4/4] Summary & Failure Candidate Output (TASK-0048)
 # ============================================================
 TOTAL=$((FAIL_COUNT + WARN_COUNT + OK_COUNT))
 
 if [ "$JSON_OUTPUT" = false ]; then
-  echo "[3/3] Summary..."
+  echo "[4/4] Summary..."
   echo "  OK: $OK_COUNT  WARN: $WARN_COUNT  FAIL: $FAIL_COUNT  (Total: $TOTAL)"
   echo ""
 fi

@@ -1,0 +1,111 @@
+{
+  "_comment_purpose": "SAGE MCP allowlist registry — declarative positive list of approved MCP servers. Audit hook (templates/hooks/mcp-allowlist-audit.sh) compares actual .mcp.json + repo-local .codex/config.toml against this registry on SessionStart. See SPEC-0015 for the full schema.",
+  "_comment_doctrine": "Positive list 原則: registry に明示列挙された server のみが承認済。新 server 追加は SPEC-ID または PR URL を approved_by に記録 (audit trail)。@latest は default で禁止 (policy.forbid_latest_tag: true)。HTTP MCP は anonymous 禁止 (policy.http_require_auth: true、auth_mode は bearer_env / oauth どちらか必須)。http_headers に Authorization / Cookie / X-Api-Key 等の機密 header 静的値 禁止 — 機密値は env_http_headers (env 名参照) または bearer_token_env_var で扱う。",
+
+  "version": "1.0",
+
+  "servers": [
+    {
+      "_comment": "Example 1: STDIO transport, npm_package artifact (browser automation MCP)",
+      "name": "playwright",
+      "transport": "stdio",
+      "artifact_type": "npm_package",
+      "command": "npx",
+      "args": ["@anthropic-ai/mcp-playwright@1.42.0"],
+      "version_pin": "1.42.0",
+      "npm_integrity": "sha512-PLACEHOLDER-COMPUTE-WITH-NPM-VIEW-OR-PACKAGE-LOCK",
+      "publisher": "anthropic",
+      "source_registry": "https://registry.npmjs.org",
+      "enabled_tools": ["browse", "screenshot"],
+      "approved_by": "SPEC-0015 / PR #21",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02",
+      "notes": "Browser automation MCP (STDIO + npm_package)."
+    },
+    {
+      "_comment": "Example 2: STDIO transport, local_binary artifact (filesystem MCP)",
+      "name": "filesystem-local",
+      "transport": "stdio",
+      "artifact_type": "local_binary",
+      "command": "/usr/local/bin/mcp-filesystem",
+      "args": ["--root", "/workspace"],
+      "version_pin": "0.5.1",
+      "command_path_sha256": "PLACEHOLDER-COMPUTE-WITH-shasum-a-256",
+      "publisher": "modelcontextprotocol",
+      "source_registry": "https://github.com/modelcontextprotocol/servers",
+      "enabled_tools": ["read_file", "list_directory"],
+      "approved_by": "SPEC-0015 / PR #21",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02",
+      "notes": "Filesystem MCP (STDIO + local_binary, command_path_sha256 で binary integrity 検証)."
+    },
+    {
+      "_comment": "Example 3: HTTP transport with bearer_env auth (company-internal search MCP)",
+      "name": "company-search",
+      "transport": "http",
+      "artifact_type": "remote_http",
+      "url": "https://mcp.example.com/v1",
+      "url_origin_pin": "https://mcp.example.com",
+      "auth_mode": "bearer_env",
+      "bearer_token_env_var": "COMPANY_MCP_TOKEN",
+      "http_headers": {
+        "User-Agent": "sage-mcp/1.0",
+        "X-Client-Name": "sage"
+      },
+      "env_http_headers": {
+        "X-Tenant": "TENANT_ID_ENV"
+      },
+      "tls_pin_sha256": "",
+      "enabled_tools": ["search"],
+      "approved_by": "SPEC-0015 / PR #21",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02",
+      "notes": "Remote search MCP (HTTP + bearer_env auth)."
+    },
+    {
+      "_comment": "Example 4: HTTP transport with OAuth (external SaaS MCP)",
+      "name": "external-oauth-mcp",
+      "transport": "http",
+      "artifact_type": "remote_http",
+      "url": "https://oauth-mcp.example.com/v1",
+      "url_origin_pin": "https://oauth-mcp.example.com",
+      "auth_mode": "oauth",
+      "oauth_provider": "google",
+      "oauth_scopes": ["openid", "profile"],
+      "http_headers": {
+        "User-Agent": "sage-mcp/1.0"
+      },
+      "tls_pin_sha256": "",
+      "enabled_tools": ["query"],
+      "approved_by": "SPEC-0015 / PR #21",
+      "approved_at": "2026-05-02",
+      "expires_at": "2027-05-02",
+      "notes": "Remote MCP (HTTP + OAuth via google). Callback は top-level oauth_callback で declare (Codex は config.toml の top-level mcp_oauth_callback_* を参照)."
+    }
+  ],
+
+  "_comment_oauth_callback": "registry top-level oauth_callback section: auth_mode: 'oauth' の server がある場合に有効化。Codex 公式 (https://developers.openai.com/codex/mcp) は mcp_oauth_callback_port / mcp_oauth_callback_url を config.toml の TOP-LEVEL 設定として扱い、codex mcp login コマンドが利用する。本 registry も top-level で declare し、実 Codex config の top-level と比較する (drift8_oauth_callback_mismatch)。",
+  "oauth_callback": {
+    "mcp_oauth_callback_port": 8765,
+    "mcp_oauth_callback_url": ""
+  },
+
+  "_comment_policy": "Policy enforcement settings — organization 方針を declarative に表現。default は security 重視 (forbid_latest_tag / require_publisher / forbid_unknown_transport / http_require_url_origin_pin / http_require_auth / http_static_header_secret_check / oauth_callback_require_match 全て true)。require_npm_integrity は default false (user opt-in、計算負荷を考慮)。",
+  "policy": {
+    "forbid_latest_tag": true,
+    "require_npm_integrity": false,
+    "require_publisher": true,
+    "forbid_unknown_transport": true,
+    "http_require_url_origin_pin": true,
+    "http_require_auth": true,
+    "http_static_header_secret_check": true,
+    "oauth_callback_require_match": true
+  },
+
+  "_comment_bypass": "Bypass mechanism: warn を抑止できるが、bypass の事実自体は .sage/audit/mcp-allowlist-bypass.log に記録される (silent bypass 禁止、SEC-04)。enabled: true にする場合は reason 必須、expires_at で自動失効を設定すべき。",
+  "bypass": {
+    "enabled": false,
+    "reason": "",
+    "expires_at": ""
+  }
+}

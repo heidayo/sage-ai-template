@@ -98,6 +98,10 @@ network_access = false
 - `approval_policy = "never"` + 任意 sandbox_mode → 高リスク operation の人間 review が消える
 - `--yolo` flag (もし将来追加されても) → 通常開発では使わない
 
+### SAGE side audit (supply-chain pinned)
+
+SAGE は `templates/sage/mcp-allowlist-template.json` で declarative registry を提供、SessionStart hook で drift + version pin + sha256 + OAuth callback mismatch 検出 (詳細は [SPEC-0015](../specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md))。
+
 ---
 
 ## 3. Codex Cloud / web
