@@ -232,7 +232,18 @@ Phase 1-3 で以下を整備:
 - **[NFR-01] パフォーマンス**: audit hook の **5 回測定中央値 < 200ms** (`templates/hooks/tests/measure-hook-time.py` で検証、Codex review P2 反映)
 - **[NFR-02] idempotency**: 同条件で複数回実行しても同 audit log 内容 (timestamp 除く)
 - **[NFR-03] graceful degradation**: registry 不在 / Codex CLI 未 install / `.codex/config.toml` 不在 / Python 不在 等で hook が fail しないこと
-- **[NFR-04] auditability**: 全 drift event を機械可読形式 (JSON-lines) で `.sage/audit/` に保存、args は redact 済
+- **[NFR-04] auditability + audit log JSON schema** (Codex 6th review P2 #2 反映で機械可読 schema を厳密化): 全 drift event を **JSON-lines** 形式で `.sage/audit/mcp-allowlist-YYYYMMDD.log` に保存。各行が独立 JSON object、必須 field 5 個:
+  - `timestamp` (ISO 8601 UTC、例: `"2026-05-02T01:23:45Z"`)
+  - `runtime` (実 config source、`claude-code` / `codex-cli-repo-local` / `codex-cli-user-global`)
+  - `drift_type` (**enum、人間向け文字列ではなく machine-readable**):
+    - stdio: `drift1_stdio_unknown_server` / `drift2_stdio_args_mismatch` / `drift3_stdio_registry_only` / `drift4_stdio_latest_tag` / `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch`
+    - http: `drift1_http_unknown_server` / `drift2_http_url_origin_mismatch` / `drift5_tls_pin_sha256_mismatch` / `drift6_anonymous` / `drift6_oauth_approve` / `drift6_bearer_approve` / `drift7_sensitive_header` / `drift8_oauth_callback_mismatch`
+    - 共通: `transport_mismatch` / `expired_approval`
+  - `severity` (`info` / `warn` / `fail`)
+  - `details` (object、drift type ごとの構造化情報、args は redact 済)
+  - args / bearer_token_env_var の値は redact (env 名のみ記録)
+  - これにより OPS-05 / doctor は人間向け message 文字列ではなく `drift_type` enum で機械的に判定可能
+- **[NFR-04a] audit log reader (公式)**: `.sage/audit/mcp-allowlist-*.log` を読む全 consumer (doctor / OPS-05 promotion check / 外部 audit pipeline) は **Python stdlib `json.loads()` で 1 行ずつ parse** + `drift_type` field の enum 完全一致で判定。`grep` / `awk` の正規表現 patten 依存は不採用 (Codex 6th review P2 #2 反映で「未定義 log 文字列依存」を回避)
 - **[NFR-05] portability**: macOS / Linux 両対応 (BSD awk / GNU awk 差異吸収、bash 4+ 想定)
 - **[NFR-06] test scenario coverage**: shell script のため code coverage 概念は不適。代わりに以下のシナリオ網羅性を要求:
   - **stdio drift**: drift1 / drift2 / drift3 / drift4 / drift5 = 5 case
@@ -277,9 +288,9 @@ Phase 1-3 で以下を整備:
 
   | 昇格 | 条件 | 検証コマンド |
   |---|---|---|
-  | minimal → standard | minimal で 7 日運用 + sage-doctor で 0 FAIL 維持 | `bash scripts/sage-doctor.sh && find .sage/audit -name 'mcp-allowlist-*.log' -mtime -7 \| xargs grep -c WARN` |
-  | standard → strict | standard で 14 日運用 + **strict 時 block 対象 4 cases 全 0 件** (drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch、Codex 5th review P2 反映で drift6/drift8 を昇格条件に追加) | `awk '/drift1\|drift5\|drift6 anonymous\|drift8/' .sage/audit/mcp-allowlist-*.log \| wc -l` で 0 |
-  | strict 維持 | strict 時 block 対象 4 cases いずれか 1 件で即 incident response 起動 | `bash scripts/sage-incident-trigger.sh mcp-supply-chain` (本 SPEC 範囲外、SECURITY.md IR 手順) |
+  | minimal → standard | minimal で 7 日運用 + sage-doctor で 0 FAIL 維持 | `bash scripts/sage-doctor.sh && find .sage/audit -name 'mcp-allowlist-*.log' -mtime -7 -print0 \| xargs -0 -I{} python3 -c "import json,sys; [print(l) for l in open('{}') if json.loads(l).get('severity')=='warn']" \| wc -l` |
+  | standard → strict | standard で 14 日運用 + **strict 時 block 対象 4 enum 全 0 件** (Codex 5th-6th review 反映、`drift_type` enum で機械判定): `drift1_stdio_unknown_server` / `drift1_http_unknown_server` / `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch` / `drift5_tls_pin_sha256_mismatch` / `drift6_anonymous` / `drift8_oauth_callback_mismatch` | `python3 -c "import json,sys,glob; types={'drift1_stdio_unknown_server','drift1_http_unknown_server','drift5_npm_integrity_mismatch','drift5_command_path_sha256_mismatch','drift5_tls_pin_sha256_mismatch','drift6_anonymous','drift8_oauth_callback_mismatch'}; n=sum(1 for f in glob.glob('.sage/audit/mcp-allowlist-*.log') for l in open(f) if json.loads(l).get('drift_type') in types); sys.exit(0 if n==0 else 1)"` で exit 0 |
+  | strict 維持 | strict 時 block 対象 enum いずれか 1 件で即 incident response 起動 | `bash scripts/sage-incident-trigger.sh mcp-supply-chain` (本 SPEC 範囲外、SECURITY.md IR 手順) |
 
   各段階の昇格は `.sage/config.yaml` `hooks.profile` 更新 PR で実施、PR body に上記検証コマンド出力を貼る (auditability)。
 
@@ -332,7 +343,7 @@ Phase 1-3 で以下を整備:
 | AC-01 | Gate 1 (Structural: JSON validity) | `python3 -c "import json; json.load(open('templates/sage/mcp-allowlist-template.json'))"` |
 | AC-02 | Gate 1 (Structural: shellcheck) + Gate 3 (Security: detection-only behavior) | `shellcheck templates/hooks/mcp-allowlist-audit.sh && bash templates/hooks/tests/test-detection-only-behavior.sh` (grep 不採用、fake wrapper 方式の behavior test、Codex review P2-2 反映) |
 | AC-03, AC-07, AC-11 | Gate 2 (Functional: hook tests, performance) | `bash templates/hooks/tests/run-tests.sh && python3 templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` |
-| SEC-01..SEC-06 | Gate 3 (Security: detection-only validation, supply chain 補完, opt-in default) | AC-02 と AC-03 (test case 内) で検証 |
+| SEC-01..SEC-07 | Gate 3 (Security: detection-only validation, supply chain 補完, opt-in default, **registry secret hygiene** SEC-07) | AC-02 と AC-03 (test case 内、特に drift7 sensitive header registry parse FAIL test) で検証 |
 | AC-04, AC-08, AC-09, AC-10, AC-12, AC-13 | Gate 4 (Architecture: traceability, doc drift) | `bash scripts/sage-validate.sh && bash scripts/sage-doctor.sh && bash scripts/sage-doc-drift.sh` |
 | AC-06 | Gate 4 (Architecture: doctrine alignment、R7 厳守) | `wc -l SECURITY.md sage/governance.md AGENTS.md CLAUDE.md docs/codex-security.md` で各ファイル増分 ≤ +3 行 |
 

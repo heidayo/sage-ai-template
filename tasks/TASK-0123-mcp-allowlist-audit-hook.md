@@ -11,7 +11,7 @@
 | 担当Agent | Implementation/Test |
 | 並列可否  | No |
 | 依存TASK  | TASK-0122 (JSON schema 必要) |
-| 見積     | 150m (Codex 2nd review P1 transport-aware + P2 Python helper / fake wrapper で +30m、Codex 3rd review P2 で auth_mode + secret hygiene 拡張で +0m 維持) |
+| 見積     | 165m (Codex 2nd review +30m for transport-aware + Python helper / fake wrapper、Codex 3rd review +0m for auth_mode + secret hygiene、Codex 4th-5th review +15m for OAuth top-level + drift6 strict + case-insensitive + audit log JSON schema) |
 
 ## 責務
 
@@ -130,6 +130,8 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
 - [ ] `python3 templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (Python `time.perf_counter()` で macOS / Linux 互換、機械判定 exit code)
 - [ ] graceful degradation: registry 不在 / Codex CLI 不在 / `.mcp.json` 不在 / Python 不在 のいずれでも exit 0
 - [ ] audit log が `.sage/audit/mcp-allowlist-YYYYMMDD.log` に append-only で書かれる
+- [ ] **audit log は JSON-lines 形式** (Codex 6th review P2 #2 反映、NFR-04 schema 準拠): 各行が独立 JSON object、必須 5 field (`timestamp` ISO 8601 UTC / `runtime` / `drift_type` enum / `severity` / `details`)
+- [ ] **`drift_type` enum 完全一致**: 人間向け文字列ではなく schema 定義の enum 値 (`drift1_stdio_unknown_server` / `drift5_npm_integrity_mismatch` / `drift6_anonymous` / `drift7_sensitive_header` / `drift8_oauth_callback_mismatch` 等) を出力
 - [ ] audit log に raw command line 不在 (args redact 検証 grep で 0 件)
 - [ ] default で user-global config を読まない (test で検証)
 - [ ] opt-in 設定時のみ user-global を読む (test で検証)
