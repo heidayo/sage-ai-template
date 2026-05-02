@@ -31,6 +31,14 @@
 - 変更: `scripts/sage-doctor.sh`
 - 作成: `scripts/sage-agent-inventory-audit.sh`
 
+## 禁止事項
+
+- 既存 doctor step ([1/4]..[3/4]) を削除 / 順序変更しない (既存 OK / WARN / FAIL 集計に影響しない)
+- inventory drift を doctor で FAIL にしない (warn-only 厳守、SPEC-0017 doctrine)
+- agent inventory 関連で MCP server を kill / signal しない (governance §9.2)
+- audit script を `.sage/audit/` 以外のディレクトリに書かせない (NFR-04 と同方針)
+- TASK-0124 の MCP allowlist check step を変更しない (本 TASK は新 step 追加のみ)
+
 ## 完了条件
 
 - [ ] doctor step 数 4 → 5

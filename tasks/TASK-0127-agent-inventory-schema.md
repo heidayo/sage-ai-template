@@ -27,6 +27,14 @@
 - 作成: `templates/sage/agent-inventory-template.yaml`
 - 変更: `templates/run-log-template.yaml`, `.sage/config.yaml`
 
+## 禁止事項
+
+- 既存 RUN log schema field を破壊変更しない (4 新 field は追加のみ、optional)
+- 既存 agent_id enum 7 値を変更しない (traceability 互換性破壊禁止)
+- inventory に runtime での agent identity 認証ロジックを含めない (governance §9.2)
+- inventory に secret / token / API key を直接書かせない (env 名参照のみ、SEC-02)
+- `.sage/agent-inventory.yaml` (実 user データ) を作成しない (本 TASK は template のみ)
+
 ## 完了条件
 
 - [ ] template に 7 agent_id 全 declare、yaml lint pass

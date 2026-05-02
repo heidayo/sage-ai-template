@@ -39,6 +39,15 @@
 - 変更: `scripts/sage-runlog-validate.sh`
 - 作成: `templates/hooks/tests/test-agent-inventory-validator.sh`
 
+## 禁止事項
+
+- 既存 validator logic (agent_id enum check / status check / gate_results check) を破壊しない
+- inventory 不在時に validator を FAIL させない (graceful degradation 必須、NFR-02)
+- 4 新 field のいずれかを **必須化しない** (backward compat 必須、NFR-01)
+- inventory drift を **FAIL** にしない (warn-only 厳守、validator 全体は PASS)
+- YAML 1.1 bool parse (`off` / `on` / `yes` / `no`) を bool のまま比較しない (`_coerce_yaml_str` で string 変換)
+- 既存 .sage/runs/RUN-000[1-4].yaml の validator 結果を変えない (regression 禁止)
+
 ## 完了条件
 
 - [ ] 6+ scenarios PASS

@@ -35,6 +35,15 @@
 
 - 変更: 5 doc files + `scripts/generate-installer.sh` + `install.sh` + `.sage-version`
 
+## 禁止事項
+
+- 5 doc files の追加が **各 +3 行以内** を超えない (R7 厳守)
+- AGENTS.md / CLAUDE.md の本文 (§9 以外) を触らない
+- governance §9.2 の「MCP server の実行時許可制御」行を削除しない (SPEC-0015 で確定済 doctrine)
+- install.sh を手動編集しない (必ず `bash scripts/generate-installer.sh > install.sh` で再生成)
+- doc cross-reference は **本 SPEC へのリンク** に集約、説明本文を 5 文書に複製しない
+- SPEC-0014 / SPEC-0016 の内容を本 TASK で具体化しない (予約 reference のみ可)
+
 ## 完了条件
 
 - [ ] 5 doc files 各 +3 行以内 (R7)
