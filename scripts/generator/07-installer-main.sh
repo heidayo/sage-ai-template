@@ -511,6 +511,7 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "scripts/sage-update-check.sh" "$TMPL_UPDATE_CHECK" && chmod +x "scripts/sage-update-check.sh"
   write_file_if_new "scripts/sage-promote.sh" "$TMPL_PROMOTE" && chmod +x "scripts/sage-promote.sh"
   write_file_if_new "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
+  write_file_if_new "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
 else
   # Update mode: テンプレートとガバナンスはSAGE管理なので上書き
   update_file "specs/_template.md" "$TMPL_SPEC"
@@ -528,6 +529,7 @@ else
   update_file "scripts/sage-update-check.sh" "$TMPL_UPDATE_CHECK" && chmod +x "scripts/sage-update-check.sh"
   update_file "scripts/sage-promote.sh" "$TMPL_PROMOTE" && chmod +x "scripts/sage-promote.sh"
   update_file "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
+  update_file "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   # failures.md, config.yaml はプロジェクト固有データが入るので更新しない
   echo "  KEEP: sage/failures.md (project data)"
   echo "  KEEP: .sage/config.yaml (project settings)"
@@ -718,21 +720,27 @@ STATEHEADER
 
   # SAGE-managed files (update_file targets — overwritten on update)
   local managed_files=(
+    # Templates
     "specs/_template.md"
     "plans/_template.md"
     "tasks/_template.md"
+    # Governance
     "sage/charter.md"
     "sage/governance.md"
     "sage/anti-patterns.md"
     "sage/quality-gates.md"
     "sage/adoption-phases.md"
     "sage/traceability.md"
+    # Scripts
     "scripts/sage-validate.sh"
     "scripts/sage-id-gen.sh"
     "scripts/sage-trace-check.sh"
     "scripts/sage-update-check.sh"
     "scripts/sage-promote.sh"
     "scripts/sage-retro-spec.sh"
+    # Docs
+    "docs/codex-delegation-packet.md"
+    # Claude Code rules and skills
     ".claude/rules/specs-rules.md"
     ".claude/rules/plans-rules.md"
     ".claude/rules/tasks-rules.md"

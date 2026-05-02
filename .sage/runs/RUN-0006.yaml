@@ -1,0 +1,51 @@
+run_id: RUN-0006
+task_id: TASK-0148
+agent_id: implementation
+started_at: "2026-05-02T15:35:00Z"
+completed_at: "2026-05-02T15:51:10Z"
+status: pass
+runtime: "codex-cli"
+tool_runtime: "codex-desktop"
+approval_policy: "never"
+network_mode: "unrestricted"
+files_changed:
+  - "specs/SPEC-0022-codex-delegation-packet.md"
+  - "plans/PLAN-0022-codex-delegation-packet.md"
+  - "tasks/TASK-0145-codex-delegation-doc.md"
+  - "tasks/TASK-0146-agents-codex-guidance.md"
+  - "tasks/TASK-0147-installer-codex-doc-propagation.md"
+  - "tasks/TASK-0148-codex-delegation-tests.md"
+  - "docs/codex-delegation-packet.md"
+  - "AGENTS.md"
+  - "templates/agents-md-snippet.md"
+  - "scripts/generator/03-rules.sh"
+  - "scripts/generator/07-installer-main.sh"
+  - "templates/hooks/tests/test-codex-delegation-packet.sh"
+  - "install.sh"
+  - "SHA256SUMS"
+  - ".sage/runs/RUN-0006.yaml"
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: |
+  Codex-only implementation for SPEC-0022.
+  Claude-specific files were intentionally not edited.
+  Runtime fields in this RUN log record the observed Codex desktop session
+  (`approval_policy=never`, `network_mode=unrestricted`). They are not a
+  recommended configuration. Regular Codex operation should use
+  `approval_policy=on-request` and network off or allowlist, as documented in
+  docs/codex-security.md and docs/codex-delegation-packet.md.
+
+  Verification summary:
+    - bash templates/hooks/tests/test-codex-delegation-packet.sh: pass (6/6)
+    - bash templates/hooks/tests/run-tests.sh: pass (180/180)
+    - bash scripts/generate-installer.sh > /tmp/sage-install-spec0022-check.sh && diff -q install.sh /tmp/sage-install-spec0022-check.sh: pass
+    - shasum -a 256 -c SHA256SUMS: pass
+    - bash scripts/sage-validate.sh: pass (Check 9 warns on legacy Gist mismatch on non-main)
+    - bash scripts/sage-doctor.sh: pass, 0 FAIL (6 existing WARN)
+    - bash scripts/sage-doc-drift.sh: pass
+    - shellcheck changed shell scripts: pass
+    - gitleaks detect --no-git --redact --source .: pass
