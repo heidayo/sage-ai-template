@@ -351,6 +351,7 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | Skill / governance / traceability | `templates/skills/sage-*/`, 本ドキュメント, `sage/traceability.md` |
 | Doctor / repair / report | `scripts/sage-doctor.sh` (Phase 5+ で `[5/6]` RUN log DB check 追加、SPEC-0016), `scripts/sage-repair.sh`, `scripts/sage-report.sh` |
 | RUN log 検索基盤 | `scripts/sage-runlog-index.sh` + `scripts/sage-runlog-search.sh` (Phase 5+, SPEC-0016, SQLite FTS5) |
+| Installer modular structure | `scripts/generator/` 7 modules + parent `scripts/generate-installer.sh` (Phase 5+, SPEC-0014, byte-identical refactor) |
 
 ### 9.2 SAGE が提供しないもの (What SAGE does NOT provide)
 
