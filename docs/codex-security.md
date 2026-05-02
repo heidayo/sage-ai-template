@@ -105,7 +105,7 @@ network_access = false
 ### TL;DR
 - Codex Cloud (web 経由) の agent internet access は **環境単位** で管理、既定 off
 - setup phase (依存 install) と agent phase (実行) は分離されている — agent phase での internet access はさらに保守的に
-- 必要時のみ allowlist で解除し、access log を運用で confirm
+- 必要時のみ allowlist で解除し、agent output / work log を必ず review (公式 docs 表現、後述)
 
 ### Setup phase vs Agent phase
 
@@ -199,13 +199,16 @@ on:
     types: [opened, synchronize]
 
 jobs:
+  # Job 1: Codex execution. contents: read のみ (least privilege)。
+  # PR comment 投稿は別 job で行い、Codex プロセスからは write 権限を完全に切り離す。
   codex:
     # 1. 信頼できる user のみが trigger 可能
     if: github.event.pull_request.user.login == 'YOUR_TRUSTED_USER'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -217,6 +220,7 @@ jobs:
       #    Codex は CLI sandbox 内で実行されるため shell injection 経路にならない。
       #    ただし `run:` で展開する場合は env 経由 + double quote 必須 (本 sample は `uses:` のみ)。
       - name: Codex review (last step)
+        id: run_codex
         uses: openai/codex-action@<PIN_TO_SHA>  # commit SHA pin (tag は再現性低)
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -232,6 +236,30 @@ jobs:
 
             Focus on: security, correctness, primary-source citations.
             Be concise. Prioritize findings as P1/P2/P3.
+
+  # Job 2: Codex の出力を PR コメントとして投稿。Codex 自身は触らないので
+  # write 権限を持たせても prompt injection から isolate されている。
+  post_feedback:
+    runs-on: ubuntu-latest
+    needs: codex
+    if: needs.codex.outputs.final_message != ''
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Post Codex feedback as PR comment
+        uses: actions/github-script@v7
+        env:
+          CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: process.env.CODEX_FINAL_MESSAGE,
+            });
 ```
 
 ### 禁止事項
