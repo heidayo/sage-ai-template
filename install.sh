@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="1.3.0"
+SAGE_VERSION="1.4.0"
 
 # === Embedded templates ===
 
@@ -684,7 +684,8 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | Settings template | `templates/settings/sandbox.json` + README (Phase 2B, **雛形のみ — 適用は user 責任**) — Claude Code sandbox / permission 推奨設定 |
 | AI agent 向け instruction | CLAUDE.md / AGENTS.md / `.claude/rules/` のテンプレート |
 | Skill / governance / traceability | `templates/skills/sage-*/`, 本ドキュメント, `sage/traceability.md` |
-| Doctor / repair / report | `scripts/sage-doctor.sh`, `scripts/sage-repair.sh`, `scripts/sage-report.sh` |
+| Doctor / repair / report | `scripts/sage-doctor.sh` (Phase 5+ で `[5/6]` RUN log DB check 追加、SPEC-0016), `scripts/sage-repair.sh`, `scripts/sage-report.sh` |
+| RUN log 検索基盤 | `scripts/sage-runlog-index.sh` + `scripts/sage-runlog-search.sh` (Phase 5+, SPEC-0016, SQLite FTS5) |
 
 ### 9.2 SAGE が提供しないもの (What SAGE does NOT provide)
 
@@ -7596,6 +7597,843 @@ PYEOF
 
 __EOF_TMPL_SCRIPT_AGENT_INVENTORY__
 
+read -r -d '' TMPL_SCRIPT_RUNLOG_INDEX <<'__EOF_TMPL_SCRIPT_RUNLOG_INDEX__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0131: sage-runlog-index.sh (SPEC-0016)
+# Purpose:  Index .sage/runs/RUN-*.yaml + .sage/audit/*.log into
+#           .sage/runs.db (SQLite FTS5).
+# Usage:    bash scripts/sage-runlog-index.sh [--full|--incremental]
+# Default:  --incremental (mtime > last_index_at)
+# Exit:     0 always (parse errors are warned + skipped)
+# =============================================================================
+set -uo pipefail
+
+MODE="${1:-}"
+case "$MODE" in
+  --full|--incremental|"") ;;
+  *) echo "ERROR: unknown mode: $MODE (use --full or --incremental)" >&2; exit 1 ;;
+esac
+[ -z "$MODE" ] && MODE="--incremental"
+
+DB_PATH=".sage/runs.db"
+RUNS_DIR=".sage/runs"
+AUDIT_DIR=".sage/audit"
+
+if ! command -v python3 &>/dev/null; then
+  echo "WARN: python3 not available; skipping RUN log indexing." >&2
+  exit 0
+fi
+
+mkdir -p .sage
+
+python3 - "$DB_PATH" "$RUNS_DIR" "$AUDIT_DIR" "$MODE" <<'PYEOF'
+import os
+import sys
+import sqlite3
+import json
+import glob
+import re
+
+try:
+    import yaml
+except ImportError:
+    print("WARN: python yaml module unavailable; skipping indexing.", file=sys.stderr)
+    sys.exit(0)
+
+db_path, runs_dir, audit_dir, mode = sys.argv[1:5]
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS runs (
+    run_id TEXT PRIMARY KEY,
+    task_id TEXT,
+    agent_id TEXT,
+    runtime TEXT,
+    status TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    files_changed TEXT,
+    error_log TEXT,
+    indexed_at TEXT,
+    source_mtime REAL
+);
+CREATE INDEX IF NOT EXISTS idx_runs_task_id ON runs(task_id);
+CREATE INDEX IF NOT EXISTS idx_runs_agent_id ON runs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT,
+    drift_type TEXT,
+    severity TEXT,
+    runtime TEXT,
+    server_name TEXT,
+    timestamp TEXT,
+    details TEXT,
+    source_file TEXT,
+    indexed_at TEXT,
+    UNIQUE(source_file, timestamp, drift_type, server_name)
+);
+CREATE INDEX IF NOT EXISTS idx_audit_drift_type ON audit_events(drift_type);
+CREATE INDEX IF NOT EXISTS idx_audit_severity ON audit_events(severity);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_events(timestamp);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS runs_fts USING fts5(
+    run_id, task_id, agent_id, status, error_log,
+    content='runs', content_rowid='rowid'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS audit_fts USING fts5(
+    drift_type, severity, details,
+    content='audit_events', content_rowid='id'
+);
+
+CREATE TABLE IF NOT EXISTS index_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+"""
+
+def coerce_yaml_str(v):
+    if isinstance(v, bool):
+        return {True: "on", False: "off"}[v]
+    return v
+
+def get_last_index_at(conn):
+    cur = conn.execute("SELECT value FROM index_meta WHERE key = 'last_index_at'")
+    row = cur.fetchone()
+    return float(row[0]) if row else 0.0
+
+def set_last_index_at(conn, ts):
+    conn.execute("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('last_index_at', ?)", (str(ts),))
+
+def index_run_log(conn, path, indexed_at):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            doc = yaml.safe_load(f)
+    except (yaml.YAMLError, OSError) as e:
+        print(f"WARN: skip {path}: {e}", file=sys.stderr)
+        return False
+    if not isinstance(doc, dict):
+        print(f"WARN: skip {path}: not a mapping", file=sys.stderr)
+        return False
+    mtime = os.path.getmtime(path)
+    files_changed = doc.get("files_changed", [])
+    if not isinstance(files_changed, list):
+        files_changed = []
+    conn.execute(
+        "INSERT OR REPLACE INTO runs "
+        "(run_id, task_id, agent_id, runtime, status, started_at, completed_at, "
+        " files_changed, error_log, indexed_at, source_mtime) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            doc.get("run_id"),
+            doc.get("task_id"),
+            doc.get("agent_id"),
+            coerce_yaml_str(doc.get("runtime")),
+            doc.get("status"),
+            doc.get("started_at"),
+            doc.get("completed_at"),
+            json.dumps(files_changed),
+            doc.get("error_log", ""),
+            indexed_at,
+            mtime,
+        ),
+    )
+    return True
+
+def index_audit_log(conn, path, indexed_at, source):
+    """Index a JSON-lines audit log file."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError as e:
+        print(f"WARN: skip {path}: {e}", file=sys.stderr)
+        return 0
+    n = 0
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        details = rec.get("details", {}) if isinstance(rec.get("details"), dict) else {}
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO audit_events "
+                "(source, drift_type, severity, runtime, server_name, timestamp, "
+                " details, source_file, indexed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    source,
+                    rec.get("drift_type"),
+                    rec.get("severity"),
+                    rec.get("runtime"),
+                    details.get("server_name"),
+                    rec.get("timestamp"),
+                    json.dumps(details),
+                    path,
+                    indexed_at,
+                ),
+            )
+            n += 1
+        except sqlite3.IntegrityError:
+            pass  # duplicate per UNIQUE constraint
+    return n
+
+def main():
+    full = (mode == "--full")
+
+    # Open DB
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
+        if full and os.path.exists(db_path):
+            conn.executescript("DROP TABLE IF EXISTS runs; DROP TABLE IF EXISTS audit_events; "
+                               "DROP TABLE IF EXISTS runs_fts; DROP TABLE IF EXISTS audit_fts; "
+                               "DROP TABLE IF EXISTS index_meta;")
+
+        conn.executescript(SCHEMA)
+        last_index_at = 0.0 if full else get_last_index_at(conn)
+        import time
+        now = time.time()
+        indexed_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+
+        run_count = 0
+        run_skip = 0
+        if os.path.isdir(runs_dir):
+            for path in sorted(glob.glob(f"{runs_dir}/RUN-*.yaml")):
+                if not full and os.path.getmtime(path) <= last_index_at:
+                    continue
+                if index_run_log(conn, path, indexed_at_iso):
+                    run_count += 1
+                else:
+                    run_skip += 1
+
+        audit_count = 0
+        if os.path.isdir(audit_dir):
+            for source_glob, source_label in (
+                (f"{audit_dir}/mcp-allowlist-2*.log", "mcp-allowlist"),
+                (f"{audit_dir}/agent-inventory-2*.log", "agent-inventory"),
+            ):
+                for path in sorted(glob.glob(source_glob)):
+                    if not full and os.path.getmtime(path) <= last_index_at:
+                        continue
+                    audit_count += index_audit_log(conn, path, indexed_at_iso, source_label)
+
+        # Rebuild FTS to keep in sync (FTS5 external content table requires manual sync)
+        conn.executescript(
+            "INSERT INTO runs_fts(runs_fts) VALUES('rebuild'); "
+            "INSERT INTO audit_fts(audit_fts) VALUES('rebuild');"
+        )
+
+        set_last_index_at(conn, now)
+        conn.commit()
+        print(f"OK: indexed {run_count} RUN log(s), {audit_count} audit event(s) "
+              f"({run_skip} skipped, mode={mode})")
+    finally:
+        conn.close()
+
+    # SEC-04: chmod 600
+    try:
+        os.chmod(db_path, 0o600)
+    except OSError as e:
+        print(f"WARN: chmod 600 on {db_path} failed: {e}", file=sys.stderr)
+
+main()
+PYEOF
+
+__EOF_TMPL_SCRIPT_RUNLOG_INDEX__
+
+read -r -d '' TMPL_SCRIPT_RUNLOG_SEARCH <<'__EOF_TMPL_SCRIPT_RUNLOG_SEARCH__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0132: sage-runlog-search.sh (SPEC-0016)
+# Purpose:  Search .sage/runs.db (SQLite FTS5) by filter / FTS query.
+# Usage:    bash scripts/sage-runlog-search.sh [OPTIONS]
+# Filters:  --task-id ID / --agent-id NAME / --status STATUS /
+#           --drift-type ENUM / --since DATE / --until DATE / --fts QUERY
+# Output:   TSV (default) or --json
+# Exit:     0 on success, 1 on DB missing / SQL error
+# =============================================================================
+set -uo pipefail
+
+DB_PATH=".sage/runs.db"
+AUDIT_DIR=".sage/audit"
+
+TASK_ID=""
+AGENT_ID=""
+STATUS=""
+DRIFT_TYPE=""
+SINCE=""
+UNTIL=""
+FTS=""
+JSON_OUT=false
+LIMIT="${SAGE_SEARCH_LIMIT:-1000}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --task-id) TASK_ID="$2"; shift 2 ;;
+    --agent-id) AGENT_ID="$2"; shift 2 ;;
+    --status) STATUS="$2"; shift 2 ;;
+    --drift-type) DRIFT_TYPE="$2"; shift 2 ;;
+    --since) SINCE="$2"; shift 2 ;;
+    --until) UNTIL="$2"; shift 2 ;;
+    --fts) FTS="$2"; shift 2 ;;
+    --json) JSON_OUT=true; shift ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: sage-runlog-search.sh [OPTIONS]
+  --task-id ID         filter by TASK-ID (e.g. TASK-0001)
+  --agent-id NAME      filter by agent_id (e.g. implementation)
+  --status STATUS      pass | fail | skipped
+  --drift-type ENUM    filter audit events (e.g. drift1_stdio_unknown_server)
+  --since YYYY-MM-DD   started_at >= date
+  --until YYYY-MM-DD   started_at <= date
+  --fts QUERY          SQLite FTS5 MATCH query (runs_fts)
+  --json               output as JSON instead of TSV
+EOF
+      exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [ ! -f "$DB_PATH" ]; then
+  echo "ERROR: $DB_PATH not found. Run 'bash scripts/sage-runlog-index.sh --full' first." >&2
+  exit 1
+fi
+
+if ! command -v python3 &>/dev/null; then
+  echo "ERROR: python3 not available." >&2
+  exit 1
+fi
+
+mkdir -p "$AUDIT_DIR"
+SEARCH_LOG="${AUDIT_DIR}/runlog-search-$(date -u +%Y%m%d).log"
+
+# SEC-03: redact secret patterns from search query before logging
+redact_query() {
+  echo "$1" | python3 -c "
+import sys, re
+q = sys.stdin.read()
+patterns = [
+    r'sk-[A-Za-z0-9_-]{20,}',
+    r'ghp_[A-Za-z0-9]{20,}',
+    r'AKIA[0-9A-Z]{16}',
+    r'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}',
+]
+for p in patterns:
+    q = re.sub(p, '***REDACTED***', q)
+print(q.rstrip(), end='')
+"
+}
+
+REDACTED_QUERY=$(redact_query "task_id=${TASK_ID} agent_id=${AGENT_ID} status=${STATUS} drift_type=${DRIFT_TYPE} since=${SINCE} until=${UNTIL} fts=${FTS}")
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)	${REDACTED_QUERY}" >> "$SEARCH_LOG"
+
+python3 - "$DB_PATH" "$TASK_ID" "$AGENT_ID" "$STATUS" "$DRIFT_TYPE" "$SINCE" "$UNTIL" "$FTS" "$JSON_OUT" "$LIMIT" <<'PYEOF'
+import sys, sqlite3, json
+
+db, task_id, agent_id, status, drift_type, since, until, fts, json_out, limit = sys.argv[1:11]
+json_out = (json_out == "true")
+limit = int(limit)
+
+conn = sqlite3.connect(db, timeout=30.0)
+conn.row_factory = sqlite3.Row
+
+rows = []
+
+# audit events search (drift_type filter routes here)
+if drift_type:
+    q = "SELECT 'audit' AS table_name, source, drift_type, severity, runtime, server_name, timestamp, details FROM audit_events WHERE drift_type = ?"
+    params = [drift_type]
+    if since:
+        q += " AND timestamp >= ?"; params.append(since)
+    if until:
+        q += " AND timestamp <= ?"; params.append(until)
+    q += f" ORDER BY timestamp DESC LIMIT {limit + 1}"
+    for row in conn.execute(q, params):
+        rows.append(dict(row))
+else:
+    # runs search
+    q = "SELECT 'run' AS table_name, run_id, task_id, agent_id, runtime, status, started_at, completed_at, error_log FROM runs WHERE 1=1"
+    params = []
+    if task_id:
+        q += " AND task_id = ?"; params.append(task_id)
+    if agent_id:
+        q += " AND agent_id = ?"; params.append(agent_id)
+    if status:
+        q += " AND status = ?"; params.append(status)
+    if since:
+        q += " AND started_at >= ?"; params.append(since)
+    if until:
+        q += " AND started_at <= ?"; params.append(until)
+    if fts:
+        # Restrict by FTS match (run_id from runs_fts)
+        q += " AND rowid IN (SELECT rowid FROM runs_fts WHERE runs_fts MATCH ?)"
+        params.append(fts)
+    q += f" ORDER BY started_at DESC LIMIT {limit + 1}"
+    try:
+        for row in conn.execute(q, params):
+            rows.append(dict(row))
+    except sqlite3.OperationalError as e:
+        print(f"ERROR: SQL: {e}", file=sys.stderr)
+        sys.exit(1)
+
+truncated = len(rows) > limit
+if truncated:
+    rows = rows[:limit]
+
+if json_out:
+    print(json.dumps({"rows": rows, "count": len(rows), "truncated": truncated}))
+else:
+    if not rows:
+        print("(no results)")
+    else:
+        # TSV header from first row keys
+        cols = list(rows[0].keys())
+        print("\t".join(cols))
+        for r in rows:
+            print("\t".join(str(r.get(c, "")) for c in cols))
+        if truncated:
+            print(f"# WARN: truncated to first {limit} results", file=sys.stderr)
+
+conn.close()
+PYEOF
+
+__EOF_TMPL_SCRIPT_RUNLOG_SEARCH__
+
+read -r -d '' TMPL_SCRIPT_RUNLOG_DB_AUDIT <<'__EOF_TMPL_SCRIPT_RUNLOG_DB_AUDIT__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0133: sage-runlog-db-audit.sh (SPEC-0016)
+# Purpose:  CLI wrapper for .sage/runs.db health check (used by sage-doctor.sh).
+# Output:   TSV: <level>\t<check>\t<message>
+# Exit:     0 always
+# =============================================================================
+set -uo pipefail
+
+DB_PATH=".sage/runs.db"
+STALE_DAYS="${SAGE_DB_STALE_DAYS:-7}"
+SIZE_WARN_MB="${SAGE_DB_SIZE_WARN_MB:-100}"
+
+if ! command -v python3 &>/dev/null; then
+  echo "WARN	runlog_db_python	python3 not in PATH"
+  exit 0
+fi
+
+if [ ! -f "$DB_PATH" ]; then
+  echo "WARN	runlog_db_present	$DB_PATH not found (SPEC-0016: run 'bash scripts/sage-runlog-index.sh --full' to initialize)"
+  exit 0
+fi
+
+python3 - "$DB_PATH" "$STALE_DAYS" "$SIZE_WARN_MB" <<'PYEOF'
+import sys, sqlite3, os, time
+
+db_path, stale_days, size_warn_mb = sys.argv[1:4]
+stale_days = int(stale_days)
+size_warn_mb = int(size_warn_mb)
+
+# (b) schema validity
+expected_tables = {"runs", "audit_events", "runs_fts", "audit_fts", "index_meta"}
+try:
+    conn = sqlite3.connect(db_path, timeout=5.0)
+    cur = conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table')")
+    actual = {row[0] for row in cur.fetchall()}
+    missing = expected_tables - actual
+    if missing:
+        print(f"FAIL\trunlog_db_schema\tDB schema missing tables: {sorted(missing)} (run --full to rebuild)")
+        sys.exit(0)
+    else:
+        print("OK\trunlog_db_schema\tDB schema valid (5 expected tables present)")
+except sqlite3.Error as e:
+    print(f"FAIL\trunlog_db_schema\tDB error: {e}")
+    sys.exit(0)
+
+# (c) last index time
+try:
+    cur = conn.execute("SELECT value FROM index_meta WHERE key = 'last_index_at'")
+    row = cur.fetchone()
+    if row:
+        last_index_at = float(row[0])
+        age_days = (time.time() - last_index_at) / 86400
+        if age_days > stale_days:
+            print(f"WARN\trunlog_db_freshness\tLast index {age_days:.1f} days ago (> {stale_days} days threshold)")
+        else:
+            print(f"OK\trunlog_db_freshness\tLast index {age_days:.1f} days ago")
+    else:
+        print("WARN\trunlog_db_freshness\tlast_index_at meta missing")
+except sqlite3.Error as e:
+    print(f"WARN\trunlog_db_freshness\t{e}")
+
+# (d) DB size
+size_bytes = os.path.getsize(db_path)
+size_mb = size_bytes / (1024 * 1024)
+if size_mb > size_warn_mb:
+    print(f"WARN\trunlog_db_size\tDB size {size_mb:.1f} MB (> {size_warn_mb} MB threshold; rotation recommended)")
+else:
+    print(f"OK\trunlog_db_size\tDB size {size_mb:.1f} MB")
+
+# (e) row counts (informational)
+try:
+    runs_n = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    audit_n = conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0]
+    print(f"OK\trunlog_db_rows\t{runs_n} RUN log(s), {audit_n} audit event(s) indexed")
+except sqlite3.Error:
+    pass
+
+conn.close()
+PYEOF
+
+__EOF_TMPL_SCRIPT_RUNLOG_DB_AUDIT__
+
+read -r -d '' TMPL_TEST_RUNLOG_INDEX <<'__EOF_TMPL_TEST_RUNLOG_INDEX__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0131: test-runlog-index.sh (SPEC-0016 AC-04)
+# Purpose:  Test sage-runlog-index.sh: full / incremental / parse error / empty
+# =============================================================================
+set -uo pipefail
+
+PASS=0
+FAIL=0
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+INDEXER="${REPO_ROOT}/scripts/sage-runlog-index.sh"
+
+setup_sandbox() {
+  local s
+  s="$(mktemp -d -t sage-idx-test-XXXXXX)"
+  mkdir -p "${s}/.sage/runs" "${s}/.sage/audit"
+  echo "$s"
+}
+
+write_run() {
+  local path="$1"
+  local run_id="$2"
+  local task_id="$3"
+  local status="$4"
+  cat > "$path" <<YAML
+run_id: ${run_id}
+task_id: ${task_id}
+agent_id: implementation
+started_at: "2026-05-02T00:00:00Z"
+completed_at: "2026-05-02T00:01:00Z"
+status: ${status}
+files_changed: []
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: pass
+YAML
+}
+
+assert_db_count() {
+  local label="$1"
+  local sandbox="$2"
+  local table="$3"
+  local expected="$4"
+  if ! command -v sqlite3 &>/dev/null; then
+    PASS=$((PASS + 1))  # graceful skip — sqlite3 CLI not installed
+    echo "  ok   ${label} (sqlite3 CLI not installed; assertion skipped)"
+    return
+  fi
+  local actual
+  actual=$(sqlite3 "${sandbox}/.sage/runs.db" "SELECT COUNT(*) FROM ${table};" 2>/dev/null || echo "ERR")
+  if [ "$actual" = "$expected" ]; then
+    PASS=$((PASS + 1))
+    echo "  ok   ${label} (${table}.COUNT = ${expected})"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  not ok ${label}: expected COUNT=${expected}, got '${actual}'" >&2
+  fi
+}
+
+echo "# RUN log SQLite indexer (SPEC-0016)"
+
+# --- Scenario 1: full index from empty ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_run "${sandbox}/.sage/runs/RUN-9001.yaml" "RUN-9001" "TASK-9001" "pass"
+write_run "${sandbox}/.sage/runs/RUN-9002.yaml" "RUN-9002" "TASK-9002" "fail"
+( cd "$sandbox" && bash "$INDEXER" --full ) >/dev/null 2>&1
+assert_db_count "full index 2 RUN logs" "$sandbox" "runs" "2"
+rm -rf "$sandbox"
+
+# --- Scenario 2: incremental adds 1 ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_run "${sandbox}/.sage/runs/RUN-9001.yaml" "RUN-9001" "TASK-9001" "pass"
+( cd "$sandbox" && bash "$INDEXER" --full ) >/dev/null 2>&1
+write_run "${sandbox}/.sage/runs/RUN-9002.yaml" "RUN-9002" "TASK-9002" "fail"
+sleep 1  # ensure mtime > last_index_at
+( cd "$sandbox" && bash "$INDEXER" --incremental ) >/dev/null 2>&1
+assert_db_count "incremental adds 1 RUN" "$sandbox" "runs" "2"
+rm -rf "$sandbox"
+
+# --- Scenario 3: parse error skipped, others succeed ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_run "${sandbox}/.sage/runs/RUN-9001.yaml" "RUN-9001" "TASK-9001" "pass"
+echo "INVALID YAML: [unclosed" > "${sandbox}/.sage/runs/RUN-9999.yaml"
+( cd "$sandbox" && bash "$INDEXER" --full ) >/dev/null 2>&1
+assert_db_count "parse error skipped (only 1 RUN indexed)" "$sandbox" "runs" "1"
+rm -rf "$sandbox"
+
+# --- Scenario 4: empty runs dir → graceful exit 0 ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+( cd "$sandbox" && bash "$INDEXER" --full ) >/dev/null 2>&1
+rc=$?
+if [ $rc -eq 0 ]; then
+  PASS=$((PASS + 1))
+  echo "  ok   empty runs dir → exit 0"
+else
+  FAIL=$((FAIL + 1))
+  echo "  not ok empty runs dir: exit $rc (expected 0)" >&2
+fi
+rm -rf "$sandbox"
+
+# --- Scenario 5: DB permission 600 ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_run "${sandbox}/.sage/runs/RUN-9001.yaml" "RUN-9001" "TASK-9001" "pass"
+( cd "$sandbox" && bash "$INDEXER" --full ) >/dev/null 2>&1
+if [ -f "${sandbox}/.sage/runs.db" ]; then
+  perms=$(stat -f "%Op" "${sandbox}/.sage/runs.db" 2>/dev/null || stat -c "%a" "${sandbox}/.sage/runs.db" 2>/dev/null || echo "ERR")
+  # Linux stat -c gives "600", macOS stat -f gives "100600"
+  if echo "$perms" | grep -qE "^(100)?600$"; then
+    PASS=$((PASS + 1))
+    echo "  ok   DB permission 600 (got $perms)"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  not ok DB permission: expected 600, got $perms" >&2
+  fi
+fi
+rm -rf "$sandbox"
+
+echo ""
+echo "SUMMARY pass=$PASS fail=$FAIL"
+[ "$FAIL" -eq 0 ]
+
+__EOF_TMPL_TEST_RUNLOG_INDEX__
+
+read -r -d '' TMPL_TEST_RUNLOG_SEARCH <<'__EOF_TMPL_TEST_RUNLOG_SEARCH__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0132: test-runlog-search.sh (SPEC-0016 AC-04)
+# Purpose:  Test sage-runlog-search.sh: 6 filter / FTS / JSON / log redact
+# =============================================================================
+set -uo pipefail
+
+PASS=0
+FAIL=0
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+INDEXER="${REPO_ROOT}/scripts/sage-runlog-index.sh"
+SEARCH="${REPO_ROOT}/scripts/sage-runlog-search.sh"
+
+setup_sandbox_with_data() {
+  local s
+  s="$(mktemp -d -t sage-srch-test-XXXXXX)"
+  mkdir -p "${s}/.sage/runs" "${s}/.sage/audit"
+  # 3 RUN logs
+  cat > "${s}/.sage/runs/RUN-9001.yaml" <<YAML
+run_id: RUN-9001
+task_id: TASK-9001
+agent_id: implementation
+started_at: "2026-05-01T00:00:00Z"
+completed_at: "2026-05-01T00:01:00Z"
+status: pass
+files_changed: []
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: pass
+YAML
+  cat > "${s}/.sage/runs/RUN-9002.yaml" <<YAML
+run_id: RUN-9002
+task_id: TASK-9002
+agent_id: review
+started_at: "2026-05-02T00:00:00Z"
+completed_at: "2026-05-02T00:01:00Z"
+status: fail
+error_log: "redact pattern failed"
+files_changed: []
+gate_results:
+  structural: pass
+  functional: fail
+  security: pass
+  architecture: pass
+  release: pass
+YAML
+  cat > "${s}/.sage/runs/RUN-9003.yaml" <<YAML
+run_id: RUN-9003
+task_id: TASK-9001
+agent_id: implementation
+started_at: "2026-05-03T00:00:00Z"
+completed_at: "2026-05-03T00:01:00Z"
+status: pass
+files_changed: []
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: pass
+YAML
+  # 1 audit event
+  cat > "${s}/.sage/audit/mcp-allowlist-20260502.log" <<'JSON'
+{"timestamp":"2026-05-02T01:00:00Z","runtime":"claude-code","drift_type":"drift1_stdio_unknown_server","severity":"warn","details":{"scope":"server","server_name":"unknown-server"}}
+JSON
+  ( cd "$s" && bash "$INDEXER" --full ) >/dev/null 2>&1
+  echo "$s"
+}
+
+assert_search_contains() {
+  local label="$1"
+  local sandbox="$2"
+  local expected="$3"
+  shift 3
+  local out
+  out="$(cd "$sandbox" && bash "$SEARCH" "$@" 2>&1)"
+  if echo "$out" | grep -qF "$expected"; then
+    PASS=$((PASS + 1))
+    echo "  ok   ${label}"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  not ok ${label}: missing '${expected}'" >&2
+    echo "    output: $out" >&2
+  fi
+}
+
+echo "# RUN log search CLI (SPEC-0016)"
+
+sandbox="$(setup_sandbox_with_data)"; trap "rm -rf $sandbox" EXIT
+
+# --- Scenario 1: --task-id ---
+assert_search_contains "--task-id TASK-9001 returns RUN-9001 + RUN-9003" "$sandbox" "RUN-9001" --task-id TASK-9001
+
+# --- Scenario 2: --agent-id ---
+assert_search_contains "--agent-id implementation returns multiple" "$sandbox" "implementation" --agent-id implementation
+
+# --- Scenario 3: --status fail ---
+assert_search_contains "--status fail returns RUN-9002" "$sandbox" "RUN-9002" --status fail
+
+# --- Scenario 4: --drift-type ---
+assert_search_contains "--drift-type drift1 returns audit event" "$sandbox" "unknown-server" --drift-type drift1_stdio_unknown_server
+
+# --- Scenario 5: --fts ---
+assert_search_contains "--fts 'redact' finds RUN-9002 error_log" "$sandbox" "RUN-9002" --fts "redact"
+
+# --- Scenario 6: --json valid ---
+out=$(cd "$sandbox" && bash "$SEARCH" --task-id TASK-9001 --json 2>&1)
+if echo "$out" | python3 -c "import sys,json; json.loads(sys.stdin.read())" 2>/dev/null; then
+  PASS=$((PASS + 1))
+  echo "  ok   --json output is valid JSON"
+else
+  FAIL=$((FAIL + 1))
+  echo "  not ok --json: invalid JSON output" >&2
+  echo "    output: $out" >&2
+fi
+
+# --- Scenario 7: search query log redaction ---
+( cd "$sandbox" && bash "$SEARCH" --fts "sk-FAKE-LEAKED-TOKEN-12345-67890-abcdef" 2>&1 ) >/dev/null 2>&1 || true
+search_log="$(ls "${sandbox}/.sage/audit/runlog-search-"*.log 2>/dev/null | head -1)"
+if [ -n "$search_log" ] && grep -q "FAKE-LEAKED-TOKEN" "$search_log"; then
+  FAIL=$((FAIL + 1))
+  echo "  not ok search log redact: secret leaked" >&2
+else
+  PASS=$((PASS + 1))
+  echo "  ok   search log redact (no secret leak)"
+fi
+
+rm -rf "$sandbox"
+
+echo ""
+echo "SUMMARY pass=$PASS fail=$FAIL"
+[ "$FAIL" -eq 0 ]
+
+__EOF_TMPL_TEST_RUNLOG_SEARCH__
+
+read -r -d '' TMPL_TEST_RUNLOG_DB_DOCTOR <<'__EOF_TMPL_TEST_RUNLOG_DB_DOCTOR__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0133: test-runlog-db-doctor.sh (SPEC-0016 AC-04 / AC-05)
+# Purpose:  Test sage-runlog-db-audit.sh: 2 scenarios (DB missing / DB healthy)
+# =============================================================================
+set -uo pipefail
+
+PASS=0
+FAIL=0
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+INDEXER="${REPO_ROOT}/scripts/sage-runlog-index.sh"
+AUDITOR="${REPO_ROOT}/scripts/sage-runlog-db-audit.sh"
+
+setup_sandbox() {
+  local s
+  s="$(mktemp -d -t sage-doc-test-XXXXXX)"
+  mkdir -p "${s}/.sage/runs" "${s}/.sage/audit"
+  echo "$s"
+}
+
+write_run() {
+  cat > "$1" <<YAML
+run_id: RUN-9001
+task_id: TASK-9001
+agent_id: implementation
+started_at: "2026-05-02T00:00:00Z"
+completed_at: "2026-05-02T00:01:00Z"
+status: pass
+files_changed: []
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: pass
+YAML
+}
+
+echo "# RUN log DB doctor (SPEC-0016)"
+
+# --- Scenario 1: DB missing → WARN ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+out=$(cd "$sandbox" && bash "$AUDITOR" 2>&1)
+if echo "$out" | grep -q "^WARN	runlog_db_present"; then
+  PASS=$((PASS + 1))
+  echo "  ok   DB missing → WARN"
+else
+  FAIL=$((FAIL + 1))
+  echo "  not ok DB missing should WARN" >&2
+  echo "    output: $out" >&2
+fi
+rm -rf "$sandbox"
+
+# --- Scenario 2: DB healthy → 4+ OK lines ---
+sandbox="$(setup_sandbox)"; trap "rm -rf $sandbox" EXIT
+write_run "${sandbox}/.sage/runs/RUN-9001.yaml"
+( cd "$sandbox" && bash "$INDEXER" --full ) >/dev/null 2>&1
+out=$(cd "$sandbox" && bash "$AUDITOR" 2>&1)
+ok_count=$(echo "$out" | grep -c "^OK")
+if [ "$ok_count" -ge 4 ]; then
+  PASS=$((PASS + 1))
+  echo "  ok   DB healthy → ${ok_count} OK checks (>= 4 expected)"
+else
+  FAIL=$((FAIL + 1))
+  echo "  not ok DB healthy: only ${ok_count} OK lines" >&2
+  echo "    output: $out" >&2
+fi
+rm -rf "$sandbox"
+
+echo ""
+echo "SUMMARY pass=$PASS fail=$FAIL"
+[ "$FAIL" -eq 0 ]
+
+__EOF_TMPL_TEST_RUNLOG_DB_DOCTOR__
+
 read -r -d '' TMPL_SETTINGS_SANDBOX <<'__EOF_TMPL_SETTINGS_SANDBOX__' || true
 {
   "permissions": {
@@ -8386,6 +9224,12 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/sage/agent-inventory-template.yaml" "$TMPL_SAGE_AGENT_INVENTORY"
   write_file_if_new "templates/hooks/tests/test-agent-inventory-validator.sh" "$TMPL_TEST_AGENT_INVENTORY" && chmod +x "templates/hooks/tests/test-agent-inventory-validator.sh"
   write_file_if_new "scripts/sage-agent-inventory-audit.sh" "$TMPL_SCRIPT_AGENT_INVENTORY" && chmod +x "scripts/sage-agent-inventory-audit.sh"
+  write_file_if_new "scripts/sage-runlog-index.sh" "$TMPL_SCRIPT_RUNLOG_INDEX" && chmod +x "scripts/sage-runlog-index.sh"
+  write_file_if_new "scripts/sage-runlog-search.sh" "$TMPL_SCRIPT_RUNLOG_SEARCH" && chmod +x "scripts/sage-runlog-search.sh"
+  write_file_if_new "scripts/sage-runlog-db-audit.sh" "$TMPL_SCRIPT_RUNLOG_DB_AUDIT" && chmod +x "scripts/sage-runlog-db-audit.sh"
+  write_file_if_new "templates/hooks/tests/test-runlog-index.sh" "$TMPL_TEST_RUNLOG_INDEX" && chmod +x "templates/hooks/tests/test-runlog-index.sh"
+  write_file_if_new "templates/hooks/tests/test-runlog-search.sh" "$TMPL_TEST_RUNLOG_SEARCH" && chmod +x "templates/hooks/tests/test-runlog-search.sh"
+  write_file_if_new "templates/hooks/tests/test-runlog-db-doctor.sh" "$TMPL_TEST_RUNLOG_DB_DOCTOR" && chmod +x "templates/hooks/tests/test-runlog-db-doctor.sh"
   write_file_if_new "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   write_file_if_new "templates/settings/README.md" "$TMPL_SETTINGS_README"
 else
@@ -8409,6 +9253,12 @@ else
   update_file "templates/sage/agent-inventory-template.yaml" "$TMPL_SAGE_AGENT_INVENTORY"
   update_file "templates/hooks/tests/test-agent-inventory-validator.sh" "$TMPL_TEST_AGENT_INVENTORY" && chmod +x "templates/hooks/tests/test-agent-inventory-validator.sh"
   update_file "scripts/sage-agent-inventory-audit.sh" "$TMPL_SCRIPT_AGENT_INVENTORY" && chmod +x "scripts/sage-agent-inventory-audit.sh"
+  update_file "scripts/sage-runlog-index.sh" "$TMPL_SCRIPT_RUNLOG_INDEX" && chmod +x "scripts/sage-runlog-index.sh"
+  update_file "scripts/sage-runlog-search.sh" "$TMPL_SCRIPT_RUNLOG_SEARCH" && chmod +x "scripts/sage-runlog-search.sh"
+  update_file "scripts/sage-runlog-db-audit.sh" "$TMPL_SCRIPT_RUNLOG_DB_AUDIT" && chmod +x "scripts/sage-runlog-db-audit.sh"
+  update_file "templates/hooks/tests/test-runlog-index.sh" "$TMPL_TEST_RUNLOG_INDEX" && chmod +x "templates/hooks/tests/test-runlog-index.sh"
+  update_file "templates/hooks/tests/test-runlog-search.sh" "$TMPL_TEST_RUNLOG_SEARCH" && chmod +x "templates/hooks/tests/test-runlog-search.sh"
+  update_file "templates/hooks/tests/test-runlog-db-doctor.sh" "$TMPL_TEST_RUNLOG_DB_DOCTOR" && chmod +x "templates/hooks/tests/test-runlog-db-doctor.sh"
   update_file "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   update_file "templates/settings/README.md" "$TMPL_SETTINGS_README"
 fi

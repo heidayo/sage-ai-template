@@ -349,7 +349,8 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | Settings template | `templates/settings/sandbox.json` + README (Phase 2B, **雛形のみ — 適用は user 責任**) — Claude Code sandbox / permission 推奨設定 |
 | AI agent 向け instruction | CLAUDE.md / AGENTS.md / `.claude/rules/` のテンプレート |
 | Skill / governance / traceability | `templates/skills/sage-*/`, 本ドキュメント, `sage/traceability.md` |
-| Doctor / repair / report | `scripts/sage-doctor.sh`, `scripts/sage-repair.sh`, `scripts/sage-report.sh` |
+| Doctor / repair / report | `scripts/sage-doctor.sh` (Phase 5+ で `[5/6]` RUN log DB check 追加、SPEC-0016), `scripts/sage-repair.sh`, `scripts/sage-report.sh` |
+| RUN log 検索基盤 | `scripts/sage-runlog-index.sh` + `scripts/sage-runlog-search.sh` (Phase 5+, SPEC-0016, SQLite FTS5) |
 
 ### 9.2 SAGE が提供しないもの (What SAGE does NOT provide)
 
