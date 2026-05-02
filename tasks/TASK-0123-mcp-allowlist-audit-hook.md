@@ -60,20 +60,29 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
        - drift 3 stdio: registry にあるが `.mcp.json` にない → info
        - drift 4 stdio: `@latest` (`policy.forbid_latest_tag: true` 時) → warn
        - drift 5 stdio: npm_integrity mismatch (`policy.require_npm_integrity: true` 時) → warn (重大)
-     - **http drift** (Codex 1st-3rd review 反映):
+     - **http drift** (Codex 1st-4th review 反映):
        - drift 1 http: registry にない HTTP MCP server を `.mcp.json` に作る → warn (重大)
-       - drift 2 http: url_origin mismatch (登録 origin と異なる url) → warn
-       - drift 6 anonymous: HTTP MCP の `auth_mode: "none"` または auth_mode 不在 + `policy.http_require_auth: true` → warn
-       - drift 6 OAuth approve: HTTP MCP の `auth_mode: "oauth"` (oauth_provider / scopes / callback 整合) → 通常承認、anonymous 扱いしない
-       - drift 6 Bearer approve: HTTP MCP の `auth_mode: "bearer_env"` (bearer_token_env_var 一致) → 通常承認
-       - drift 7 sensitive header: registry の `http_headers` に `Authorization` 等の機密 header 静的値 → **FAIL** (parse 段階 reject)
-       - transport mismatch: 実 config が STDIO server だが registry が `transport: "http"` (またはその逆) → drift 1 として warn
+       - drift 2 http: url_origin mismatch → warn
+       - drift 6 anonymous: HTTP MCP の `auth_mode: "none"` または auth_mode 不在 + `policy.http_require_auth: true` → warn (standard) / **block (strict)** (Codex 4th review P2 #4 反映)
+       - drift 6 OAuth approve: HTTP MCP の `auth_mode: "oauth"` (provider / scopes 整合) → 通常承認
+       - drift 6 Bearer approve: HTTP MCP の `auth_mode: "bearer_env"` (env var 一致) → 通常承認
+       - **drift 7 sensitive header (case-insensitive、Codex 4th review P2 #2 反映)**: 4 variant 全て FAIL (registry parse reject):
+         - canonical: `http_headers: { "Authorization": "..." }`
+         - lowercase: `http_headers: { "authorization": "..." }`
+         - uppercase: `http_headers: { "AUTHORIZATION": "..." }`
+         - mixed: `http_headers: { "x-Api-Key": "..." }`
+         - 実装: header name を `header.lower()` で正規化後 canonical list `[authorization, cookie, set-cookie, proxy-authorization, x-api-key, x-auth-token, x-token]` と比較 (Bearer は header 名でなく value pattern のため list に含めない)
+       - **drift 8 OAuth callback mismatch** (Codex 4th review P2 #3 反映): registry top-level `oauth_callback.mcp_oauth_callback_port: 8765` だが実 Codex config top-level `mcp_oauth_callback_port: 9000` → warn (standard) / **block (strict)**
+       - transport mismatch: 実 config STDIO ↔ registry HTTP (or 逆) → drift 1 として warn
      - **共通**:
        - expired approval → warn
        - registry 不在 → warn + skip (exit 0)
        - profile=`minimal` → 完全 skip (exit 0、log なし)
-       - profile=`strict` で drift 1 (stdio / http 両方) → block (exit 1)
-       - profile=`strict` で drift 5 (artifact integrity mismatch) → block (exit 1)
+       - **profile=`strict` で以下 4 類が block (exit 1)** (Codex 4th review P2 #4 反映):
+         - drift 1 (stdio / http 両方)
+         - drift 5 (artifact integrity mismatch)
+         - drift 6 anonymous (HTTP MCP auth_mode: "none")
+         - drift 8 (OAuth callback mismatch)
        - audit log で args / bearer_token_env_var の値が **redact** (env name のみ記録、env value は記録しない)
        - default で user-global `~/.codex/config.toml` を読まない (Codex review P2 反映)
        - opt-in 設定時のみ user-global を読む (`.sage/config.yaml` で `mcp_audit.include_user_global_codex: true` 明示時)
@@ -112,8 +121,8 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
 - [ ] `templates/hooks/mcp-allowlist-audit.sh` 存在 + executable bit
 - [ ] shellcheck で error 0 件
 - [ ] **detection-only behavior は TASK-0124 の `test-detection-only-behavior.sh` で検証** (fake wrapper 方式、grep 不採用、Codex review P2-2 反映)
-- [ ] `templates/hooks/tests/test-mcp-allowlist-audit.sh` の 20 シナリオ全 PASS (Codex 3rd review P2 で http drift +3 拡張: drift6 OAuth/Bearer 通常承認 + drift7 sensitive header FAIL)
-- [ ] `bash templates/hooks/tests/run-tests.sh` で 109 + 20 = 129+ 全 PASS
+- [ ] `templates/hooks/tests/test-mcp-allowlist-audit.sh` の 24 シナリオ全 PASS (Codex 4th review P2 #2/#3/#4 反映で +4: drift7 case-insensitive 4 variant + drift8 OAuth callback mismatch + drift6 anonymous strict block test)
+- [ ] `bash templates/hooks/tests/run-tests.sh` で 109 + 24 = 133+ 全 PASS
 - [ ] `python3 templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (Python `time.perf_counter()` で macOS / Linux 互換、機械判定 exit code)
 - [ ] graceful degradation: registry 不在 / Codex CLI 不在 / `.mcp.json` 不在 / Python 不在 のいずれでも exit 0
 - [ ] audit log が `.sage/audit/mcp-allowlist-YYYYMMDD.log` に append-only で書かれる

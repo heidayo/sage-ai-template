@@ -32,13 +32,15 @@
 
    - **stdio transport 必須 field**: `name`, `transport: "stdio"`, `artifact_type` (npm_package / local_binary), `command`, `args`, `version_pin`, `publisher`, `source_registry`, `approved_by`, `approved_at`, `expires_at`
    - **stdio 推奨 field**: `npm_integrity` (npm_package 用、`policy.require_npm_integrity: true` で必須化可能)、`enabled_tools` / `disabled_tools`
-   - **http transport 必須 field** (Codex 3rd review P2 #1 反映で auth_mode 導入): `name`, `transport: "http"`, `artifact_type: "remote_http"`, `url`, `url_origin_pin`, `auth_mode` (`bearer_env` / `oauth` / `none`), `approved_by`, `approved_at`, `expires_at`
+   - **http transport 必須 field** (Codex 3rd-4th review 反映で auth_mode 導入 + OAuth callback top-level 化): `name`, `transport: "http"`, `artifact_type: "remote_http"`, `url`, `url_origin_pin`, `auth_mode` (`bearer_env` / `oauth` / `none`), `approved_by`, `approved_at`, `expires_at`
      - `auth_mode: "bearer_env"` の追加必須: `bearer_token_env_var` (env name only)
-     - `auth_mode: "oauth"` の追加必須: `oauth_provider` / `oauth_scopes` (list) / `oauth_callback_url`
-     - `auth_mode: "none"` は anonymous (`policy.http_require_auth: true` で禁止可能)
-   - **http 推奨 field**: `http_headers` (**non-sensitive のみ、機密 header 名禁止**)、`env_http_headers` (機密値はこちらに env 名参照)、`tls_pin_sha256`, `enabled_tools` / `disabled_tools`
+     - `auth_mode: "oauth"` の追加必須 (per-server): `oauth_provider` / `oauth_scopes` (list)
+       - **callback URL / port は registry top-level の `oauth_callback` セクションで declare** (Codex 4th review P2 #3 反映: `mcp_oauth_callback_port` / `mcp_oauth_callback_url` は Codex の top-level config 設定、`codex mcp login` 利用)
+     - `auth_mode: "none"` は anonymous (`policy.http_require_auth: true` で strict 時 block)
+   - **http 推奨 field**: `http_headers` (**non-sensitive のみ、機密 header 名は case-insensitive で検出して禁止**)、`env_http_headers` (機密値はこちらに env 名参照)、`tls_pin_sha256`, `enabled_tools` / `disabled_tools`
+   - **registry top-level `oauth_callback` セクション** (auth_mode: "oauth" の server 1 つ以上ある場合に有効化): `mcp_oauth_callback_port` (int) + `mcp_oauth_callback_url` (string、空文字で `http://localhost:<port>/callback` default)
    - **共通 optional**: `notes`, `startup_timeout_sec`, `tool_timeout_sec`, `enabled`, `required`
-   - top-level: `version: "1.0"` + `policy: { forbid_latest_tag: true, require_npm_integrity: false, require_publisher: true, forbid_unknown_transport: true, http_require_url_origin_pin: true, http_require_auth: true, http_static_header_secret_check: true }` + `bypass: { enabled: false }`
+   - top-level: `version: "1.0"` + `oauth_callback: { mcp_oauth_callback_port: 8765, mcp_oauth_callback_url: "" }` (auth_mode: "oauth" の server がある場合) + `policy: { forbid_latest_tag: true, require_npm_integrity: false, require_publisher: true, forbid_unknown_transport: true, http_require_url_origin_pin: true, http_require_auth: true, http_static_header_secret_check: true, oauth_callback_require_match: true }` + `bypass: { enabled: false }`
    - 例として **4 server entry** (Codex 3rd review P2 #1 で auth_mode oauth 例を追加):
      - `playwright` (transport: stdio, artifact_type: npm_package)
      - `filesystem-local` (transport: stdio, artifact_type: local_binary、command_path_sha256 例)
@@ -76,8 +78,10 @@
 - [ ] policy.require_npm_integrity = false (default、user opt-in)
 - [ ] policy.forbid_unknown_transport = true (default)
 - [ ] policy.http_require_url_origin_pin = true (default)
-- [ ] policy.http_require_auth = true (default、HTTP MCP の anonymous 禁止、OAuth / Bearer どちらでも可)
-- [ ] policy.http_static_header_secret_check = true (default、機密 header 静的値を registry に書かせない)
+- [ ] policy.http_require_auth = true (default、HTTP MCP の anonymous は strict 時 block、Codex 4th review P2 #4 反映)
+- [ ] policy.http_static_header_secret_check = true (default、case-insensitive matching、Codex 4th review P2 #2 反映)
+- [ ] policy.oauth_callback_require_match = true (default、Codex 4th review P2 #3 反映、registry top-level `oauth_callback` と実 Codex config top-level `mcp_oauth_callback_*` を比較)
+- [ ] registry top-level に `oauth_callback` セクション存在 (auth_mode: oauth の server が example にあるため)
 - [ ] `_comment` 形式で positive list / SPEC-ID 記入 / `@latest` 禁止 / HTTP MCP の auth 必須 / sensitive header 静的値禁止 を案内
 - [ ] JSON parse で error 0 件 (`python3 -c "import json; json.load(open('templates/sage/mcp-allowlist-template.json'))"`)
 - [ ] commit message に `TASK-0122:` を含む

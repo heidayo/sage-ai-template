@@ -48,11 +48,11 @@ SPEC-0015 (Codex review 後 scope 縮小、agent identity は SPEC-0017 に分�
 | TASK | 責務 | FR/AC mapping | 依存 | 並列可 | 見積 |
 |---|---|---|---|---|---|
 | TASK-0122 | MCP allowlist registry schema + JSON template (`templates/sage/mcp-allowlist-template.json`) | FR-01, FR-02 / AC-01 | - | No (foundation) | 30m |
-| TASK-0123 | MCP allowlist audit hook (transport-aware) + tests (17 シナリオ) + Python performance test helper | FR-03, FR-05 / AC-02, AC-03, AC-05, AC-07, AC-11, AC-12, AC-13, NFR-01..NFR-09 | TASK-0122 | No | 150m (Codex 2nd review P1 transport-aware + P2 Python helper / fake wrapper で +30m) |
+| TASK-0123 | MCP allowlist audit hook (transport + auth-aware + OAuth callback top-level) + tests (24 シナリオ) + Python performance test helper | FR-03, FR-05 / AC-02, AC-03, AC-05, AC-07, AC-11, AC-12, AC-13, NFR-01..NFR-09 | TASK-0122 | No | 165m (Codex 4th review +15m for case-insensitive header + drift8 OAuth callback + drift6 strict block test) |
 | TASK-0124 | sage-doctor.sh に MCP allowlist check 追加 + detection-only behavior test | FR-04 / AC-04, AC-09 | TASK-0123 (logic re-use) | No | 60m (旧 45m + behavior test で +15m) |
 | TASK-0126 | Documentation 更新 (5 ファイル) + installer regeneration | FR-06 / AC-06, AC-08, AC-10 | TASK-0122..0124 | No (最後) | 45m |
 
-合計見積: 285 min (4.75 h、Codex 2nd review 反映で TASK-0123 が +30m)
+合計見積: 300 min (5 h、Codex 4th review で TASK-0123 が +15m)
 **TASK-0125 (agent identity) は本 PLAN から削除済 → SPEC-0017 へ移動**
 
 ## 依存グラフ
@@ -70,13 +70,13 @@ TASK-0124 (doctor + behavior test, 60m)
 TASK-0126 (doc + installer regen, 45m)
 ```
 
-シリアル実行 (旧 PLAN の TASK-0123 || TASK-0125 並列は SPEC-0017 分離で消滅)。総 wall-clock 時間: **285m** (Codex 1st review で 270 → 255m に短縮、Codex 2nd review で 255 → 285m へ +30m、TASK-0123 の transport-aware + Python helper / fake wrapper 反映)。
+シリアル実行 (旧 PLAN の TASK-0123 || TASK-0125 並列は SPEC-0017 分離で消滅)。総 wall-clock 時間: **300m** (Codex 1st review で 270 → 255m に短縮、Codex 2nd review で 255 → 285m へ +30m、Codex 4th review で 285 → 300m へ +15m。Codex 3rd review は同 285m 維持)。
 
 ## 検証方法
 
 | 検証 | 方法 |
 |---|---|
-| Unit test | `bash templates/hooks/tests/run-tests.sh` で 109 + 17 シナリオ = 126+ 全 PASS (transport-aware に拡張) |
+| Unit test | `bash templates/hooks/tests/run-tests.sh` で 109 + 24 シナリオ = 133+ 全 PASS (Codex 4th review で +4: case-insensitive header 4 variant + drift8 OAuth callback + drift6 anonymous strict block) |
 | Integration test | `bash scripts/sage-doctor.sh` で MCP allowlist check が新ステップとして OK 返す |
 | Performance | `python3 templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (Python `time.perf_counter()` で macOS / Linux 互換、Codex review 2nd P2-3 反映) |
 | Detection-only behavior | `bash templates/hooks/tests/test-detection-only-behavior.sh` で fake wrapper 方式 PASS (kill 系 wrapper 呼び出し 0 件、Codex review 2nd P2-2 反映で grep / `ps aux` 方式 完全廃止) |

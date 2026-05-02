@@ -120,16 +120,20 @@ Phase 1-3 で以下を整備:
         "auth_mode": "oauth",
         "oauth_provider": "google",
         "oauth_scopes": ["openid", "profile"],
-        "oauth_callback_url": "http://localhost:8765/callback",
         "http_headers": {"User-Agent": "sage-mcp/1.0"},
         "tls_pin_sha256": "",
         "enabled_tools": ["query"],
         "approved_by": "SPEC-0015 / PR #99",
         "approved_at": "2026-05-02",
         "expires_at": "2027-05-02",
-        "notes": "remote MCP (HTTP, OAuth via google)"
+        "notes": "remote MCP (HTTP, OAuth via google; callback は top-level oauth_callback で declare)"
       }
     ],
+    "oauth_callback": {
+      "_comment": "Codex 公式 (https://developers.openai.com/codex/mcp) で確認: mcp_oauth_callback_port / mcp_oauth_callback_url は config.toml の TOP-LEVEL 設定。codex mcp login コマンドが利用。registry も top-level で declare し、実 Codex config の top-level mcp_oauth_callback_* と比較する (per-server ではない、Codex 4th review P2 #3 反映)",
+      "mcp_oauth_callback_port": 8765,
+      "mcp_oauth_callback_url": ""
+    },
     "policy": {
       "forbid_latest_tag": true,
       "require_npm_integrity": false,
@@ -137,7 +141,8 @@ Phase 1-3 で以下を整備:
       "forbid_unknown_transport": true,
       "http_require_url_origin_pin": true,
       "http_require_auth": true,
-      "http_static_header_secret_check": true
+      "http_static_header_secret_check": true,
+      "oauth_callback_require_match": true
     },
     "bypass": {
       "enabled": false,
@@ -153,7 +158,7 @@ Phase 1-3 で以下を整備:
   **transport: "http" 必須 field** (Codex 3rd review P2 #1 反映で auth_mode 導入): `name` / `transport` / `artifact_type` / `url` / `url_origin_pin` / `auth_mode` / `approved_by` / `approved_at` / `expires_at`
   **auth_mode** の 3 種 (Codex 公式 MCP docs 確認、`http_require_auth: true` で `none` 禁止可能):
   - `bearer_env`: `bearer_token_env_var` 必須 (env 変数名のみ、値は registry に書かない)
-  - `oauth`: `oauth_provider` (例: `google` / `github` / `okta` 等) + `oauth_scopes` (list of string) + `oauth_callback_url` 必須
+  - `oauth`: `oauth_provider` (例: `google` / `github` / `okta` 等) + `oauth_scopes` (list of string) **per-server で必須**。callback URL / port は **registry top-level の `oauth_callback`** セクションで declare (Codex 4th review P2 #3 反映、Codex は `mcp_oauth_callback_port` / `mcp_oauth_callback_url` を top-level config 扱い、`codex mcp login` が利用)
   - `none`: anonymous (`policy.http_require_auth: true` で禁止可能)
   **transport: "http" 推奨 field**: `http_headers` (**non-sensitive headers のみ**、機密値は env_http_headers へ) / `env_http_headers` / `tls_pin_sha256` / `enabled_tools` / `disabled_tools`
 
@@ -171,7 +176,8 @@ Phase 1-3 で以下を整備:
   - `forbid_unknown_transport: true` (default) — `transport` field が `stdio` / `http` 以外なら FAIL
   - `http_require_url_origin_pin: true` (default、http 用) — HTTP MCP entry に `url_origin_pin` 不在なら FAIL
   - `http_require_auth: true` (default、Codex 3rd review P2 #1 反映で `http_require_bearer_token_env` から名称変更) — HTTP MCP entry の `auth_mode` が `none` であれば WARN/FAIL (anonymous HTTP MCP を防ぐ、auth method の選択は OAuth / Bearer どちらでも可)
-  - `http_static_header_secret_check: true` (default、Codex 3rd review P2 #2 反映) — `http_headers` (静的) に **sensitive header 名** (`Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key`, `X-Auth-Token`, `X-Token`, `Bearer`) が含まれていれば FAIL。機密値は `env_http_headers` (env 名参照) または `bearer_token_env_var` で扱う
+  - `http_static_header_secret_check: true` (default、Codex 3rd-4th review 反映) — `http_headers` (静的) に **sensitive header 名** が含まれていれば FAIL。**case-insensitive matching** (RFC 9110 §5.1 準拠、`header_name.lower()` で正規化後 canonical list と比較)。canonical list = `[authorization, cookie, set-cookie, proxy-authorization, x-api-key, x-auth-token, x-token]` (`Bearer` は header 名ではなく value pattern のため本 list に含めない、SEC-07 参照)。機密値は `env_http_headers` (env 名参照) または `bearer_token_env_var` で扱う
+  - `oauth_callback_require_match: true` (default、Codex 4th review P2 #3 反映) — registry top-level `oauth_callback.mcp_oauth_callback_port` / `mcp_oauth_callback_url` と実 Codex config (`~/.codex/config.toml` の top-level `mcp_oauth_callback_*`) を比較、不一致なら drift8 (warn / strict 時 block)。registry 側に oauth_callback 不在で実 config 側に設定あれば drift8 として warn (registry に declare すべき)
 
 - **[FR-03] MCP allowlist audit hook (`templates/hooks/mcp-allowlist-audit.sh`)**:
   - SessionStart hook として動作 (`.claude/settings.json` の `hooks.SessionStart`)
@@ -193,8 +199,9 @@ Phase 1-3 で以下を整備:
       - npm_package: `npm_integrity` mismatch (`package-lock.json` の resolved entry と異なる)
       - local_binary: `command_path_sha256` mismatch (binary が差し替わった signal)
       - remote_http: `tls_pin_sha256` mismatch (server cert 変更、MITM signal)
-    - **drift 6: HTTP MCP の anonymous auth** (Codex 3rd review P2 #1 反映、`policy.http_require_auth: true` + `auth_mode: "none"` または `auth_mode` 不在時): warn (auth_mode は bearer_env / oauth どちらでも可だが none は禁止)
-    - **drift 7: HTTP MCP の sensitive header in static `http_headers`** (Codex 3rd review P2 #2 反映、`policy.http_static_header_secret_check: true` 時): FAIL (registry parse 段階で reject、`http_headers` に `Authorization` / `Cookie` / `Set-Cookie` / `X-Api-Key` 等の機密 header 名 が含まれていれば即時拒否)
+    - **drift 6: HTTP MCP の anonymous auth** (Codex 3rd-4th review 反映、`policy.http_require_auth: true` + `auth_mode: "none"` または `auth_mode` 不在時): warn (standard) / **block in strict** (Codex 4th review P2 #4 反映で policy 名「http_require_auth」の強さと挙動を一致させる、anonymous HTTP MCP は strict 時に session 開始 block)
+    - **drift 7: HTTP MCP の sensitive header in static `http_headers`** (Codex 3rd review P2 #2 反映、`policy.http_static_header_secret_check: true` 時): FAIL (registry parse 段階で reject、case-insensitive matching、`http_headers` に `Authorization` / `Cookie` / `Set-Cookie` / `X-Api-Key` 等 (canonical lowercase list) が含まれていれば即時拒否)
+    - **drift 8: OAuth callback mismatch** (Codex 4th review P2 #3 反映、`policy.oauth_callback_require_match: true` 時): registry top-level `oauth_callback.mcp_oauth_callback_port` / `mcp_oauth_callback_url` と実 Codex config の top-level 同 field が不一致 → warn (standard) / block in strict
     - **expired approval**: warn (`expires_at` < 今日)
   - registry 不在: warn 1 回 + skip
   - **audit log 出力**: `.sage/audit/mcp-allowlist-YYYYMMDD.log` に append。args は **redact** (raw command line 全体ではなく `<command> <package-name>@<version>` 形式に正規化、API key 等が args に紛れ込んでも log に出ない、Codex review P2 対応)
@@ -229,10 +236,10 @@ Phase 1-3 で以下を整備:
 - **[NFR-05] portability**: macOS / Linux 両対応 (BSD awk / GNU awk 差異吸収、bash 4+ 想定)
 - **[NFR-06] test scenario coverage**: shell script のため code coverage 概念は不適。代わりに以下のシナリオ網羅性を要求:
   - **stdio drift**: drift1 / drift2 / drift3 / drift4 / drift5 = 5 case
-  - **http drift** (Codex 1st-3rd review 反映): drift1 http / drift2 http / drift6 anonymous (none) / drift6 OAuth approve / drift6 Bearer approve / drift7 sensitive header / transport mismatch = 7 case
+  - **http drift** (Codex 1st-4th review 反映): drift1 http / drift2 http / drift6 anonymous (none) / drift6 OAuth approve / drift6 Bearer approve / drift7 sensitive header (canonical case) / drift7 lowercase / drift7 uppercase / drift7 mixed case / drift8 OAuth callback mismatch / transport mismatch = 11 case
   - error case 5 個 (EC-01..EC-05) 全カバー
-  - profile 3 状態 (minimal / standard / strict) 全カバー
-  - 合計 20 シナリオを test 必須、AC-03 / AC-07 で検証
+  - profile 3 状態 (minimal / standard / strict) 全カバー、特に strict 時 drift1 / drift5 / drift6 anonymous / drift8 が block する 4 case
+  - 合計 24 シナリオを test 必須、AC-03 / AC-07 で検証
 - **[NFR-07] parser robustness**: registry を **JSON** に統一し Python stdlib `json` で parse (PyYAML 依存回避、Codex review P2 反映)。awk-based shape comparison は脆弱なため不採用
 - **[NFR-08] performance helper portability**: `measure-hook-time` helper は **Python stdlib (`time.perf_counter()` + `subprocess` + `statistics`) で実装**。GNU time `-f` option は macOS 不対応のため不採用 (Codex review P2-3 反映、NFR-05 macOS / Linux 両対応充足)
 - **[NFR-09] detection-only behavior verification method**: hook の kill 系コマンド呼び出し検出は **fake wrapper 方式の behavior test** で行う。grep ベース (`grep -nE "kill|pkill|killall"`) は test 自身の grep プロセスや SPEC コメント記述で false positive、`ps aux` ベースも自身の grep が混入するため不採用 (Codex review P2-2 反映)
@@ -246,9 +253,13 @@ Phase 1-3 で以下を整備:
   - 詳細は TASK-0124 で `templates/hooks/tests/test-detection-only-behavior.sh` として実装
   - strict profile の `exit 1` は **session 開始の block** であり process kill ではない (terminology 精緻化、Codex review continued doctrine 反映)
 - **[SEC-02] positive list (allowlist) + supply-chain pin 原則**: registry に明示列挙された server **のみ + 明示 version pin + (推奨) artifact integrity** が承認済。`@latest` は default で禁止 (`policy.forbid_latest_tag: true`)、明示 risk acceptance 時のみ false 化可能。HTTP MCP は default で auth 必須 (`policy.http_require_auth: true`、auth_mode は bearer_env / oauth / none、none は禁止可能)
-- **[SEC-07] tracked registry の secret hygiene** (Codex 3rd review P2 #2 反映): `.sage/mcp-allowlist.json` は repo 内の declarative registry のため、機密値を直接書かない:
+- **[SEC-07] tracked registry の secret hygiene** (Codex 3rd-4th review 反映): `.sage/mcp-allowlist.json` は repo 内の declarative registry のため、機密値を直接書かない:
   - `http_headers` (静的) には **non-sensitive header のみ** 許可 (例: `User-Agent`, `X-Client-Name`, `Accept`)
-  - 機密 header 名 (`Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key`, `X-Auth-Token`, `X-Token`, `Bearer`) は `http_headers` に出現禁止 (出現すれば drift7 で FAIL)
+  - **機密 header 名 (case-insensitive、Codex 4th review P2 #2 反映で [RFC 9110 §5.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-5.1) 準拠)** が `http_headers` に出現禁止:
+    - canonical list: `authorization`, `cookie`, `set-cookie`, `proxy-authorization`, `x-api-key`, `x-auth-token`, `x-token`
+    - matching ロジック: 実装は `header_name.lower()` で正規化してから上記 canonical list と比較。`Authorization` / `AUTHORIZATION` / `authorization` / `aUtHoRiZaTiOn` 全て同等に検出
+    - 出現すれば drift7 で FAIL
+  - **`Bearer` の扱い**: `Bearer` は **header 名ではなく value pattern** として扱う (`Authorization: Bearer xxx` の `xxx` 部分が secret)。本 SPEC の drift7 は **header 名検出のみ** に scope 制限、value pattern 検出 (例: `http_headers` の任意 value に `Bearer xxx` 形式がある場合) は本 SPEC スコープ外として明示。secret value 自体は `env_http_headers` 経由で env 名参照に統一されていれば構造的に静的値が来ないため、value pattern 検出が不要となる設計
   - 機密値は **`bearer_token_env_var`** (env name only、env 値は実行時に解決) または **`env_http_headers`** (各 header に env name 参照) で扱う
   - `policy.http_static_header_secret_check: true` (default) で registry parse 段階で reject
 - **[SEC-03] audit log の改ざん検出**: `.sage/audit/*.log` への追記は append-only 推奨。args は redact (Codex review P2 反映)。技術的な append-only enforcement (immutable file flag 等) は範囲外
@@ -283,25 +294,30 @@ Phase 1-3 で以下を整備:
     - drift 3 (registry only) で info
     - drift 4 (`@latest` + `policy.forbid_latest_tag: true`) で warn
     - drift 5 (npm_integrity mismatch + `policy.require_npm_integrity: true`) で warn (重大)
-  - **http drift cases** (Codex 1st-3rd review 反映):
+  - **http drift cases** (Codex 1st-4th review 反映):
     - drift 1 http (registry にない HTTP MCP server) で warn (重大、supply-chain risk)
     - drift 2 http (url_origin mismatch) で warn
-    - drift 6 anonymous (HTTP MCP の `auth_mode: "none"` または auth_mode 不在 + `policy.http_require_auth: true`) で warn
-    - drift 6 OAuth approve (HTTP MCP の `auth_mode: "oauth"` で oauth_provider 等が registry と一致 → 通常承認、anonymous 扱いしない、Codex 3rd review P2 #1 反映)
+    - drift 6 anonymous (HTTP MCP の `auth_mode: "none"` または auth_mode 不在 + `policy.http_require_auth: true`) で warn (standard) / **block (strict)** (Codex 4th review P2 #4 反映)
+    - drift 6 OAuth approve (HTTP MCP の `auth_mode: "oauth"` で oauth_provider 等が registry と一致 → 通常承認)
     - drift 6 Bearer approve (HTTP MCP の `auth_mode: "bearer_env"` で bearer_token_env_var が registry と一致 → 通常承認)
-    - drift 7 sensitive header (registry に `http_headers: { "Authorization": "Bearer ..." }` 等の機密 header 静的値) で **FAIL** (Codex 3rd review P2 #2 反映、registry parse 段階で reject)
+    - **drift 7 sensitive header — case-insensitive matching tests** (Codex 4th review P2 #2 反映): 以下 3 variant 全て FAIL:
+      - `http_headers: { "Authorization": "Bearer ..." }` (canonical case)
+      - `http_headers: { "authorization": "Bearer ..." }` (lowercase)
+      - `http_headers: { "AUTHORIZATION": "Bearer ..." }` (uppercase)
+      - `http_headers: { "x-Api-Key": "secret" }` (mixed case)
+    - **drift 8 OAuth callback mismatch** (Codex 4th review P2 #3 反映): registry top-level `oauth_callback.mcp_oauth_callback_port: 8765` だが実 Codex config が `mcp_oauth_callback_port: 9000` → drift8 warn (standard) / block (strict)
     - transport mismatch (実 config STDIO ↔ registry HTTP、または逆) で drift 1 として warn
   - **共通**:
     - expired approval で warn
     - registry 不在で warn + skip (exit 0)
     - profile=`minimal` で完全 skip (exit 0、log なし)
-    - profile=`strict` で drift 1 / drift 5 が block (exit 1)
+    - **profile=`strict` で drift 1 / drift 5 / drift 6 anonymous / drift 8 OAuth callback mismatch が block (exit 1)** (Codex 4th review P2 #4 反映: drift6 anonymous は http_require_auth policy 名の強さと挙動を一致させるため strict 時 block に格上げ)
     - audit log で args / bearer_token_env_var の値が redact (env name のみ記録、env 値そのものは log に出ない)
     - default で user-global `~/.codex/config.toml` を読まない、opt-in 時のみ読む
 - [ ] AC-04: `scripts/sage-doctor.sh` 実行で MCP allowlist check が新ステップとして OK / WARN / FAIL を返す
 - [ ] AC-05: Performance test helper `templates/hooks/tests/measure-hook-time.py` (Python ベース) が 5 回 `time.perf_counter()` 測定中央値で AC-11 を機械的判定 (exit code で fail/pass、Codex review P2-3 反映で macOS / Linux 完全互換)
 - [ ] AC-06: `SECURITY.md` / `sage/governance.md` §9.1 / §9.2 / `AGENTS.md` / `CLAUDE.md` / `docs/codex-security.md` の 5 ファイルに本 SPEC の cross-reference / 追記が反映 (各最大 +3 行、R7 厳守)
-- [ ] AC-07: `bash templates/hooks/tests/run-tests.sh` 全 PASS (109 + 20 シナリオ = 129+、Codex 3rd review P2 #1/#2 反映で http drift +3 拡張)
+- [ ] AC-07: `bash templates/hooks/tests/run-tests.sh` 全 PASS (109 + 24 シナリオ = 133+、Codex 4th review P2 #2/#3/#4 反映で case-insensitive header 3 variant + drift8 OAuth callback + drift6 strict block test 追加)
 - [ ] AC-08: `bash scripts/sage-validate.sh` PASS
 - [ ] AC-09: `bash scripts/sage-doctor.sh` 0 FAIL (新ステップ含む)
 - [ ] AC-10: `bash scripts/sage-doc-drift.sh` PASS
@@ -451,3 +467,14 @@ Codex 2nd Specify-phase review で「SPEC-0017 は inventory template だけへ�
 - SPEC-0017 着手時に RUN log schema migration が発生するため、既存 RUN log の backward compat 戦略を SPEC-0017 内で別途設計
 
 この design hint は Codex 2nd review 「Suggested SPEC-0017 design hints」セクションに基づく (一次ソース確認済 doctrine)。
+
+**Codex 4th review 追加 hint** (continued doctrine 反映): 観測値は「宣言値」と「実測値」の比較ルールを **先に定義する** こと。実際のツール設定が global なのか per-agent / per-server なのかを曖昧にすると validator が形だけになる (本 SPEC では OAuth callback の per-server vs top-level 問題で 4th-round 修正が必要だった先例)。SPEC-0017 では以下を最初から明示:
+
+| 観測 field | 比較ルール | global vs per-* |
+|---|---|---|
+| `runtime` (claude-code / codex-cli / etc.) | RUN log (実測) ↔ inventory.agents (宣言、agent_id 単位) | per-agent_id |
+| `tool_runtime` (`claude-code-2.1.x` 等) | RUN log (実測) ↔ inventory.agents.expected_tool_runtime | per-agent_id |
+| `approval_policy` | RUN log (実測、Codex/Claude 設定) ↔ inventory or .sage/config.yaml | global (CLAUDE.md / settings) |
+| `network_mode` (off / allowlist / unrestricted) | RUN log (実測) ↔ .sage/config.yaml | global |
+
+各 field の比較 source / target を明示することで、validator 実装時の曖昧性を排除。
