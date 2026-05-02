@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="1.7.0"
+SAGE_VERSION="1.7.1"
 
 # === Embedded templates ===
 
@@ -808,18 +808,25 @@ CLI-specific guidance を片側 (例: AGENTS.md) に追加する SPEC は、以�
 
 ### 10.5 Drift 検知
 
-`templates/hooks/tests/test-claude-collaboration-pairing.sh` (SPEC-0023 TASK-0155) が CI で常時検証:
+`templates/hooks/tests/test-claude-collaboration-pairing.sh` (SPEC-0023 TASK-0155, TASK-0159 で強化) が CI で **baseline coverage** を検証:
 
 - CLAUDE.md / AGENTS.md §2 doctrine が semantic alignment 文言を含む
 - claude-md-snippet.md / agents-md-snippet.md に CLI-specific guidance が parallel に存在
 - governance.md §10 (本節) の存在
 - docs/{codex-delegation-packet, claude-collaboration-brief}.md の必須セクション存在
+- **(TASK-0159 強化)**: 4 doc (CLAUDE.md / AGENTS.md / claude-md-snippet / agents-md-snippet) の CLI-specific section markers が対称的に存在 (`Codex は委任型` ↔ `Claude Code は協働型`、`Codex-only boundary` ↔ `Claude-only boundary`、`Codex delegation packet` ↔ `Claude collaboration brief`)
 
 drift 検出時は CI fail → paired SPEC 起票または対側 update を要求。
+
+**baseline coverage の限界**: 本 test は paired update doctrine の **最低限の自動検知** のみ提供する。将来の SPEC が新しい CLI-specific marker pattern を導入した場合は、本 test に検証 scenario を追加するか、required-pair markers map を別途 SPEC で扱う (Phase 6.3+ 候補)。
 
 ### 10.6 例外
 
 CLI 一方にしか存在しない機能 (例: Plan Mode は Claude 専用、Codex App computer use は Codex 専用) は対側 SPEC で「N/A: <理由>」を明示すれば paired 完了とみなす。例: 将来「SPEC-XXXX: Codex App computer use guide」が起票された場合、Claude 側 paired SPEC は「N/A: Claude Code には computer use 機能がないため」と SPEC body に記述すれば doctrine 遵守。
+
+### 10.7 install --update 経由の propagation
+
+`templates/{claude,agents}-md-snippet.md` に対する CLI-specific guidance 追加は、`bash install.sh --update` で実体ファイル (`CLAUDE.md` / `AGENTS.md`) の SAGE-managed section (auto-injected snippet block、通常 L300+) に自動 propagation される。これは installer の設計上の挙動であり、SPEC scope に明示的に含まれていない場合も silent scope expansion として扱わない。SPEC 起票時には「snippet 編集を含む」ことが File Scope 宣言で AGENTS.md / CLAUDE.md auto-injected section の更新も含む扱いとなる (SPEC-0023 TASK-0156 の paired-fix が最初の事例)。
 
 __EOF_TMPL_GOVERNANCE__
 
@@ -5064,7 +5071,7 @@ Claude セッション中に「これは Codex に委任すべき」と判断す
 - **GitHub Issue / PR comment 対応**: Codex の `@codex` mention が GitHub native
 - **CI failure 修正**: テスト出力から原因が特定でき、修正範囲が確定している
 - **長時間 background 実行**: Claude session を占有せず Codex Cloud で並列実行できる
-- **token efficiency 重視**: 設計より実装量が大きい (Codex は Claude より約 72% 少ない output token)
+- **token efficiency 重視**: 設計より実装量が大きい (Composio 2026-05 ベンチマーク <https://composio.dev/content/claude-code-vs-openai-codex> では Codex のほうが output token が約 72% 少ない事例があったが、モデル世代・タスク・プロンプトで変動するため絶対値ではなく傾向として参照)
 
 handoff の手続:
 

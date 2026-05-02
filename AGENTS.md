@@ -23,7 +23,7 @@ For **Codex sessions**, follow instructions in this order:
 3. **docs/rules.md** — architectural constraints
 4. **User instructions** — runtime directives
 
-`CLAUDE.md` is the Claude Code-specific counterpart. The two documents must stay semantically aligned for SHARED rules. CLI-specific guidance may diverge but requires a paired update under [SPEC-0023](specs/SPEC-0023-claude-collaboration-pairing.md) §10 doctrine.
+`CLAUDE.md` is the Claude Code-specific counterpart. The two documents must stay semantically aligned for SHARED rules. CLI-specific guidance (Codex Delegation Packet, Claude Collaboration Brief) may diverge but requires a paired update under [SPEC-0023](specs/SPEC-0023-claude-collaboration-pairing.md) §10 doctrine.
 
 ### 2.1 Codex specificity
 

@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0155 |
 | SPEC-ID   | SPEC-0023 |
 | PLAN-ID   | PLAN-0023 |
-| ステータス | Pending |
+| ステータス | Done |
 | 担当Agent | Test |
 | 並列可否  | No (TASK-0152, TASK-0153, TASK-0154 完了後) |
 | 依存TASK  | TASK-0152, TASK-0153, TASK-0154 |
@@ -83,7 +83,7 @@ SPEC-0023 implementation の RUN log:
 ## 完了条件
 
 - [ ] `templates/hooks/tests/test-claude-collaboration-pairing.sh` 9/9 PASS (`bash templates/hooks/tests/test-claude-collaboration-pairing.sh; echo $?` で 0)
-- [ ] `bash templates/hooks/tests/run-tests.sh` 全 PASS (190+ scenarios)
+- [ ] `bash templates/hooks/tests/run-tests.sh` 全 PASS (180 既存 + 9 新規 = 189 scenarios)
 - [ ] `.sage/runs/RUN-0008.yaml` 存在し `bash scripts/sage-runlog-validate.sh` PASS
 - [ ] `bash scripts/sage-doctor.sh` 0 FAIL (after install.sh --update)
 - [ ] `bash scripts/sage-doc-drift.sh` PASS

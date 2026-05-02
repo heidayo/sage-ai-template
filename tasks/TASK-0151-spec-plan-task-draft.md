@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0151 |
 | SPEC-ID   | SPEC-0023 |
 | PLAN-ID   | PLAN-0023 |
-| ステータス | Pending |
+| ステータス | Done |
 | 担当Agent | Spec / Planning |
 | 並列可否  | No (foundation) |
 | 依存TASK  | none |

@@ -129,7 +129,7 @@ Claude セッション中に「これは Codex に委任すべき」と判断す
 - **GitHub Issue / PR comment 対応**: Codex の `@codex` mention が GitHub native
 - **CI failure 修正**: テスト出力から原因が特定でき、修正範囲が確定している
 - **長時間 background 実行**: Claude session を占有せず Codex Cloud で並列実行できる
-- **token efficiency 重視**: 設計より実装量が大きい (Codex は Claude より約 72% 少ない output token)
+- **token efficiency 重視**: 設計より実装量が大きい (Composio 2026-05 ベンチマーク <https://composio.dev/content/claude-code-vs-openai-codex> では Codex のほうが output token が約 72% 少ない事例があったが、モデル世代・タスク・プロンプトで変動するため絶対値ではなく傾向として参照)
 
 handoff の手続:
 
