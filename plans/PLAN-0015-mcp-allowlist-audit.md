@@ -104,7 +104,7 @@ Phase 1-3 で確立した cross-model adversarial review pattern を本 SPEC で
 |---|---|
 | **R1** (no branch protection auto-config) | 本 SPEC で branch protection / Ruleset を触らない |
 | **R2** (sandbox_mode template only, runtime change なし) | 本 SPEC は audit-only、MCP runtime / process 起動は SAGE 範囲外 (governance §9.2 維持)。`audit-first` / `runtime-process-safe` 用語で精緻化 (Codex review continued doctrine 反映) |
-| **R3** (Lethal Trifecta warn-only) | 本 SPEC の drift detection も warn-only ベース、strict profile のみ block (**drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch の 4 cases**、Codex 4th-5th review 反映で http_require_auth + oauth_callback_require_match policy と挙動を整合)。R3 と同方向 |
+| **R3** (Lethal Trifecta warn-only) | 本 SPEC の drift detection も warn-only ベース、strict profile のみ block (**drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch / transport_mismatch の 5 cases**、Codex 4th-7th review 反映で http_require_auth + oauth_callback_require_match + transport-aware policy と挙動を整合)。R3 と同方向 |
 | **R4** (no SecPass thresholds) | 本 SPEC で「100% drift 0 必須」のような硬い閾値を設定しない。OPS-05 の昇格条件は運用 doctrine、強制ではない |
 | **R5** (RUN log redaction first) | 本 SPEC の audit log は drift event 集計用、args は **redact** (Codex review P2 反映)、secret 漏洩防止 |
 | **R6** (license vs security 分離) | 本 SPEC は security 専念 |

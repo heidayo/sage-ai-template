@@ -189,9 +189,9 @@ Phase 1-3 で以下を整備:
   - drift 検出ロジック (transport-aware + auth-aware): 実 config の各 server entry について
     - **stdio**: registry に同 `name` + `command` + `args` (locked version) + (`npm_integrity` if specified) + `publisher` の entry があるか確認
     - **http**: registry に同 `name` + `transport: "http"` + `url_origin_pin` (origin 一致) + `auth_mode` の entry があるか確認 (auth_mode 値は registry 宣言と実 config の挙動を厳密一致させる)
-    - **transport mismatch**: 実 config が STDIO server でも registry が `transport: "http"` (またはその逆) の場合 drift1 として判定
+    - **transport mismatch**: 実 config が STDIO server でも registry が `transport: "http"` (またはその逆) の場合、独立 enum `transport_mismatch` として記録 (Codex 7th review P2 #1 反映で drift1 から独立、prose と enum 動作の semantic 整合)
   - 検出 case:
-    - **drift 1: 実 config に registry にない server (transport mismatch 含む)**: warn / block (重大、特に HTTP MCP 出現に対し registry に entry がない場合は supply-chain risk)
+    - **drift 1: 実 config に registry にない server**: warn / block (重大、特に HTTP MCP 出現に対し registry に entry がない場合は supply-chain risk)
     - **drift 2: 実 config の args / url が registry と異なる (version / origin mismatch)**: warn (中程度)
     - **drift 3: registry にあるが 実 config にない**: info (削除されたか未設定)
     - **drift 4: `@latest` 出現 (`policy.forbid_latest_tag: true` 時、stdio のみ)**: warn
@@ -202,6 +202,7 @@ Phase 1-3 で以下を整備:
     - **drift 6: HTTP MCP の anonymous auth** (Codex 3rd-4th review 反映、`policy.http_require_auth: true` + `auth_mode: "none"` または `auth_mode` 不在時): warn (standard) / **block in strict** (Codex 4th review P2 #4 反映で policy 名「http_require_auth」の強さと挙動を一致させる、anonymous HTTP MCP は strict 時に session 開始 block)
     - **drift 7: HTTP MCP の sensitive header in static `http_headers`** (Codex 3rd review P2 #2 反映、`policy.http_static_header_secret_check: true` 時): FAIL (registry parse 段階で reject、case-insensitive matching、`http_headers` に `Authorization` / `Cookie` / `Set-Cookie` / `X-Api-Key` 等 (canonical lowercase list) が含まれていれば即時拒否)
     - **drift 8: OAuth callback mismatch** (Codex 4th review P2 #3 反映、`policy.oauth_callback_require_match: true` 時): registry top-level `oauth_callback.mcp_oauth_callback_port` / `mcp_oauth_callback_url` と実 Codex config の top-level 同 field が不一致 → warn (standard) / block in strict
+    - **transport_mismatch** (Codex 7th review P2 #1 反映で strict-block enum に追加): 実 config が STDIO server だが registry が `transport: "http"` (またはその逆) → warn (standard) / **block in strict** (drift1 と semantic 同等 = 実 config と registry の構造的不一致、prose と enum 動作の整合)
     - **expired approval**: warn (`expires_at` < 今日)
   - registry 不在: warn 1 回 + skip
   - **audit log 出力**: `.sage/audit/mcp-allowlist-YYYYMMDD.log` に append。args は **redact** (raw command line 全体ではなく `<command> <package-name>@<version>` 形式に正規化、API key 等が args に紛れ込んでも log に出ない、Codex review P2 対応)
@@ -249,7 +250,7 @@ Phase 1-3 で以下を整備:
   - **stdio drift**: drift1 / drift2 / drift3 / drift4 / drift5 = 5 case
   - **http drift** (Codex 1st-4th review 反映): drift1 http / drift2 http / drift6 anonymous (none) / drift6 OAuth approve / drift6 Bearer approve / drift7 sensitive header (canonical case) / drift7 lowercase / drift7 uppercase / drift7 mixed case / drift8 OAuth callback mismatch / transport mismatch = 11 case
   - error case 5 個 (EC-01..EC-05) 全カバー
-  - profile 3 状態 (minimal / standard / strict) 全カバー、特に strict 時 drift1 / drift5 / drift6 anonymous / drift8 が block する 4 case
+  - profile 3 状態 (minimal / standard / strict) 全カバー、特に strict 時 drift1 / drift5 / drift6 anonymous / drift8 / transport_mismatch が block する 5 case (Codex 7th review P2 #1 反映で transport_mismatch 追加)
   - 合計 24 シナリオを test 必須、AC-03 / AC-07 で検証
 - **[NFR-07] parser robustness**: registry を **JSON** に統一し Python stdlib `json` で parse (PyYAML 依存回避、Codex review P2 反映)。awk-based shape comparison は脆弱なため不採用
 - **[NFR-08] performance helper portability**: `measure-hook-time` helper は **Python stdlib (`time.perf_counter()` + `subprocess` + `statistics`) で実装**。GNU time `-f` option は macOS 不対応のため不採用 (Codex review P2-3 反映、NFR-05 macOS / Linux 両対応充足)
@@ -289,7 +290,7 @@ Phase 1-3 で以下を整備:
   | 昇格 | 条件 | 検証コマンド |
   |---|---|---|
   | minimal → standard | minimal で 7 日運用 + sage-doctor で 0 FAIL 維持 | `bash scripts/sage-doctor.sh && find .sage/audit -name 'mcp-allowlist-*.log' -mtime -7 -print0 \| xargs -0 -I{} python3 -c "import json,sys; [print(l) for l in open('{}') if json.loads(l).get('severity')=='warn']" \| wc -l` |
-  | standard → strict | standard で 14 日運用 + **strict 時 block 対象 4 enum 全 0 件** (Codex 5th-6th review 反映、`drift_type` enum で機械判定): `drift1_stdio_unknown_server` / `drift1_http_unknown_server` / `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch` / `drift5_tls_pin_sha256_mismatch` / `drift6_anonymous` / `drift8_oauth_callback_mismatch` | `python3 -c "import json,sys,glob; types={'drift1_stdio_unknown_server','drift1_http_unknown_server','drift5_npm_integrity_mismatch','drift5_command_path_sha256_mismatch','drift5_tls_pin_sha256_mismatch','drift6_anonymous','drift8_oauth_callback_mismatch'}; n=sum(1 for f in glob.glob('.sage/audit/mcp-allowlist-*.log') for l in open(f) if json.loads(l).get('drift_type') in types); sys.exit(0 if n==0 else 1)"` で exit 0 |
+  | standard → strict | standard で 14 日運用 + **strict 時 block 対象 8 enum 全 0 件** (Codex 5th-7th review 反映、`drift_type` enum で機械判定 + 14 日 window filter): `drift1_stdio_unknown_server` / `drift1_http_unknown_server` / `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch` / `drift5_tls_pin_sha256_mismatch` / `drift6_anonymous` / `drift8_oauth_callback_mismatch` / `transport_mismatch` (Codex 7th review P2 #1 反映で transport_mismatch 追加) | `python3 -c "import json,sys,glob,os,datetime; cutoff=(datetime.date.today()-datetime.timedelta(days=14)).strftime('%Y%m%d'); types={'drift1_stdio_unknown_server','drift1_http_unknown_server','drift5_npm_integrity_mismatch','drift5_command_path_sha256_mismatch','drift5_tls_pin_sha256_mismatch','drift6_anonymous','drift8_oauth_callback_mismatch','transport_mismatch'}; n=sum(1 for f in glob.glob('.sage/audit/mcp-allowlist-*.log') if os.path.basename(f).split('mcp-allowlist-')[1][:8] >= cutoff for l in open(f) if json.loads(l).get('drift_type') in types); sys.exit(0 if n==0 else 1)"` で exit 0 (Codex 7th review P2 #2 反映で filename `mcp-allowlist-YYYYMMDD.log` から日付抽出 + 14 日 window フィルタ、古い log が永続的に block しない) |
   | strict 維持 | strict 時 block 対象 enum いずれか 1 件で即 incident response 起動 | `bash scripts/sage-incident-trigger.sh mcp-supply-chain` (本 SPEC 範囲外、SECURITY.md IR 手順) |
 
   各段階の昇格は `.sage/config.yaml` `hooks.profile` 更新 PR で実施、PR body に上記検証コマンド出力を貼る (auditability)。
@@ -317,12 +318,12 @@ Phase 1-3 で以下を整備:
       - `http_headers: { "AUTHORIZATION": "Bearer ..." }` (uppercase)
       - `http_headers: { "x-Api-Key": "secret" }` (mixed case)
     - **drift 8 OAuth callback mismatch** (Codex 4th review P2 #3 反映): registry top-level `oauth_callback.mcp_oauth_callback_port: 8765` だが実 Codex config が `mcp_oauth_callback_port: 9000` → drift8 warn (standard) / block (strict)
-    - transport mismatch (実 config STDIO ↔ registry HTTP、または逆) で drift 1 として warn
+    - transport mismatch (実 config STDIO ↔ registry HTTP、または逆) で **`transport_mismatch` enum** として warn (standard) / block (strict)、Codex 7th review P2 #1 反映
   - **共通**:
     - expired approval で warn
     - registry 不在で warn + skip (exit 0)
     - profile=`minimal` で完全 skip (exit 0、log なし)
-    - **profile=`strict` で drift 1 / drift 5 / drift 6 anonymous / drift 8 OAuth callback mismatch が block (exit 1)** (Codex 4th review P2 #4 反映: drift6 anonymous は http_require_auth policy 名の強さと挙動を一致させるため strict 時 block に格上げ)
+    - **profile=`strict` で drift 1 / drift 5 / drift 6 anonymous / drift 8 OAuth callback mismatch / transport_mismatch の 5 cases が block (exit 1)** (Codex 4th-7th review 反映: drift6 anonymous は http_require_auth policy 名の強さと整合、transport_mismatch は drift1 と semantic 同等として strict-block enum に追加)
     - audit log で args / bearer_token_env_var の値が redact (env name のみ記録、env 値そのものは log に出ない)
     - default で user-global `~/.codex/config.toml` を読まない、opt-in 時のみ読む
 - [ ] AC-04: `scripts/sage-doctor.sh` 実行で MCP allowlist check が新ステップとして OK / WARN / FAIL を返す
@@ -399,7 +400,23 @@ Step 3 [昇格]
 ### sage/failures.md 連携
 
 - **誰が**: drift 検出を運用上 false positive と判断した user / SAGE doctor で WARN を出した repo の owner
-- **いつ**: 同 server / 同 drift type で 2 回以上同種 event が記録された時 (`.sage/audit/mcp-allowlist-*.log` を `awk` で集計)
+- **いつ**: 同 server / 同 `drift_type` enum 値で 2 回以上同種 event が記録された時 (Codex 7th review P3 反映で NFR-04a doctrine 準拠、awk ではなく Python `json.loads()` + `drift_type` enum で集計):
+
+  ```bash
+  # 集計コマンド例 (NFR-04a 準拠):
+  python3 -c "
+  import json, glob, collections
+  counts = collections.Counter()
+  for f in glob.glob('.sage/audit/mcp-allowlist-*.log'):
+      for line in open(f):
+          rec = json.loads(line)
+          counts[(rec['details'].get('server_name'), rec['drift_type'])] += 1
+  for (server, dt), n in counts.items():
+      if n >= 2:
+          print(f'{server} {dt}: {n} events (failures.md 候補)')
+  "
+  ```
+
 - **どの手順で**: 該当 entry を抽出 → `sage/failures.md` に FAIL-MCP-XXXX として 6 elements (発生日 / 影響 / 検出経路 / 一次原因 / 再発防止 / 関連 SPEC-ID) で追記
 
 ### sage/anti-patterns.md への昇格

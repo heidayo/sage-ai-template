@@ -46,9 +46,9 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
    - drift 検出 8+ case (Codex 4th review 反映で transport + auth-aware に拡張):
      - **stdio**: drift1 (registry にない server) / drift2 (args version mismatch) / drift3 (registry only) / drift4 (`@latest`) / drift5 (artifact integrity mismatch — npm_integrity / command_path_sha256 / tls_pin_sha256)
      - **http**: drift1 http / drift2 http (url_origin mismatch) / drift6 anonymous (auth_mode: "none") / drift6 OAuth approve / drift6 Bearer approve / drift7 sensitive header (case-insensitive 4 variant) / drift8 OAuth callback mismatch
-     - **共通**: transport mismatch (drift1 として判定) / expired approval
+     - **共通**: transport_mismatch (独立 enum、Codex 7th review P2 #1 反映で drift1 から独立) / expired approval
      - 各 case に warn 文言 + audit log 出力
-   - profile=`none`/`minimal` で完全 skip (true silent)、`standard` で warn (exit 0)、**`strict` で drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch の 4 cases を block (exit 1)** (Codex 4th review P2 #4 反映で http_require_auth policy 名と挙動の整合)
+   - profile=`none`/`minimal` で完全 skip (true silent)、`standard` で warn (exit 0)、**`strict` で drift1 / drift5 / drift6 anonymous / drift8 OAuth callback mismatch / transport_mismatch の 5 cases を block (exit 1)** (Codex 4th review P2 #4 + 7th review P2 #1 反映で http_require_auth + transport-aware policy と挙動の整合)
    - audit log 書き先: `.sage/audit/mcp-allowlist-$(date -u +%Y%m%d).log` (ディレクトリ自動作成)
    - **args redact**: log には raw command line でなく `<command> <package-name>@<version>` 形式に正規化 (Codex review P2 反映)
    - registry 不在: 1 回 warn + skip
@@ -77,16 +77,17 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
          - mixed: `http_headers: { "x-Api-Key": "..." }`
          - 実装: header name を `header.lower()` で正規化後 canonical list `[authorization, cookie, set-cookie, proxy-authorization, x-api-key, x-auth-token, x-token]` と比較 (Bearer は header 名でなく value pattern のため list に含めない)
        - **drift 8 OAuth callback mismatch** (Codex 4th review P2 #3 反映): registry top-level `oauth_callback.mcp_oauth_callback_port: 8765` だが実 Codex config top-level `mcp_oauth_callback_port: 9000` → warn (standard) / **block (strict)**
-       - transport mismatch: 実 config STDIO ↔ registry HTTP (or 逆) → drift 1 として warn
+       - transport_mismatch: 実 config STDIO ↔ registry HTTP (or 逆) → 独立 enum `transport_mismatch` として warn (standard) / **block (strict)** (Codex 7th review P2 #1 反映で strict-block 5th case に格上げ)
      - **共通**:
        - expired approval → warn
        - registry 不在 → warn + skip (exit 0)
        - profile=`minimal` → 完全 skip (exit 0、log なし)
-       - **profile=`strict` で以下 4 類が block (exit 1)** (Codex 4th review P2 #4 反映):
+       - **profile=`strict` で以下 5 類が block (exit 1)** (Codex 4th-7th review 反映):
          - drift 1 (stdio / http 両方)
          - drift 5 (artifact integrity mismatch)
          - drift 6 anonymous (HTTP MCP auth_mode: "none")
          - drift 8 (OAuth callback mismatch)
+         - transport_mismatch (Codex 7th review P2 #1 反映)
        - audit log で args / bearer_token_env_var の値が **redact** (env name のみ記録、env value は記録しない)
        - default で user-global `~/.codex/config.toml` を読まない (Codex review P2 反映)
        - opt-in 設定時のみ user-global を読む (`.sage/config.yaml` で `mcp_audit.include_user_global_codex: true` 明示時)

@@ -33,8 +33,8 @@
    - 5 観点の check (Codex 5th-6th review 反映で strict-block drift + registry secret hygiene を doctor に反映):
      - **(a) registry 存在**: `.sage/mcp-allowlist.json` 存在しなければ WARN
      - **(b) registry validity + secret hygiene**: JSON parse 不能 → FAIL。**`drift7_sensitive_header` 検出 → FAIL** (Codex 6th review P2 #1 反映: registry secret hygiene 違反は registry-level failure として扱う、INFO ではなく FAIL)
-     - **(c) strict-block drift count**: TASK-0123 hook の drift 検出 logic を reuse、`.sage/audit/mcp-allowlist-*.log` を Python `json.loads()` で parse して `drift_type` enum 完全一致で判定。**strict 時 block 対象 4 cases (`drift1_*_unknown_server` / `drift5_*_mismatch` / `drift6_anonymous` / `drift8_oauth_callback_mismatch`) のいずれか 1 件 > 0 で WARN** (Codex 5th review P2 反映: 事前検出で strict 昇格時 surprise-block 回避)
-     - **(d) other warn-only drift count** (INFO レベル): `drift2_*_mismatch` / `drift3_*_registry_only` / `drift4_*_latest_tag` / `drift6_oauth_approve` / `drift6_bearer_approve` / `transport_mismatch` の件数を INFO で報告 (drift7 は本 bucket から除外、(b) で FAIL 扱い、Codex 6th review P2 #1 反映)
+     - **(c) strict-block drift count**: TASK-0123 hook の drift 検出 logic を reuse、`.sage/audit/mcp-allowlist-*.log` を Python `json.loads()` で parse して `drift_type` enum 完全一致で判定。**strict 時 block 対象 8 enum (`drift1_stdio_unknown_server` / `drift1_http_unknown_server` / `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch` / `drift5_tls_pin_sha256_mismatch` / `drift6_anonymous` / `drift8_oauth_callback_mismatch` / `transport_mismatch`) のいずれか 1 件 > 0 で WARN** (Codex 5th-7th review 反映: transport_mismatch を drift1 と semantic 同等として strict-block enum に追加)
+     - **(d) other warn-only drift count** (INFO レベル): `drift2_*_mismatch` / `drift3_*_registry_only` / `drift4_*_latest_tag` / `drift6_oauth_approve` / `drift6_bearer_approve` の件数を INFO で報告 (drift7 は (b) で FAIL 扱い、transport_mismatch は (c) で strict-block 扱いのため本 bucket から除外)
      - **(e) expired approvals 集計**: `expires_at` < 今日の server 数を WARN
    - 出力 format: `[N/M] MCP allowlist check...` + 各 sub-check で `OK: ...` / `WARN: ...` / `FAIL: ...`
    - 既存 summary line (`OK: X  WARN: Y  FAIL: Z`) に集計反映
@@ -98,6 +98,7 @@
   - drift5 inject (artifact integrity mismatch: `drift5_npm_integrity_mismatch` / `drift5_command_path_sha256_mismatch` / `drift5_tls_pin_sha256_mismatch`) で WARN 出る
   - drift6 anonymous inject (HTTP MCP `auth_mode: "none"` + `policy.http_require_auth: true`、drift_type: `drift6_anonymous`) で WARN 出る
   - drift8 OAuth callback mismatch inject (registry top-level `oauth_callback.mcp_oauth_callback_port: 8765` vs 実 Codex config `9000`、drift_type: `drift8_oauth_callback_mismatch`) で WARN 出る
+  - transport_mismatch inject (実 config STDIO server だが registry が `transport: "http"` または逆、drift_type: `transport_mismatch`) で WARN 出る (Codex 7th review P2 #1 反映で strict-block 5th case)
 - [ ] **registry secret hygiene FAIL test** (Codex 6th review P2 #1 反映): drift7 inject (registry に `http_headers: { "Authorization": "..." }` 等の sensitive header 静的値、drift_type: `drift7_sensitive_header`) で **FAIL** 出る (INFO ではない、registry-level failure として扱う)
 - [ ] expired approval inject で WARN 出る
 - [ ] `bash scripts/sage-doctor.sh` 全体で 0 FAIL 維持 (本 TASK 完了直後の repo state で)
