@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="1.5.0"
+SAGE_VERSION="1.6.0"
 
 # === Embedded templates ===
 
@@ -687,6 +687,7 @@ SAGE は以下の **テンプレート・構造・ルール** を提供する:
 | Doctor / repair / report | `scripts/sage-doctor.sh` (Phase 5+ で `[5/6]` RUN log DB check 追加、SPEC-0016), `scripts/sage-repair.sh`, `scripts/sage-report.sh` |
 | RUN log 検索基盤 | `scripts/sage-runlog-index.sh` + `scripts/sage-runlog-search.sh` (Phase 5+, SPEC-0016, SQLite FTS5) |
 | Installer modular structure | `scripts/generator/` 7 modules + parent `scripts/generate-installer.sh` (Phase 5+, SPEC-0014, byte-identical refactor) |
+| Installer supply chain hardening | `.github/workflows/release.yml` + SHA256SUMS publication + URL pinning + `install.sh --verify-checksum --remote` (Phase 6.1, [SPEC-0018](../specs/SPEC-0018-installer-supply-chain-hardening.md)). cosign 署名は SPEC-0019、SLSA は SPEC-0020 |
 
 ### 9.2 SAGE が提供しないもの (What SAGE does NOT provide)
 
@@ -1569,7 +1570,7 @@ promotion_max_commits: 50
 
 # --- Auto Update ---
 auto_update:
-  installer_url: "https://gist.githubusercontent.com/heidayo/98c36fbaf41cc5170b071b21bde3bb51/raw/install.sh"
+  installer_url: "https://github.com/heidayo/sage-ai-template/releases/latest/download/install.sh"
   check_interval: "daily"
 
 __EOF_TMPL_CONFIG__
@@ -4064,12 +4065,23 @@ else
 fi
 echo ""
 
-# --- Check 9: installer_url 3-path sync (SPEC-0008 TASK-0081) ---
-# Compare local install.sh sha256 with the Gist-published version. Offline
-# or unreachable Gist => SKIPPED (not a failure). On main (GITHUB_REF_NAME=main)
+# --- Check 9: installer_url 3-path sync (SPEC-0008 TASK-0081 / SPEC-0018 expanded) ---
+# Compare local install.sh sha256 with the published artifact at installer_url.
+# URL-agnostic: works for both Gist (gist.githubusercontent.com/.../raw/install.sh) and
+# GitHub Releases (github.com/.../releases/{latest,download/v*}/download/install.sh).
+# Offline or unreachable URL => SKIPPED (not a failure). On main (GITHUB_REF_NAME=main)
 # a mismatch is a FAIL; elsewhere the mismatch is a warning.
 echo "[9/9] installer_url 3 経路同期チェック..."
 INSTALLER_URL=$(grep -E '^\s*installer_url:' .sage/config.yaml 2>/dev/null | head -1 | sed -E 's/^[^"]*"([^"]*)".*/\1/')
+# SPEC-0018: detect URL flavor for clearer messaging
+case "$INSTALLER_URL" in
+  *gist.githubusercontent.com*)        URL_FLAVOR="Gist (legacy)" ;;
+  *github.com*releases/latest/*)       URL_FLAVOR="GitHub Releases (latest)" ;;
+  *github.com*releases/download/*)     URL_FLAVOR="GitHub Releases (tag-pinned)" ;;
+  '')                                  URL_FLAVOR="" ;;
+  *)                                   URL_FLAVOR="custom" ;;
+esac
+
 if [ -z "$INSTALLER_URL" ]; then
   echo "  SKIPPED: installer_url not set in .sage/config.yaml"
 elif [ ! -f install.sh ]; then
@@ -4083,17 +4095,17 @@ else
   [ -z "$LOCAL_SHA" ] && LOCAL_SHA=$(sha256sum install.sh 2>/dev/null | awk '{print $1}')
   REMOTE_CONTENT=$(curl -fsSL --max-time 10 "$INSTALLER_URL" 2>/dev/null || true)
   if [ -z "$REMOTE_CONTENT" ]; then
-    echo "  SKIPPED: Gist not reachable (offline or URL 404)"
+    echo "  SKIPPED: ${URL_FLAVOR} not reachable (offline or URL 404)"
   else
     REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | shasum -a 256 2>/dev/null | awk '{print $1}')
     [ -z "$REMOTE_SHA" ] && REMOTE_SHA=$(printf '%s' "$REMOTE_CONTENT" | sha256sum 2>/dev/null | awk '{print $1}')
     if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
-      echo "  OK: local install.sh matches Gist publication (sha256)"
+      echo "  OK: local install.sh matches ${URL_FLAVOR} publication (sha256)"
     else
       echo "  MISMATCH:"
       echo "    local  sha256: $LOCAL_SHA"
       echo "    remote sha256: $REMOTE_SHA"
-      echo "    URL:           $INSTALLER_URL"
+      echo "    URL:           $INSTALLER_URL (${URL_FLAVOR})"
       if [ "${GITHUB_REF_NAME:-}" = "main" ]; then
         echo "  FAIL: on main branch, mismatch is not allowed"
         ERRORS=$((ERRORS + 1))
@@ -4224,8 +4236,9 @@ __EOF_TMPL_TRACE_CHECK__
 
 read -r -d '' TMPL_UPDATE_CHECK <<'__EOF_TMPL_UPDATE_CHECK__' || true
 #!/bin/bash
-# sage-update-check.sh — 1日1回、Gist から最新バージョンを確認して更新通知する
+# sage-update-check.sh — 1日1回、installer_url から最新バージョンを確認して更新通知する
 # エラーが発生しても開発を止めない（警告のみ）
+# SPEC-0008 / SPEC-0018 (URL flavor 検出 + Releases / Gist 両対応)
 
 SAGE_DIR=".sage"
 VERSION_FILE="$SAGE_DIR/version"
@@ -4238,9 +4251,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
   exit 0
 fi
 
-GIST_URL=$(grep 'installer_url:' "$CONFIG_FILE" 2>/dev/null | awk '{print $2}' | tr -d '"')
+INSTALLER_URL=$(grep 'installer_url:' "$CONFIG_FILE" 2>/dev/null | awk '{print $2}' | tr -d '"')
 
-if [ -z "$GIST_URL" ] || echo "$GIST_URL" | grep -qF "YOUR_USER/GIST_ID"; then
+if [ -z "$INSTALLER_URL" ] || echo "$INSTALLER_URL" | grep -qF "YOUR_USER/GIST_ID"; then
   echo "SAGE: installer_url が未設定です。バージョンチェックをスキップします。"
   exit 0
 fi
@@ -4254,30 +4267,53 @@ if [ -f "$LAST_CHECK_FILE" ]; then
   fi
 fi
 
+LOCAL_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.0.0")
+
+# SPEC-0018: URL flavor 検出
+# - tag-pinned (releases/download/vX.Y.Z/install.sh): immutable URL — skip auto-check (always returns same version)
+# - releases/latest/...: GitHub が常に latest にリダイレクト → fetch + grep で SAGE_VERSION 取得可能
+# - Gist: 従来通り fetch + grep
+URL_FLAVOR=""
+case "$INSTALLER_URL" in
+  *github.com*releases/download/v*)
+    URL_FLAVOR="tag-pinned"
+    echo "SAGE: installer_url is tag-pinned (immutable per version). Auto-update check is skipped."
+    echo "  To get notified about new releases, change installer_url in .sage/config.yaml to:"
+    echo "    https://github.com/heidayo/sage-ai-template/releases/latest/download/install.sh"
+    date +%Y-%m-%d > "$LAST_CHECK_FILE"
+    exit 0
+    ;;
+  *github.com*releases/latest/*) URL_FLAVOR="releases-latest" ;;
+  *gist.githubusercontent.com*)  URL_FLAVOR="gist" ;;
+  *)                             URL_FLAVOR="custom" ;;
+esac
+
 # 最新バージョンを取得（AC-3: curl失敗時は警告のみ）
-REMOTE_VERSION=$(curl -fsSL --connect-timeout 5 "$GIST_URL" 2>/dev/null | grep -m1 'SAGE_VERSION=' | cut -d'"' -f2)
+REMOTE_VERSION=$(curl -fsSL --connect-timeout 5 "$INSTALLER_URL" 2>/dev/null | grep -m1 'SAGE_VERSION=' | cut -d'"' -f2)
 
 if [ -z "$REMOTE_VERSION" ]; then
   echo "SAGE: 最新バージョンの取得に失敗しました（ネットワークエラーまたはURL無効）。スキップします。"
+  echo "  URL flavor: ${URL_FLAVOR}"
   date +%Y-%m-%d > "$LAST_CHECK_FILE"
   exit 0
 fi
-
-LOCAL_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.0.0")
 
 # 今日の日付を記録
 date +%Y-%m-%d > "$LAST_CHECK_FILE"
 
 # バージョン比較（AC-2）
 if [ "$REMOTE_VERSION" = "$LOCAL_VERSION" ]; then
-  echo "SAGE v${LOCAL_VERSION} は最新です。"
+  echo "SAGE v${LOCAL_VERSION} は最新です。(${URL_FLAVOR})"
   exit 0
 fi
 
 # 更新通知（AC-5）
-echo "SAGE 更新があります: v${LOCAL_VERSION} → v${REMOTE_VERSION}"
+echo "SAGE 更新があります: v${LOCAL_VERSION} → v${REMOTE_VERSION} (${URL_FLAVOR})"
 echo "install.sh を確認してから手動で更新してください。"
 echo "推奨: bash install.sh --update"
+if [ "$URL_FLAVOR" = "releases-latest" ] || [ "$URL_FLAVOR" = "gist" ]; then
+  echo "推奨 (verification): bash install.sh --verify-checksum --remote"
+fi
 
 __EOF_TMPL_UPDATE_CHECK__
 
@@ -8809,6 +8845,67 @@ do_verify_checksum() {
   return 0
 }
 
+# SPEC-0018 FR-05: --verify-checksum --remote
+# Compare the local installer's SHA256 against the release-published SHA256SUMS.
+# Network unavailable => warn + return 0 (graceful, EC-04).
+# SHA256SUMS format invalid or mismatch => return 1.
+do_verify_checksum_remote() {
+  local sha_cmd
+  sha_cmd=$(_sha256_cmd)
+  if [ -z "$sha_cmd" ]; then
+    echo "ERROR: sha256sum/shasum not found, cannot verify."
+    return 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "ERROR: curl not found, cannot fetch remote SHA256SUMS."
+    return 1
+  fi
+
+  local installer_path="${0}"
+  if [ ! -f "$installer_path" ]; then
+    echo "ERROR: cannot locate installer at $installer_path (run via 'bash install.sh' from a saved file, not piped via curl)."
+    return 1
+  fi
+
+  local remote_url="https://github.com/heidayo/sage-ai-template/releases/latest/download/SHA256SUMS"
+  local remote_sums
+  if ! remote_sums=$(curl -fsSL --max-time 10 "$remote_url" 2>/dev/null); then
+    echo "WARN: remote SHA256SUMS fetch failed; verification skipped (offline or release unavailable)" >&2
+    echo "      URL: $remote_url" >&2
+    return 0
+  fi
+  if [ -z "$remote_sums" ]; then
+    echo "WARN: remote SHA256SUMS fetched empty content; verification skipped" >&2
+    return 0
+  fi
+
+  # FR-02 + EC-05: validate format. Each line must be '<64-hex-sha256>  <filename>'.
+  if ! printf '%s\n' "$remote_sums" | grep -Eq '^[0-9a-f]{64}  install\.sh$'; then
+    echo "FAIL: SHA256SUMS line format invalid (expected '<sha256>  install.sh')"
+    echo "  fetched content (first 5 lines):"
+    printf '%s\n' "$remote_sums" | head -5 | sed 's/^/    /'
+    return 1
+  fi
+
+  local expected_sha
+  expected_sha=$(printf '%s\n' "$remote_sums" | awk '$2=="install.sh" {print $1; exit}')
+  local actual_sha
+  actual_sha=$($sha_cmd -- "$installer_path" 2>/dev/null | awk '{print $1}')
+
+  if [ "$expected_sha" = "$actual_sha" ]; then
+    echo "OK: install.sh matches release SHA256SUMS"
+    echo "  sha256: $actual_sha"
+    echo "  source: $remote_url"
+    return 0
+  else
+    echo "FAIL: remote SHA256 mismatch"
+    echo "  expected (from release): $expected_sha"
+    echo "  actual   (local file):   $actual_sha"
+    echo "  source:                  $remote_url"
+    return 1
+  fi
+}
+
 write_file_if_new() {
   local path="$1"
   local content="$2"
@@ -9025,12 +9122,24 @@ setup_gitignore() {
 # --- Parse arguments ---
 MODE="install"
 DRY_RUN=false
+# SPEC-0018: --remote modifier for --verify-checksum (pre-scan to allow flag in any order)
+REMOTE_VERIFY=false
+for arg in "$@"; do
+  if [ "$arg" = "--remote" ]; then REMOTE_VERIFY=true; fi
+done
 for arg in "$@"; do
   case "$arg" in
     --update) MODE="update" ;;
     --version) show_version; exit 0 ;;
     --print-provenance) do_print_provenance; exit 0 ;;
-    --verify-checksum) do_verify_checksum; exit $? ;;
+    --verify-checksum)
+      if [ "$REMOTE_VERIFY" = "true" ]; then
+        do_verify_checksum_remote; exit $?
+      else
+        do_verify_checksum; exit $?
+      fi
+      ;;
+    --remote) ;;  # SPEC-0018: pre-scanned above, no-op here
     --dry-run) DRY_RUN=true ;;
     --help)
       cat <<HELP_EOF
@@ -9041,6 +9150,9 @@ Usage: bash install.sh [OPTIONS]
   --version              Show SAGE version
   --dry-run              Preview without writing any files (SPEC-0010)
   --verify-checksum      Verify installed files against .sage/install-state.yaml
+  --verify-checksum --remote
+                         Verify the local installer against the GitHub Release
+                         SHA256SUMS (SPEC-0018). Network unavailable => warn + exit 0.
   --print-provenance     Print installer SHA256, version, and license info
   --help                 Show this help
 
