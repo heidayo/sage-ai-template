@@ -87,8 +87,8 @@ network_access = false
 
 | Key | 根拠 |
 |---|---|
-| `sandbox_mode = "workspace-write"` | Codex 公式既定 ([config-reference](https://developers.openai.com/codex/config-reference)) |
-| `approval_policy = "on-request"` | Codex 公式既定 + SAGE Scope Boundary §9.2 (Codex runtime enforcement は user 責任) |
+| `sandbox_mode = "workspace-write"` | Codex 公式で定義された値 + SAGE 推奨 baseline ([config-reference](https://developers.openai.com/codex/config-reference)、CLI default は明示されていないため独自に baseline を定める) |
+| `approval_policy = "on-request"` | Codex 公式で定義された値 + SAGE 推奨 baseline (high-risk operation の人間 review を保つため、SAGE Scope Boundary §9.2 に基づく) |
 | `[sandbox_workspace_write] network_access = false` | exfiltration vector 制限 ([Lethal Trifecta — Airia](https://airia.com/ai-security-in-2026-prompt-injection-the-lethal-trifecta-and-how-to-defend/)) |
 | `mcp_servers` 明示列挙 | [CVE-2025-61260](https://research.checkpoint.com/2025/openai-codex-cli-command-injection-vulnerability/) — project-local config の自動 MCP 起動を防ぐ |
 
