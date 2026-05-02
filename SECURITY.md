@@ -63,7 +63,7 @@ SAGE が想定する **主要な脅威カテゴリ** は以下です。これら
 | ----------------------------------------------------------------- | -------------- |
 | 悪意ある fork / clone repository が `.claude/settings.json` で `bypassPermissions` に誘導 | [partial] CLAUDE.md / AGENTS.md 冒頭 callout (TASK-0098) で警告 |
 | `install.sh` 自体の改ざん                                         | [partial] `--print-provenance` / `--verify-checksum` (TASK-0097) |
-| `installer_url` (auto-update) 取得先の悪意ある書き換え            | [partial] local install-state.yaml の sha256 drift 検出は `--verify-checksum` で実装済 (TASK-0097)。remote installer_url の pinning / signing / trust flow は未実装 (SPEC-0011 で扱う) |
+| `installer_url` (auto-update) 取得先の悪意ある書き換え            | [partial] local install-state.yaml の sha256 drift 検出は `--verify-checksum` で実装済 (TASK-0097)。**remote installer_url の pinning / signing / SLSA provenance / GitHub Releases primary distribution は未実装** — 現状 Gist URL 中心のため本番 production 利用時は user 側で release artifact + SHA256SUMS + signing tool (cosign 等) を別途構築すること。将来 SPEC で扱う候補 (具体 SPEC-ID 未確定、Phase 6+ で別途起票予定) |
 | Skill / hook ファイル経由の任意コード実行                         | [partial → improved (Phase 2B)] secret-read-multi-layer.sh + lethal-trifecta-detect.sh + security-filter.sh で部分緩和。完全防御は引き続き Claude Code sandbox 必要 ([templates/settings/sandbox.json](templates/settings/sandbox.json) 雛形参照) |
 
 参考: [Trend Micro Claude Code Source Leak Campaign](https://www.trendmicro.com/en_us/research/26/d/weaponizing-trust-claude-code-lures-and-github-release-payloads.html), [OWASP Agentic Skills Top 10](https://owasp.org/www-project-agentic-skills-top-10/) AST01-AST10
@@ -135,7 +135,7 @@ SAGE が想定する **主要な脅威カテゴリ** は以下です。これら
 
 SAGE は単独 maintainer プロジェクトであり、以下を **正直に開示** します:
 
-1. **`install.sh` は約 213KB / 5779 行の自己完結スクリプト** であり、`.git/hooks/`, `.github/workflows/`, `.claude/settings.json` 等を一括書き込みします。`bash install.sh --dry-run` で内容を確認してから実行してください。分割は後続 SPEC で扱います。
+1. **`install.sh` は約 364KB / 9429 行の自己完結スクリプト** (生成物、SPEC-0014 で source は `scripts/generator/` 7 module に分割済) であり、`.git/hooks/`, `.github/workflows/`, `.claude/settings.json` 等を一括書き込みします。`bash install.sh --dry-run` で内容を確認してから実行してください。配布は単一 file 維持 (`curl | bash` UX 互換)、メンテ性は modular source で改善済 ([SPEC-0014](specs/SPEC-0014-installer-modularize.md))。
 2. **`AGENTS.md` / `CLAUDE.md` / `.claude/rules/` を導入することは AI agent の context に外部記述を注入する行為** です。clone した repository の内容を fork 元のレビューなしで信頼してはいけません ([CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) 冒頭 callout 参照)。
 3. **Hook (`templates/hooks/`) は pattern matching であり sandbox の代替ではありません**。`bash -c "$VAR"`, base64 decode, `find -exec rm`, `git clean -fdx`, redirection redirect, Unicode obfuscation 等で回避され得ます。
 4. **AI 評価 (sage-evaluate / sage-review skill) は補助** であり、人間レビュー / deterministic scanner の代替ではありません。

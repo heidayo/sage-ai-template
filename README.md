@@ -145,7 +145,7 @@ graph TD
 
 ## 導入方法
 
-> **⚠️ Trust First**: SAGE installer は約 213KB の自己完結 shell script で、`.git/hooks` / `.github/workflows` / `.claude/settings.json` 等を一括書き換えます。**未検証で実行しないでください**。Phase 1 (SPEC-0010) で provenance 表示と dry-run プレビューを実装済みです — 下記の推奨手順 (Step 1A) を使ってください。詳細は [SECURITY.md](SECURITY.md) を参照。
+> **⚠️ Trust First**: SAGE installer は約 364KB の large generated shell script (source は SPEC-0014 で `scripts/generator/` 7 module に分割済、配布は単一 file 維持) で、`.git/hooks` / `.github/workflows` / `.claude/settings.json` 等を一括書き換えます。**未検証で実行しないでください**。Phase 1 (SPEC-0010) で provenance 表示と dry-run プレビューを実装済みです — 下記の推奨手順 (Step 1A) を使ってください。詳細は [SECURITY.md](SECURITY.md) を参照。
 
 ### Step 1A: 推奨手順 (download → verify → preview → review → execute)
 
