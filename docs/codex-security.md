@@ -180,7 +180,8 @@ network_access = false
 ### TL;DR
 - `allow-users` を信頼できる user / org member に厳しく制限
 - `${{ secrets.OPENAI_API_KEY }}` は **専用 secret** として、scope を最小化
-- Codex job は workflow の **最後** に配置 (副作用拡大を防ぐ)
+- Codex action **step** は Codex **job** の最後の step に配置 (公式表現: "last step in a job"。後続 step の host state 汚染防止)
+- PR comment 投稿のような固定処理は **別 job** への output 受け渡しで対応 (公式 example の `post_feedback` パターン)
 - `drop-sudo` でルート権限を落とす
 - branch name / PR title はすべて `env` 経由で渡し、shell に展開しない
 
@@ -237,8 +238,12 @@ jobs:
             Focus on: security, correctness, primary-source citations.
             Be concise. Prioritize findings as P1/P2/P3.
 
-  # Job 2: Codex の出力を PR コメントとして投稿。Codex 自身は触らないので
-  # write 権限を持たせても prompt injection から isolate されている。
+  # Job 2: Codex の出力を PR コメントとして投稿。
+  # ① write token を持つ runner で Codex を実行しない (token exfil の compute 経路なし)
+  # ② 固定 script で comment 投稿のみ → shell/code execution 経路なし
+  # ③ ただし comment body は Codex の final_message そのまま = untrusted model
+  #    output として扱う (HTML/script は GitHub 側で sanitize されるが、
+  #    phishing link / 偽情報 / 人間 reader への偽指示などは内容として残り得る)
   post_feedback:
     runs-on: ubuntu-latest
     needs: codex
@@ -266,7 +271,7 @@ jobs:
 
 - `allow-users: '*'` → **絶対禁止**。任意の external PR submitter が API を消費 + 任意 prompt 実行
 - `${{ github.head_ref }}` を直接 shell command に展開 (`run: git fetch origin ${{ github.head_ref }}`) → **禁止**。env 経由 + double quote 必須
-- Codex job を deploy job より **前** に配置 → 禁止 (Codex が deploy 環境を汚染し得る)
+- Codex action step を **同一 job 内** で deploy/build/privileged step より前に配置 → 禁止 (Codex が後続 step の host state を汚染し得る、[公式 security docs](https://github.com/openai/codex-action/blob/main/docs/security.md) 推奨)。**別 job** への output 受け渡し (例: post_feedback) は OK
 - `OPENAI_API_KEY` を他の workflow と共有 → 禁止 (専用 secret + 最小 quota)
 
 ---
