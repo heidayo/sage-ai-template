@@ -13,7 +13,6 @@ FAIL=0
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DOC="${REPO_ROOT}/docs/claude-collaboration-brief.md"
-CODEX_DOC="${REPO_ROOT}/docs/codex-delegation-packet.md"
 CLAUDE_MD="${REPO_ROOT}/CLAUDE.md"
 AGENTS_MD="${REPO_ROOT}/AGENTS.md"
 CLAUDE_SNIPPET="${REPO_ROOT}/templates/claude-md-snippet.md"
@@ -82,16 +81,55 @@ else
   echo "  not ok claude-md-snippet missing collaboration brief guidance" >&2
 fi
 
-# --- Scenario 5: CLAUDE.md ↔ AGENTS.md doctrine semantic alignment ---
-if grep -qF "may diverge" "$CLAUDE_MD" \
-   && grep -qF "may diverge" "$AGENTS_MD" \
-   && grep -qF "SPEC-0023" "$CLAUDE_MD" \
-   && grep -qF "SPEC-0023" "$AGENTS_MD"; then
+# --- Scenario 5: CLAUDE.md ↔ AGENTS.md doctrine semantic alignment + CLI-specific markers (TASK-0159) ---
+# Codex review M4 fix: not just static doctrine string check, but symmetric verification
+# of paired CLI-specific markers across 4 instruction files.
+AGENTS_SNIPPET="${REPO_ROOT}/templates/agents-md-snippet.md"
+doctrine_aligned=true
+markers_aligned=true
+
+# Doctrine文言 (両 doc 必須)
+for marker in "may diverge" "SPEC-0023"; do
+  if ! grep -qF "$marker" "$CLAUDE_MD" || ! grep -qF "$marker" "$AGENTS_MD"; then
+    doctrine_aligned=false
+    break
+  fi
+done
+
+# Paired CLI-specific markers (Codex side ↔ Claude side、4 files で対称的存在)
+# 各 pair: (Claude side marker / file1, Codex side marker / file2)
+declare -a PAIRED_MARKERS=(
+  "Claude Code は協働型|$CLAUDE_MD;Codex は委任型|$AGENTS_MD"
+  "docs/claude-collaboration-brief.md|$CLAUDE_MD;docs/codex-delegation-packet.md|$AGENTS_MD"
+  "Claude collaboration brief|$CLAUDE_SNIPPET;Codex delegation packet|$AGENTS_SNIPPET"
+  "Claude-only boundary|$CLAUDE_SNIPPET;Codex-only boundary|$AGENTS_SNIPPET"
+)
+missing_markers=()
+for pair in "${PAIRED_MARKERS[@]}"; do
+  IFS=';' read -r left right <<< "$pair"
+  IFS='|' read -r left_pat left_file <<< "$left"
+  IFS='|' read -r right_pat right_file <<< "$right"
+  if ! grep -qF "$left_pat" "$left_file" 2>/dev/null; then
+    markers_aligned=false
+    missing_markers+=("$left_pat in $(basename "$left_file")")
+  fi
+  if ! grep -qF "$right_pat" "$right_file" 2>/dev/null; then
+    markers_aligned=false
+    missing_markers+=("$right_pat in $(basename "$right_file")")
+  fi
+done
+
+if [ "$doctrine_aligned" = "true" ] && [ "$markers_aligned" = "true" ]; then
   PASS=$((PASS + 1))
-  echo "  ok   CLAUDE.md / AGENTS.md doctrine aligned (both reference may diverge + SPEC-0023)"
+  echo "  ok   doctrine aligned + 4 paired CLI-specific markers symmetric across CLAUDE/AGENTS/snippets"
 else
   FAIL=$((FAIL + 1))
-  echo "  not ok CLAUDE.md / AGENTS.md doctrine misaligned" >&2
+  if [ "$doctrine_aligned" = "false" ]; then
+    echo "  not ok CLAUDE.md / AGENTS.md doctrine misaligned (may diverge + SPEC-0023)" >&2
+  fi
+  if [ "$markers_aligned" = "false" ]; then
+    echo "  not ok paired CLI-specific markers asymmetric: ${missing_markers[*]}" >&2
+  fi
 fi
 
 # --- Scenario 6: governance.md §10 AI Agent Doc Pairing Doctrine ---

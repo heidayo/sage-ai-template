@@ -44,6 +44,8 @@
 - `scripts/generator/07-installer-main.sh` に `docs/claude-collaboration-brief.md` write/update + managed_files 追加
 - `templates/hooks/tests/test-claude-collaboration-pairing.sh` 新規 (paired update 検証)
 - `install.sh` 再生成、`SHA256SUMS` 同期、`.sage-version` 1.6.0→1.7.0
+- **(Codex review M3 fix)**: `bash install.sh --update` 経由の AGENTS.md / CLAUDE.md SAGE-managed section (auto-injected snippet block, 通常 L300+) propagation を本 SPEC scope に含む。これは template snippet を編集すると install --update で実体ファイルへ自動反映される設計上の挙動であり、TASK-0153 の File Scope 「変更: AGENTS.md」は §2 doctrine sync + L300+ snippet propagation の両方を含む
+- **(Codex review M1/M2/M4 paired-fix)**: `templates/hooks/tests/test-codex-delegation-packet.sh` の branch detection 強化 (TASK-0156/0158)、SPEC-0022 territory への paired-update 拡張も本 SPEC scope に含む
 
 ## スコープ外（明示的に除外）
 
@@ -269,4 +271,5 @@ Step 3 [昇格]
 ## 関連ID
 
 - PLAN-ID: PLAN-0023 (本 SPEC と同時作成)
-- TASK-ID: TASK-0151 (SPEC + PLAN + 5 TASK draft) / TASK-0152 (claude-collaboration-brief.md 新規) / TASK-0153 (CLAUDE.md + claude-md-snippet.md update + AGENTS.md doctrine sync) / TASK-0154 (governance.md §10 + generator + installer regen + version bump) / TASK-0155 (test-claude-collaboration-pairing.sh + final verification)
+- TASK-ID: TASK-0151 (SPEC + PLAN + 5 TASK draft) / TASK-0152 (claude-collaboration-brief.md 新規) / TASK-0153 (CLAUDE.md + claude-md-snippet.md update + AGENTS.md doctrine sync) / TASK-0154 (governance.md §10 + generator + installer regen + version bump) / TASK-0155 (test-claude-collaboration-pairing.sh + RUN-0008 + final verification) / TASK-0156 (SPEC-0022 test branch-aware fix) / TASK-0157 (Codex review B1: RUN-ID collision fix RUN-0007 restore + RUN-0008 NEW) / TASK-0158 (Codex review M1: detached HEAD fallback) / TASK-0159 (Codex review M2/M3/M4: SPEC scope expansion + governance §10.5 wording + Scenario 5 強化) / TASK-0160 (Codex review m1/m2/m3/n1: status update + qualifications + final regen)
+- RUN-ID: RUN-0008 (Claude side、TASK-0155+0156 implementation log)

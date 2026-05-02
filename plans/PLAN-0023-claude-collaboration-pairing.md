@@ -72,9 +72,14 @@ template は markdown blockquote (Codex packet と同形式) で提供するが�
 | TASK-0152 | `docs/claude-collaboration-brief.md` 新規作成 (FR-01 の 7 セクション) | 75m | TASK-0151 | Yes (TASK-0153 と並列可) |
 | TASK-0153 | `CLAUDE.md` §2 doctrine 更新 + §2.1 parallel guidance + `AGENTS.md` §2 doctrine sync + `templates/claude-md-snippet.md` parallel | 45m | TASK-0151 | Yes (TASK-0152 と並列可) |
 | TASK-0154 | `sage/governance.md` §10 新設 + `scripts/generator/03-rules.sh` embed + `scripts/generator/07-installer-main.sh` write/update/managed + install.sh 再生成 + .sage-version 1.6.0→1.7.0 + SHA256SUMS sync | 75m | TASK-0152, TASK-0153 | No |
-| TASK-0155 | `templates/hooks/tests/test-claude-collaboration-pairing.sh` 7 scenarios + final verification (run-tests / sage-doctor / sage-doc-drift / sage-validate) | 60m | TASK-0152, TASK-0153, TASK-0154 | No |
+| TASK-0155 | `templates/hooks/tests/test-claude-collaboration-pairing.sh` 9 scenarios + RUN-0008 + final verification (run-tests / sage-doctor / sage-doc-drift / sage-validate) | 60m | TASK-0152, TASK-0153, TASK-0154 | No |
+| TASK-0156 | SPEC-0022 test (test-codex-delegation-packet.sh) branch-aware 化 + install --update propagation 取り込み | 30m | TASK-0155 | No |
+| TASK-0157 | (Codex review B1) RUN-ID collision fix: RUN-0007 restore + RUN-0008 NEW + TASK-0155 参照更新 | 15m | TASK-0156 | No |
+| TASK-0158 | (Codex review M1) test-codex-delegation-packet.sh detached HEAD fallback (`GITHUB_HEAD_REF` / `GITHUB_REF_NAME` 優先) | 20m | TASK-0157 | No |
+| TASK-0159 | (Codex review M2/M3/M4) SPEC/PLAN scope expansion + governance §10.5 wording + test scenario 5 強化 | 45m | TASK-0158 | No |
+| TASK-0160 | (Codex review m1/m2/m3/n1) status 更新 + 72% claim qualify + count drift 修正 + AGENTS.md §2 文言整合 + install.sh 再生成 | 45m | TASK-0159 | No |
 
-合計: 315 min (5.25h、TASK-0152/0153 並列で wall-clock ~240min)
+合計: 315 min (initial 5 TASK) + 155 min (Codex review fix 5 TASK) = 470 min (7.8h、wall-clock 240min + 130min = 370min)
 
 ## 依存グラフ
 
@@ -90,10 +95,28 @@ TASK-0152 (brief doc, 75m)   TASK-0153 (CLAUDE/AGENTS/snippet, 45m)
         TASK-0154 (governance + installer + version, 75m)
                    │
                    ▼
-        TASK-0155 (test + verification, 60m)
+        TASK-0155 (test + RUN-0008 + verification, 60m)
+                   │
+                   ▼
+        TASK-0156 (SPEC-0022 test branch-aware fix, 30m)
+                   │
+                   ▼
+   ── Codex review feedback received (Blocker B1 + Major M1-M4 + Minor + Nit) ──
+                   │
+                   ▼
+        TASK-0157 (RUN-ID collision fix, 15m)
+                   │
+                   ▼
+        TASK-0158 (detached HEAD fallback, 20m)
+                   │
+                   ▼
+        TASK-0159 (SPEC/PLAN scope + governance §10.5 + Scenario 5, 45m)
+                   │
+                   ▼
+        TASK-0160 (status update + qualifications + final regen, 45m)
 ```
 
-TASK-0152 と TASK-0153 は依存なし (異なる File Scope) で並列可。
+TASK-0152 と TASK-0153 は依存なし (異なる File Scope) で並列可。TASK-0156..0160 は Codex review feedback を受けた sequential fix。
 
 ## 検証方法
 
