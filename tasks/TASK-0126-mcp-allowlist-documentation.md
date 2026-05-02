@@ -47,7 +47,7 @@ SPEC-0015 で導入された MCP allowlist audit (supply-chain pinned) に関す
 
 6. `install.sh` 再生成:
    - `bash scripts/generate-installer.sh > install.sh` を実行
-   - 新 templates (`templates/sage/mcp-allowlist-template.json`) と新 hook (`templates/hooks/mcp-allowlist-audit.sh`) と performance helper (`templates/hooks/tests/measure-hook-time.sh`) と detection-only behavior test (`templates/hooks/tests/test-detection-only-behavior.sh`) と doctor 共通 script (`scripts/sage-mcp-allowlist-audit.sh`) が embed されているか確認
+   - 新 templates (`templates/sage/mcp-allowlist-template.json`) と新 hook (`templates/hooks/mcp-allowlist-audit.sh`) と performance helper (`templates/hooks/tests/measure-hook-time.py`、Python ベース) と detection-only behavior test (`templates/hooks/tests/test-detection-only-behavior.sh`) と doctor 共通 script (`scripts/sage-mcp-allowlist-audit.sh`) が embed されているか確認
    - `.claude/settings.json` template の `hooks.SessionStart` に `mcp-allowlist-audit.sh` が standard profile で追加されているか確認
 
 7. (もし `scripts/generate-installer.sh` が新 ファイルの embed をサポートしていない場合) generator 拡張:

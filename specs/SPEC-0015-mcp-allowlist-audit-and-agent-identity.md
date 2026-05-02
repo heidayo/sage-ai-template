@@ -49,8 +49,8 @@ Phase 1-3 で以下を整備:
 - **MCP allowlist audit hook**: `templates/hooks/mcp-allowlist-audit.sh` 新規 — SessionStart で以下を比較:
   - **デフォルト**: `.mcp.json` (cwd 直下、Claude Code) + **repo-local** `.codex/config.toml` (cwd/.codex/、Codex CLI、存在時のみ)
   - **opt-in**: `.sage/config.yaml` で `mcp_audit.include_user_global_codex: true` を明示した時のみ user-global `~/.codex/config.toml` も対象 (Codex review P2 対応)
-- **doctor 拡張**: `scripts/sage-doctor.sh` に MCP allowlist check 新ステップ追加 (registry 存在 / drift / 期限切れ承認 / sha256 mismatch の 4 観点)
-- **Performance test helper**: `templates/hooks/tests/measure-hook-time.sh` 新規 — 5 回測定中央値で AC-12 検証 (Codex review P2 対応)
+- **doctor 拡張**: `scripts/sage-doctor.sh` に MCP allowlist check 新ステップ追加 (registry 存在 / drift / 期限切れ承認 / artifact integrity mismatch の 4 観点。integrity は artifact_type ごとに `npm_integrity` / `command_path_sha256` / `tls_pin_sha256` を検証)
+- **Performance test helper**: `templates/hooks/tests/measure-hook-time.py` 新規 — 5 回測定中央値で AC-12 検証 (Codex review P2 対応)
 - **Detection-only behavior test**: TASK-0124 で `kill / pkill / killall` 等の実コマンド禁止検証 (grep ではなく挙動 test、Codex review P2 対応)
 - **doctrine documentation**: SECURITY.md / sage/governance.md §9.1 / AGENTS.md / CLAUDE.md / docs/codex-security.md に cross-reference 追加 (R7 厳守、各最大 +3 行)
 
@@ -100,15 +100,34 @@ Phase 1-3 で以下を整備:
         "artifact_type": "remote_http",
         "url": "https://mcp.example.com/v1",
         "url_origin_pin": "https://mcp.example.com",
+        "auth_mode": "bearer_env",
         "bearer_token_env_var": "COMPANY_MCP_TOKEN",
-        "http_headers": {"X-Client": "sage"},
+        "http_headers": {"User-Agent": "sage-mcp/1.0", "X-Client-Name": "sage"},
         "env_http_headers": {"X-Tenant": "TENANT_ID_ENV"},
         "tls_pin_sha256": "",
         "enabled_tools": ["search"],
         "approved_by": "SPEC-0015 / PR #99",
         "approved_at": "2026-05-02",
         "expires_at": "2027-05-02",
-        "notes": "remote search MCP (HTTP)"
+        "notes": "remote search MCP (HTTP, bearer auth)"
+      },
+      {
+        "name": "external-oauth-mcp",
+        "transport": "http",
+        "artifact_type": "remote_http",
+        "url": "https://oauth-mcp.example.com/v1",
+        "url_origin_pin": "https://oauth-mcp.example.com",
+        "auth_mode": "oauth",
+        "oauth_provider": "google",
+        "oauth_scopes": ["openid", "profile"],
+        "oauth_callback_url": "http://localhost:8765/callback",
+        "http_headers": {"User-Agent": "sage-mcp/1.0"},
+        "tls_pin_sha256": "",
+        "enabled_tools": ["query"],
+        "approved_by": "SPEC-0015 / PR #99",
+        "approved_at": "2026-05-02",
+        "expires_at": "2027-05-02",
+        "notes": "remote MCP (HTTP, OAuth via google)"
       }
     ],
     "policy": {
@@ -117,7 +136,8 @@ Phase 1-3 で以下を整備:
       "require_publisher": true,
       "forbid_unknown_transport": true,
       "http_require_url_origin_pin": true,
-      "http_require_bearer_token_env": true
+      "http_require_auth": true,
+      "http_static_header_secret_check": true
     },
     "bypass": {
       "enabled": false,
@@ -130,8 +150,12 @@ Phase 1-3 で以下を整備:
   **transport: "stdio" 必須 field**: `name` / `transport` / `artifact_type` / `command` / `args` / `version_pin` / `publisher` / `source_registry` / `approved_by` / `approved_at` / `expires_at`
   **transport: "stdio" 推奨 field**: `npm_integrity` (npm package 用、`policy.require_npm_integrity: true` で必須化可能)、`enabled_tools` / `disabled_tools`
 
-  **transport: "http" 必須 field**: `name` / `transport` / `artifact_type` / `url` / `url_origin_pin` / `bearer_token_env_var` / `approved_by` / `approved_at` / `expires_at`
-  **transport: "http" 推奨 field**: `http_headers` / `env_http_headers` / `tls_pin_sha256` / `enabled_tools` / `disabled_tools`
+  **transport: "http" 必須 field** (Codex 3rd review P2 #1 反映で auth_mode 導入): `name` / `transport` / `artifact_type` / `url` / `url_origin_pin` / `auth_mode` / `approved_by` / `approved_at` / `expires_at`
+  **auth_mode** の 3 種 (Codex 公式 MCP docs 確認、`http_require_auth: true` で `none` 禁止可能):
+  - `bearer_env`: `bearer_token_env_var` 必須 (env 変数名のみ、値は registry に書かない)
+  - `oauth`: `oauth_provider` (例: `google` / `github` / `okta` 等) + `oauth_scopes` (list of string) + `oauth_callback_url` 必須
+  - `none`: anonymous (`policy.http_require_auth: true` で禁止可能)
+  **transport: "http" 推奨 field**: `http_headers` (**non-sensitive headers のみ**、機密値は env_http_headers へ) / `env_http_headers` / `tls_pin_sha256` / `enabled_tools` / `disabled_tools`
 
   **artifact_type の 3 種** (Codex review P2-1 反映、検証対象を type ごとに明確化):
   - `npm_package`: `version_pin` (semver 完全一致) + `npm_integrity` (`package-lock.json` の `integrity` field 形式 `sha512-...`、registry provenance 由来)
@@ -140,13 +164,14 @@ Phase 1-3 で以下を整備:
 
   **optional field** (両 transport 共通): `notes`, `startup_timeout_sec`, `tool_timeout_sec`, `enabled`, `required`
 
-- **[FR-02] policy enforcement**: `policy` セクションで organization 方針を declarative に表現 (transport-aware):
+- **[FR-02] policy enforcement**: `policy` セクションで organization 方針を declarative に表現 (transport-aware + auth-aware):
   - `forbid_latest_tag: true` (default、stdio 用) — args に `@latest` を含む server が registry にあれば WARN、`.mcp.json` に `@latest` が出現したら drift と判定
   - `require_npm_integrity: false` (default、stdio + npm_package 用) — true にすると `npm_integrity` 不在の npm_package entry を WARN
   - `require_publisher: true` (default、stdio 用) — `publisher` field 不在を FAIL (registry validity 違反)
   - `forbid_unknown_transport: true` (default) — `transport` field が `stdio` / `http` 以外なら FAIL
   - `http_require_url_origin_pin: true` (default、http 用) — HTTP MCP entry に `url_origin_pin` 不在なら FAIL
-  - `http_require_bearer_token_env: true` (default、http 用) — HTTP MCP entry に `bearer_token_env_var` 不在なら FAIL (auth 強制、anonymous HTTP MCP を防ぐ)
+  - `http_require_auth: true` (default、Codex 3rd review P2 #1 反映で `http_require_bearer_token_env` から名称変更) — HTTP MCP entry の `auth_mode` が `none` であれば WARN/FAIL (anonymous HTTP MCP を防ぐ、auth method の選択は OAuth / Bearer どちらでも可)
+  - `http_static_header_secret_check: true` (default、Codex 3rd review P2 #2 反映) — `http_headers` (静的) に **sensitive header 名** (`Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key`, `X-Auth-Token`, `X-Token`, `Bearer`) が含まれていれば FAIL。機密値は `env_http_headers` (env 名参照) または `bearer_token_env_var` で扱う
 
 - **[FR-03] MCP allowlist audit hook (`templates/hooks/mcp-allowlist-audit.sh`)**:
   - SessionStart hook として動作 (`.claude/settings.json` の `hooks.SessionStart`)
@@ -155,9 +180,9 @@ Phase 1-3 で以下を整備:
     - `.mcp.json` (cwd 直下、Claude Code MCP)
     - **repo-local** `.codex/config.toml` (`./.codex/config.toml`、存在時のみ)
   - **opt-in 比較対象**: `.sage/config.yaml` で `mcp_audit.include_user_global_codex: true` を明示した場合のみ `~/.codex/config.toml` も追加 (default は opt-out で複数 repo 混乱を回避)
-  - drift 検出ロジック (transport-aware): 実 config の各 server entry について
+  - drift 検出ロジック (transport-aware + auth-aware): 実 config の各 server entry について
     - **stdio**: registry に同 `name` + `command` + `args` (locked version) + (`npm_integrity` if specified) + `publisher` の entry があるか確認
-    - **http**: registry に同 `name` + `transport: "http"` + `url_origin_pin` (origin 一致) + `bearer_token_env_var` の entry があるか確認
+    - **http**: registry に同 `name` + `transport: "http"` + `url_origin_pin` (origin 一致) + `auth_mode` の entry があるか確認 (auth_mode 値は registry 宣言と実 config の挙動を厳密一致させる)
     - **transport mismatch**: 実 config が STDIO server でも registry が `transport: "http"` (またはその逆) の場合 drift1 として判定
   - 検出 case:
     - **drift 1: 実 config に registry にない server (transport mismatch 含む)**: warn / block (重大、特に HTTP MCP 出現に対し registry に entry がない場合は supply-chain risk)
@@ -168,7 +193,8 @@ Phase 1-3 で以下を整備:
       - npm_package: `npm_integrity` mismatch (`package-lock.json` の resolved entry と異なる)
       - local_binary: `command_path_sha256` mismatch (binary が差し替わった signal)
       - remote_http: `tls_pin_sha256` mismatch (server cert 変更、MITM signal)
-    - **drift 6: HTTP MCP の auth field 不在** (`policy.http_require_bearer_token_env: true` 時): warn (anonymous HTTP MCP は禁止)
+    - **drift 6: HTTP MCP の anonymous auth** (Codex 3rd review P2 #1 反映、`policy.http_require_auth: true` + `auth_mode: "none"` または `auth_mode` 不在時): warn (auth_mode は bearer_env / oauth どちらでも可だが none は禁止)
+    - **drift 7: HTTP MCP の sensitive header in static `http_headers`** (Codex 3rd review P2 #2 反映、`policy.http_static_header_secret_check: true` 時): FAIL (registry parse 段階で reject、`http_headers` に `Authorization` / `Cookie` / `Set-Cookie` / `X-Api-Key` 等の機密 header 名 が含まれていれば即時拒否)
     - **expired approval**: warn (`expires_at` < 今日)
   - registry 不在: warn 1 回 + skip
   - **audit log 出力**: `.sage/audit/mcp-allowlist-YYYYMMDD.log` に append。args は **redact** (raw command line 全体ではなく `<command> <package-name>@<version>` 形式に正規化、API key 等が args に紛れ込んでも log に出ない、Codex review P2 対応)
@@ -178,7 +204,7 @@ Phase 1-3 で以下を整備:
   - registry schema validity (Python stdlib `json.loads()` で parse、不正 → FAIL)
   - drift check (audit hook と同 logic を function source で reuse)
   - expired approvals 集計 (期限切れ件数 → WARN)
-  - **sha256 verification** (optional、`policy.require_sha256: true` 時のみ実行)
+  - **artifact integrity verification** (artifact_type ごと、`policy.require_npm_integrity: true` 時のみ npm_integrity 計算実行、`local_binary` の `command_path_sha256` と `remote_http` の `tls_pin_sha256` は registry 値存在時のみ照合)
 
 - **[FR-05] Performance test helper**: `templates/hooks/tests/measure-hook-time.py` 新規 (Codex review P2-3 反映で macOS / Linux 完全互換のため Python ベースに変更、shell の `/usr/bin/time -f` は GNU time 限定で macOS 不対応):
   - Python 3 stdlib のみ (`time.perf_counter()` + `subprocess` + `statistics`)
@@ -196,17 +222,17 @@ Phase 1-3 で以下を整備:
 
 ### 非機能要件
 
-- **[NFR-01] パフォーマンス**: audit hook の **5 回測定中央値 < 200ms** (`templates/hooks/tests/measure-hook-time.sh` で検証、Codex review P2 反映)
+- **[NFR-01] パフォーマンス**: audit hook の **5 回測定中央値 < 200ms** (`templates/hooks/tests/measure-hook-time.py` で検証、Codex review P2 反映)
 - **[NFR-02] idempotency**: 同条件で複数回実行しても同 audit log 内容 (timestamp 除く)
 - **[NFR-03] graceful degradation**: registry 不在 / Codex CLI 未 install / `.codex/config.toml` 不在 / Python 不在 等で hook が fail しないこと
 - **[NFR-04] auditability**: 全 drift event を機械可読形式 (JSON-lines) で `.sage/audit/` に保存、args は redact 済
 - **[NFR-05] portability**: macOS / Linux 両対応 (BSD awk / GNU awk 差異吸収、bash 4+ 想定)
 - **[NFR-06] test scenario coverage**: shell script のため code coverage 概念は不適。代わりに以下のシナリオ網羅性を要求:
   - **stdio drift**: drift1 / drift2 / drift3 / drift4 / drift5 = 5 case
-  - **http drift** (Codex review P1 反映): drift1 http / drift2 http / drift6 (auth 不在) / transport mismatch = 4 case
+  - **http drift** (Codex 1st-3rd review 反映): drift1 http / drift2 http / drift6 anonymous (none) / drift6 OAuth approve / drift6 Bearer approve / drift7 sensitive header / transport mismatch = 7 case
   - error case 5 個 (EC-01..EC-05) 全カバー
   - profile 3 状態 (minimal / standard / strict) 全カバー
-  - 合計 17 シナリオを test 必須、AC-03 / AC-07 で検証
+  - 合計 20 シナリオを test 必須、AC-03 / AC-07 で検証
 - **[NFR-07] parser robustness**: registry を **JSON** に統一し Python stdlib `json` で parse (PyYAML 依存回避、Codex review P2 反映)。awk-based shape comparison は脆弱なため不採用
 - **[NFR-08] performance helper portability**: `measure-hook-time` helper は **Python stdlib (`time.perf_counter()` + `subprocess` + `statistics`) で実装**。GNU time `-f` option は macOS 不対応のため不採用 (Codex review P2-3 反映、NFR-05 macOS / Linux 両対応充足)
 - **[NFR-09] detection-only behavior verification method**: hook の kill 系コマンド呼び出し検出は **fake wrapper 方式の behavior test** で行う。grep ベース (`grep -nE "kill|pkill|killall"`) は test 自身の grep プロセスや SPEC コメント記述で false positive、`ps aux` ベースも自身の grep が混入するため不採用 (Codex review P2-2 反映)
@@ -219,7 +245,12 @@ Phase 1-3 で以下を整備:
   - hook 実行後、log file が空であることを assertion
   - 詳細は TASK-0124 で `templates/hooks/tests/test-detection-only-behavior.sh` として実装
   - strict profile の `exit 1` は **session 開始の block** であり process kill ではない (terminology 精緻化、Codex review continued doctrine 反映)
-- **[SEC-02] positive list (allowlist) + supply-chain pin 原則**: registry に明示列挙された server **のみ + 明示 version pin + (推奨) sha256** が承認済。`@latest` は default で禁止 (`policy.forbid_latest_tag: true`)、明示 risk acceptance 時のみ false 化可能
+- **[SEC-02] positive list (allowlist) + supply-chain pin 原則**: registry に明示列挙された server **のみ + 明示 version pin + (推奨) artifact integrity** が承認済。`@latest` は default で禁止 (`policy.forbid_latest_tag: true`)、明示 risk acceptance 時のみ false 化可能。HTTP MCP は default で auth 必須 (`policy.http_require_auth: true`、auth_mode は bearer_env / oauth / none、none は禁止可能)
+- **[SEC-07] tracked registry の secret hygiene** (Codex 3rd review P2 #2 反映): `.sage/mcp-allowlist.json` は repo 内の declarative registry のため、機密値を直接書かない:
+  - `http_headers` (静的) には **non-sensitive header のみ** 許可 (例: `User-Agent`, `X-Client-Name`, `Accept`)
+  - 機密 header 名 (`Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key`, `X-Auth-Token`, `X-Token`, `Bearer`) は `http_headers` に出現禁止 (出現すれば drift7 で FAIL)
+  - 機密値は **`bearer_token_env_var`** (env name only、env 値は実行時に解決) または **`env_http_headers`** (各 header に env name 参照) で扱う
+  - `policy.http_static_header_secret_check: true` (default) で registry parse 段階で reject
 - **[SEC-03] audit log の改ざん検出**: `.sage/audit/*.log` への追記は append-only 推奨。args は redact (Codex review P2 反映)。技術的な append-only enforcement (immutable file flag 等) は範囲外
 - **[SEC-04] bypass の auditability**: registry の `bypass.enabled: true` は warn を抑止できるが、その事実自体が doctor の出力に記録される (silent bypass 禁止)
 - **[SEC-05] supply chain 連鎖の検知**: 既存 protect-sage-files の content-check (mcp_servers 書き込み block) と本 SPEC の registry-based audit + sha256 verification は **直交補完**。前者は書き込み時の即時防御、後者は drift / 後発編集 / supply-chain compromise の検出
@@ -236,8 +267,8 @@ Phase 1-3 で以下を整備:
   | 昇格 | 条件 | 検証コマンド |
   |---|---|---|
   | minimal → standard | minimal で 7 日運用 + sage-doctor で 0 FAIL 維持 | `bash scripts/sage-doctor.sh && find .sage/audit -name 'mcp-allowlist-*.log' -mtime -7 \| xargs grep -c WARN` |
-  | standard → strict | standard で 14 日運用 + drift1 / drift5 (sha256 mismatch) 各 0 件 | `awk '/drift1\|drift5/' .sage/audit/mcp-allowlist-*.log \| wc -l` で 0 |
-  | strict 維持 | sha256 mismatch 1 件で即 incident response 起動 | `bash scripts/sage-incident-trigger.sh mcp-supply-chain` (本 SPEC 範囲外、SECURITY.md IR 手順) |
+  | standard → strict | standard で 14 日運用 + drift1 / drift5 (artifact integrity mismatch、artifact_type ごと) 各 0 件 | `awk '/drift1\|drift5/' .sage/audit/mcp-allowlist-*.log \| wc -l` で 0 |
+  | strict 維持 | artifact integrity mismatch 1 件で即 incident response 起動 | `bash scripts/sage-incident-trigger.sh mcp-supply-chain` (本 SPEC 範囲外、SECURITY.md IR 手順) |
 
   各段階の昇格は `.sage/config.yaml` `hooks.profile` 更新 PR で実施、PR body に上記検証コマンド出力を貼る (auditability)。
 
@@ -252,10 +283,13 @@ Phase 1-3 で以下を整備:
     - drift 3 (registry only) で info
     - drift 4 (`@latest` + `policy.forbid_latest_tag: true`) で warn
     - drift 5 (npm_integrity mismatch + `policy.require_npm_integrity: true`) で warn (重大)
-  - **http drift cases** (Codex review P1 反映):
+  - **http drift cases** (Codex 1st-3rd review 反映):
     - drift 1 http (registry にない HTTP MCP server) で warn (重大、supply-chain risk)
     - drift 2 http (url_origin mismatch) で warn
-    - drift 6 (HTTP MCP に bearer_token_env_var 不在 + `policy.http_require_bearer_token_env: true`) で warn
+    - drift 6 anonymous (HTTP MCP の `auth_mode: "none"` または auth_mode 不在 + `policy.http_require_auth: true`) で warn
+    - drift 6 OAuth approve (HTTP MCP の `auth_mode: "oauth"` で oauth_provider 等が registry と一致 → 通常承認、anonymous 扱いしない、Codex 3rd review P2 #1 反映)
+    - drift 6 Bearer approve (HTTP MCP の `auth_mode: "bearer_env"` で bearer_token_env_var が registry と一致 → 通常承認)
+    - drift 7 sensitive header (registry に `http_headers: { "Authorization": "Bearer ..." }` 等の機密 header 静的値) で **FAIL** (Codex 3rd review P2 #2 反映、registry parse 段階で reject)
     - transport mismatch (実 config STDIO ↔ registry HTTP、または逆) で drift 1 として warn
   - **共通**:
     - expired approval で warn
@@ -267,11 +301,11 @@ Phase 1-3 で以下を整備:
 - [ ] AC-04: `scripts/sage-doctor.sh` 実行で MCP allowlist check が新ステップとして OK / WARN / FAIL を返す
 - [ ] AC-05: Performance test helper `templates/hooks/tests/measure-hook-time.py` (Python ベース) が 5 回 `time.perf_counter()` 測定中央値で AC-11 を機械的判定 (exit code で fail/pass、Codex review P2-3 反映で macOS / Linux 完全互換)
 - [ ] AC-06: `SECURITY.md` / `sage/governance.md` §9.1 / §9.2 / `AGENTS.md` / `CLAUDE.md` / `docs/codex-security.md` の 5 ファイルに本 SPEC の cross-reference / 追記が反映 (各最大 +3 行、R7 厳守)
-- [ ] AC-07: `bash templates/hooks/tests/run-tests.sh` 全 PASS (109 + 13 シナリオ = 122+)
+- [ ] AC-07: `bash templates/hooks/tests/run-tests.sh` 全 PASS (109 + 20 シナリオ = 129+、Codex 3rd review P2 #1/#2 反映で http drift +3 拡張)
 - [ ] AC-08: `bash scripts/sage-validate.sh` PASS
 - [ ] AC-09: `bash scripts/sage-doctor.sh` 0 FAIL (新ステップ含む)
 - [ ] AC-10: `bash scripts/sage-doc-drift.sh` PASS
-- [ ] AC-11: `bash templates/hooks/tests/measure-hook-time.sh templates/hooks/mcp-allowlist-audit.sh` で 5 回測定中央値 < 200ms (NFR-01)
+- [ ] AC-11: `bash templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` で 5 回測定中央値 < 200ms (NFR-01)
 - [ ] AC-12: registry 不在時 hook が exit 0 (graceful degradation)
 - [ ] AC-13: registry が JSON parse 不能の場合、hook は warn 1 回 + skip、doctor は FAIL レベル (EC-01)
 
@@ -312,7 +346,7 @@ Gate 5 (Release) は本 SPEC 単独では発火しない (main/production PR の
 |---|---|---|---|
 | 1 | registry が陳腐化 (新 server 追加時に registry 更新忘れ → drift noise) | profile 分離 (NFR-03 / OPS-01) | `bash scripts/sage-doctor.sh \| grep "MCP allowlist"` で WARN 件数を週次集計 |
 | 2 | `expires_at` の日次計算で false positive (timezone) | ISO 8601 + UTC 固定、hook 内 `date -u` 利用 | `grep -nE "date[^u]" templates/hooks/mcp-allowlist-audit.sh` で 0 件 |
-| 3 | sha256 計算負荷 (大きな npm package で 数百 MB) | `policy.require_sha256: false` default、有効化は user 判断 | `time bash templates/hooks/mcp-allowlist-audit.sh < /tmp/empty.json` の継続監視 |
+| 3 | npm_integrity / command_path_sha256 計算負荷 (大きな npm package で 数百 MB) | `policy.require_npm_integrity: false` default、有効化は user 判断 | `python3 templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` の継続監視 |
 | 4 | Codex CLI 不在環境での behavior | `.codex/config.toml` 存在時のみ active 化 (EC-02) | test-mcp-allowlist-audit.sh の Codex 不在 case で exit 0 |
 | 5 | audit log 蓄積で disk 圧迫 | 日次 rotate (`mcp-allowlist-YYYYMMDD.log`)、保持 90 日推奨 | `find .sage/audit -name 'mcp-allowlist-*.log' -mtime +90` で出力 |
 | 6 | Python 不在環境での parse 不能 | hook 側で `command -v python3` 失敗時 warn + skip (NFR-03) | test-mcp-allowlist-audit.sh の Python 不在 simulation case |

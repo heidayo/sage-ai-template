@@ -20,7 +20,7 @@
 ## 入力
 
 - SPEC-0015 FR-01 (registry schema、JSON 形式、supply-chain pin field 必須)
-- SPEC-0015 FR-02 (policy enforcement: forbid_latest_tag / require_sha256 / require_publisher)
+- SPEC-0015 FR-02 (policy enforcement: forbid_latest_tag / require_npm_integrity / require_publisher / forbid_unknown_transport / http_require_url_origin_pin / http_require_auth / http_static_header_secret_check)
 - SPEC-0015 SEC-02 (positive list + supply-chain pin 原則)
 - 既存 `templates/mcp-json-template.json` の構造 (参考のみ)
 - Codex CLI `~/.codex/config.toml` の `[mcp_servers]` 構造 (参考のみ)
@@ -32,15 +32,19 @@
 
    - **stdio transport 必須 field**: `name`, `transport: "stdio"`, `artifact_type` (npm_package / local_binary), `command`, `args`, `version_pin`, `publisher`, `source_registry`, `approved_by`, `approved_at`, `expires_at`
    - **stdio 推奨 field**: `npm_integrity` (npm_package 用、`policy.require_npm_integrity: true` で必須化可能)、`enabled_tools` / `disabled_tools`
-   - **http transport 必須 field**: `name`, `transport: "http"`, `artifact_type: "remote_http"`, `url`, `url_origin_pin`, `bearer_token_env_var`, `approved_by`, `approved_at`, `expires_at`
-   - **http 推奨 field**: `http_headers`, `env_http_headers`, `tls_pin_sha256`, `enabled_tools` / `disabled_tools`
+   - **http transport 必須 field** (Codex 3rd review P2 #1 反映で auth_mode 導入): `name`, `transport: "http"`, `artifact_type: "remote_http"`, `url`, `url_origin_pin`, `auth_mode` (`bearer_env` / `oauth` / `none`), `approved_by`, `approved_at`, `expires_at`
+     - `auth_mode: "bearer_env"` の追加必須: `bearer_token_env_var` (env name only)
+     - `auth_mode: "oauth"` の追加必須: `oauth_provider` / `oauth_scopes` (list) / `oauth_callback_url`
+     - `auth_mode: "none"` は anonymous (`policy.http_require_auth: true` で禁止可能)
+   - **http 推奨 field**: `http_headers` (**non-sensitive のみ、機密 header 名禁止**)、`env_http_headers` (機密値はこちらに env 名参照)、`tls_pin_sha256`, `enabled_tools` / `disabled_tools`
    - **共通 optional**: `notes`, `startup_timeout_sec`, `tool_timeout_sec`, `enabled`, `required`
-   - top-level: `version: "1.0"` + `policy: { forbid_latest_tag: true, require_npm_integrity: false, require_publisher: true, forbid_unknown_transport: true, http_require_url_origin_pin: true, http_require_bearer_token_env: true }` + `bypass: { enabled: false }`
-   - 例として **3 server entry**:
-     - `playwright` (transport: stdio, artifact_type: npm_package、SPEC 例の主要)
+   - top-level: `version: "1.0"` + `policy: { forbid_latest_tag: true, require_npm_integrity: false, require_publisher: true, forbid_unknown_transport: true, http_require_url_origin_pin: true, http_require_auth: true, http_static_header_secret_check: true }` + `bypass: { enabled: false }`
+   - 例として **4 server entry** (Codex 3rd review P2 #1 で auth_mode oauth 例を追加):
+     - `playwright` (transport: stdio, artifact_type: npm_package)
      - `filesystem-local` (transport: stdio, artifact_type: local_binary、command_path_sha256 例)
-     - `company-search` (transport: http, artifact_type: remote_http、url_origin_pin + bearer_token_env_var 例)
-   - inline コメント (JSON `_comment` field) で「positive list」「`@latest` 禁止」「server 追加時 SPEC-ID 記入」「HTTP MCP は anonymous 禁止 (bearer_token_env_var 必須)」を案内
+     - `company-search` (transport: http, artifact_type: remote_http, auth_mode: bearer_env)
+     - `external-oauth-mcp` (transport: http, artifact_type: remote_http, auth_mode: oauth, oauth_provider: google)
+   - inline コメント (JSON `_comment` field) で「positive list」「`@latest` 禁止」「server 追加時 SPEC-ID 記入」「HTTP MCP は anonymous 禁止 (auth_mode は bearer_env / oauth どちらか必須)」「`http_headers` に Authorization / Cookie / X-Api-Key 等の機密 header 静的値 禁止 (env_http_headers 経由)」を案内
 
 2. `templates/sage/README.md` 新規 (もし不在なら):
    - `templates/sage/` ディレクトリの位置づけ (registry / inventory 雛形配布元)
@@ -65,14 +69,15 @@
 
 - [ ] `templates/sage/mcp-allowlist-template.json` 存在
 - [ ] `version`, `servers`, `policy`, `bypass` の 4 top-level key 存在
-- [ ] `servers` に 3+ example entry (stdio/npm_package, stdio/local_binary, http/remote_http の 3 transport-artifact 組合せ)
-- [ ] 各 entry に必須 field 全揃い (transport ごとの schema validation 可能)
+- [ ] `servers` に 4+ example entry (stdio/npm_package, stdio/local_binary, http/remote_http with bearer_env, http/remote_http with oauth の 4 transport-artifact-auth 組合せ)
+- [ ] 各 entry に必須 field 全揃い (transport + auth_mode ごとの schema validation 可能)
 - [ ] policy.forbid_latest_tag = true (default)
 - [ ] policy.require_publisher = true (default、stdio 用)
 - [ ] policy.require_npm_integrity = false (default、user opt-in)
 - [ ] policy.forbid_unknown_transport = true (default)
 - [ ] policy.http_require_url_origin_pin = true (default)
-- [ ] policy.http_require_bearer_token_env = true (default、HTTP MCP の anonymous 禁止)
-- [ ] `_comment` 形式で positive list 原則 / SPEC-ID 記入ルール / `@latest` 禁止 / HTTP MCP の auth 必須を案内
+- [ ] policy.http_require_auth = true (default、HTTP MCP の anonymous 禁止、OAuth / Bearer どちらでも可)
+- [ ] policy.http_static_header_secret_check = true (default、機密 header 静的値を registry に書かせない)
+- [ ] `_comment` 形式で positive list / SPEC-ID 記入 / `@latest` 禁止 / HTTP MCP の auth 必須 / sensitive header 静的値禁止 を案内
 - [ ] JSON parse で error 0 件 (`python3 -c "import json; json.load(open('templates/sage/mcp-allowlist-template.json'))"`)
 - [ ] commit message に `TASK-0122:` を含む

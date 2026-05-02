@@ -61,7 +61,7 @@ SPEC-0015 (Codex review 後 scope 縮小、agent identity は SPEC-0017 に分�
 TASK-0122 (foundation, 30m)
     │
     ▼
-TASK-0123 (audit hook + perf helper, 120m)
+TASK-0123 (audit hook + perf helper, 150m、Codex 2nd review 反映で transport-aware + Python helper / fake wrapper で +30m)
     │
     ▼
 TASK-0124 (doctor + behavior test, 60m)
@@ -70,7 +70,7 @@ TASK-0124 (doctor + behavior test, 60m)
 TASK-0126 (doc + installer regen, 45m)
 ```
 
-シリアル実行 (旧 PLAN の TASK-0123 || TASK-0125 並列は SPEC-0017 分離で消滅)。総 wall-clock 時間は短縮 (270m → 255m + 並列消滅で実質変化なし)。
+シリアル実行 (旧 PLAN の TASK-0123 || TASK-0125 並列は SPEC-0017 分離で消滅)。総 wall-clock 時間: **285m** (Codex 1st review で 270 → 255m に短縮、Codex 2nd review で 255 → 285m へ +30m、TASK-0123 の transport-aware + Python helper / fake wrapper 反映)。
 
 ## 検証方法
 
@@ -88,7 +88,7 @@ TASK-0126 (doc + installer regen, 45m)
 
 ## リスク
 
-1. **registry schema field 過不足** — supply-chain pin field を多数追加したため registry 記入負荷が上がる。Mitigation: `policy.require_sha256: false` default で sha256 は推奨止まり、必須化は org 判断
+1. **registry schema field 過不足** — supply-chain pin field を多数追加したため registry 記入負荷が上がる。Mitigation: `policy.require_npm_integrity: false` default で artifact integrity は推奨止まり、必須化は org 判断
 2. **audit hook の SessionStart 遅延** — 200ms threshold (NFR-01) を満たさないと UX 劣化。Mitigation: Python parsing は `json.loads()` のみ (sha256 verification は optional + cache)
 3. **既存 protect-sage-files との二重 warn** — 同じ mcp_servers 追加で両 hook が warn 出すと noise。Mitigation: protect-sage-files は **書き込み block**、本 hook は **session-start audit + supply-chain pin check** で発火 trigger 異なる、warn 文言を区別
 4. **install.sh 再生成のタイミング** — 各 TASK で再生成するか TASK-0126 で一括か。Mitigation: TASK-0126 で一括 (Phase 3 の TASK-0117/0119 で経験した「install.sh 巻き戻し問題」回避)

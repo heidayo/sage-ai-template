@@ -93,7 +93,7 @@
 - [ ] registry 不在で WARN 出る (実機テスト: registry を一時削除して doctor 実行)
 - [ ] registry valid + drift なし で OK 出る
 - [ ] drift1 inject で WARN 出る (実機テスト: `.mcp.json` に registry にない server 追加)
-- [ ] drift5 inject で WARN 出る (実機テスト: sha256 mismatch 状況を simulate)
+- [ ] drift5 inject で WARN 出る (実機テスト: artifact_type ごとに simulate — npm_package: npm_integrity mismatch / local_binary: command_path_sha256 mismatch / remote_http: tls_pin_sha256 mismatch)
 - [ ] expired approval inject で WARN 出る
 - [ ] `bash scripts/sage-doctor.sh` 全体で 0 FAIL 維持 (本 TASK 完了直後の repo state で)
 - [ ] `templates/hooks/tests/test-detection-only-behavior.sh` PASS (kill 系 process 起動 0 件を behavior 検証)

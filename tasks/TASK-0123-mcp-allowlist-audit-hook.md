@@ -11,7 +11,7 @@
 | 担当Agent | Implementation/Test |
 | 並列可否  | No |
 | 依存TASK  | TASK-0122 (JSON schema 必要) |
-| 見積     | 120m (Codex review P2 反映で perf helper + parser robustness 改善追加 +30m) |
+| 見積     | 150m (Codex 2nd review P1 transport-aware + P2 Python helper / fake wrapper で +30m、Codex 3rd review P2 で auth_mode + secret hygiene 拡張で +0m 維持) |
 
 ## 責務
 
@@ -60,10 +60,13 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
        - drift 3 stdio: registry にあるが `.mcp.json` にない → info
        - drift 4 stdio: `@latest` (`policy.forbid_latest_tag: true` 時) → warn
        - drift 5 stdio: npm_integrity mismatch (`policy.require_npm_integrity: true` 時) → warn (重大)
-     - **http drift** (Codex review P1 反映):
+     - **http drift** (Codex 1st-3rd review 反映):
        - drift 1 http: registry にない HTTP MCP server を `.mcp.json` に作る → warn (重大)
        - drift 2 http: url_origin mismatch (登録 origin と異なる url) → warn
-       - drift 6: HTTP MCP に `bearer_token_env_var` 不在 + `policy.http_require_bearer_token_env: true` → warn
+       - drift 6 anonymous: HTTP MCP の `auth_mode: "none"` または auth_mode 不在 + `policy.http_require_auth: true` → warn
+       - drift 6 OAuth approve: HTTP MCP の `auth_mode: "oauth"` (oauth_provider / scopes / callback 整合) → 通常承認、anonymous 扱いしない
+       - drift 6 Bearer approve: HTTP MCP の `auth_mode: "bearer_env"` (bearer_token_env_var 一致) → 通常承認
+       - drift 7 sensitive header: registry の `http_headers` に `Authorization` 等の機密 header 静的値 → **FAIL** (parse 段階 reject)
        - transport mismatch: 実 config が STDIO server だが registry が `transport: "http"` (またはその逆) → drift 1 として warn
      - **共通**:
        - expired approval → warn
@@ -109,8 +112,8 @@ SessionStart hook として動作する `templates/hooks/mcp-allowlist-audit.sh`
 - [ ] `templates/hooks/mcp-allowlist-audit.sh` 存在 + executable bit
 - [ ] shellcheck で error 0 件
 - [ ] **detection-only behavior は TASK-0124 の `test-detection-only-behavior.sh` で検証** (fake wrapper 方式、grep 不採用、Codex review P2-2 反映)
-- [ ] `templates/hooks/tests/test-mcp-allowlist-audit.sh` の 17 シナリオ全 PASS (transport-aware に拡張)
-- [ ] `bash templates/hooks/tests/run-tests.sh` で 109 + 17 = 126+ 全 PASS
+- [ ] `templates/hooks/tests/test-mcp-allowlist-audit.sh` の 20 シナリオ全 PASS (Codex 3rd review P2 で http drift +3 拡張: drift6 OAuth/Bearer 通常承認 + drift7 sensitive header FAIL)
+- [ ] `bash templates/hooks/tests/run-tests.sh` で 109 + 20 = 129+ 全 PASS
 - [ ] `python3 templates/hooks/tests/measure-hook-time.py templates/hooks/mcp-allowlist-audit.sh` で 5 回中央値 < 200ms (Python `time.perf_counter()` で macOS / Linux 互換、機械判定 exit code)
 - [ ] graceful degradation: registry 不在 / Codex CLI 不在 / `.mcp.json` 不在 / Python 不在 のいずれでも exit 0
 - [ ] audit log が `.sage/audit/mcp-allowlist-YYYYMMDD.log` に append-only で書かれる
