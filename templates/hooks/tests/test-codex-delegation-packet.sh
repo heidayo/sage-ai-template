@@ -83,35 +83,49 @@ else
   echo "  not ok install.sh missing Codex delegation packet propagation" >&2
 fi
 
-# SPEC-0023 TASK-0156: branch-aware boundary check.
-# Codex side branches (codex/* or feature/spec-0022-*) must not touch Claude-specific
-# files. Other branches (feature/spec-0023-* / claude/* / main / others) may
-# legitimately touch CLAUDE.md — paired-SPEC doctrine (governance.md §10) allows this.
-CURRENT_BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+# SPEC-0023 TASK-0156 + TASK-0158: branch-aware boundary check with detached-HEAD fallback.
+# Branch resolution priority (Codex review M1 fix):
+#   1. GITHUB_HEAD_REF — GitHub Actions PR context (most accurate for CI)
+#   2. GITHUB_REF_NAME — GitHub Actions push context
+#   3. git rev-parse --abbrev-ref HEAD — local / detached fallback (returns "HEAD" if detached)
+# When branch is "HEAD" (detached) or empty/unknown, we DEFAULT to strict mode:
+# any Claude-file diff against merge-base FAILs. This prevents a Codex PR
+# under detached CI checkout from silently bypassing the boundary check.
+CURRENT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)}}"
+
+# Determine whether to apply strict (Codex-side) check.
+APPLY_STRICT=false
 case "$CURRENT_BRANCH" in
   codex/*|feature/spec-0022-*)
-    BASE_REF=""
-    if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
-      BASE_REF="$(git -C "$REPO_ROOT" merge-base HEAD origin/main)"
-    fi
-    if [ -n "$BASE_REF" ]; then
-      CLAUDE_DIFF="$(git -C "$REPO_ROOT" diff --name-only "$BASE_REF" HEAD -- CLAUDE.md templates/claude-md-snippet.md .claude 2>/dev/null)"
-    else
-      CLAUDE_DIFF="$(git -C "$REPO_ROOT" diff --name-only -- CLAUDE.md templates/claude-md-snippet.md .claude 2>/dev/null)"
-    fi
-    if [ -z "$CLAUDE_DIFF" ]; then
-      PASS=$((PASS + 1))
-      echo "  ok   Claude-specific files are untouched by this Codex branch ($CURRENT_BRANCH)"
-    else
-      FAIL=$((FAIL + 1))
-      echo "  not ok Claude-specific files changed in Codex branch scope: $CLAUDE_DIFF" >&2
-    fi
-    ;;
+    APPLY_STRICT=true ;;
+  HEAD|unknown|"")
+    # Detached / unknown: default to strict (fail-safe). Per Codex review M1.
+    APPLY_STRICT=true ;;
   *)
-    PASS=$((PASS + 1))
-    echo "  ok   skip Claude-files boundary check on non-Codex branch ($CURRENT_BRANCH) — paired-SPEC doctrine"
-    ;;
+    APPLY_STRICT=false ;;
 esac
+
+if [ "$APPLY_STRICT" = "true" ]; then
+  BASE_REF=""
+  if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
+    BASE_REF="$(git -C "$REPO_ROOT" merge-base HEAD origin/main)"
+  fi
+  if [ -n "$BASE_REF" ]; then
+    CLAUDE_DIFF="$(git -C "$REPO_ROOT" diff --name-only "$BASE_REF" HEAD -- CLAUDE.md templates/claude-md-snippet.md .claude 2>/dev/null)"
+  else
+    CLAUDE_DIFF="$(git -C "$REPO_ROOT" diff --name-only -- CLAUDE.md templates/claude-md-snippet.md .claude 2>/dev/null)"
+  fi
+  if [ -z "$CLAUDE_DIFF" ]; then
+    PASS=$((PASS + 1))
+    echo "  ok   Claude-specific files untouched (strict mode, branch=$CURRENT_BRANCH)"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  not ok Claude-specific files changed in strict-mode scope (branch=$CURRENT_BRANCH): $CLAUDE_DIFF" >&2
+  fi
+else
+  PASS=$((PASS + 1))
+  echo "  ok   skip Claude-files boundary check on non-Codex branch ($CURRENT_BRANCH) — paired-SPEC doctrine"
+fi
 
 echo ""
 echo "SUMMARY pass=$PASS fail=$FAIL"
