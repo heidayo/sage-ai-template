@@ -16,6 +16,8 @@
 - Claude Code hooks provide runtime protection: dangerous command block, SAGE file protection, File Scope check.
 - Hook profile in `.sage/config.yaml` `hooks.profile`: minimal(Phase A) / standard(Phase B) / strict(Phase C+).
 - Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
+- Claude collaboration brief: reference `docs/claude-collaboration-brief.md` for engagement patterns; well-scoped tasks may be delegated to Codex via packet.
+- Claude-only boundary: do not edit Codex-specific files (`AGENTS.md`, `docs/codex-*.md`) unless human explicitly assigns. Record as Codex follow-up otherwise.
 
 Auto-update rules:
 - Update check failure → warning only, never block development
