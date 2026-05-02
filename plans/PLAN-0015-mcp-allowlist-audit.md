@@ -71,10 +71,44 @@ SPEC-0015 の 6 機能要件 (FR-01..FR-06) を独立性が高い 5 TASK に分�
 
 ## Cross-model adversarial review 計画
 
-Phase 1-3 と同パターンで:
-- 全 TASK 完了後 PR 作成 → Codex に review 依頼 (1st-round)
-- 指摘が多 / 重要度高ければ Phase 2-3 と同じ multi-round 形式で収束
-- Phase 3 の 6 round 収束パターンが先例として既にある
+Phase 1-3 で確立した cross-model adversarial review pattern を本 SPEC でも厳密適用する。本 PLAN は Phase 3 で確立された **R1-R10 doctrine の継続適用**を宣言:
+
+### Phase 1-3 確立 doctrine の本 SPEC への適用
+
+| Doctrine | 本 SPEC での適用 |
+|---|---|
+| **R1** (no branch protection auto-config) | 本 SPEC で branch protection / Ruleset を触らない。`.sage/config.yaml` の profile gating のみで段階制御 |
+| **R2** (sandbox_mode template only, runtime change なし) | 本 SPEC は audit-only、MCP runtime / process 起動は SAGE 範囲外 (governance §9.2 維持) |
+| **R3** (Lethal Trifecta warn-only) | 本 SPEC の drift detection も warn-only ベース、strict profile のみ block (drift1)。R3 と完全整合 |
+| **R4** (no SecPass thresholds) | 本 SPEC で「100% drift 0 必須」のような硬い閾値を設定しない。OPS-05 の昇格条件は運用 doctrine、強制ではない |
+| **R5** (RUN log redaction first) | 本 SPEC の audit log (`mcp-allowlist-*.log`) は drift event 集計用、secret は記録しない (registry の command/args のみ、API key は含まない設計) |
+| **R6** (license vs security 分離) | 本 SPEC は security 専念、license 関連は触らない |
+| **R7** (CLAUDE/AGENTS 肥大化禁止) | TASK-0126 で AGENTS / CLAUDE 各 +1 行のみ、長文 guidance は SPEC 自体と docs/codex-security.md (§2 末尾 1 行追加) に集約 |
+| **R8** (hook tests required) | TASK-0123 で 7+ test case 必須、TASK-0125 で validator test 追加。test 抜きの hook 追加禁止 |
+| **R9** (shellcheck required) | TASK-0123 で `mcp-allowlist-audit.sh` に対し shellcheck error 0 件必須 |
+| **R10** (一次ソース引用) | 本 SPEC の主張は SAGE governance §9.2 / Phase 1-3 SPEC / Codex 公式 docs に紐付け済。新 claim 追加時は WebFetch で primary source 確認義務 |
+
+### Review プロセス
+
+1. **Specify phase** (本 PR #21): SPEC + PLAN + 5 TASK draft → sage-evaluate (本作業中) で 100 点 PASS 確認 → user 承認
+2. **Implementation phase** (PR #22-#23 想定): TASK-0122 → 0123 + 0125 (並列) → 0124 → 0126 の順で実装。複数 TASK を 1 PR にまとめるか分割するかは実装着手時に判断
+3. **Codex 1st-round review**: 実装 PR 完了後、Phase 3 と同じ format で Codex に依頼
+4. **Multi-round 収束**: 指摘が多 / 重要度高い場合、Phase 3 の 6 round パターン (4→2→2→1→1→0) と同様に収束まで micro-round を繰り返す
+5. **CONVERGED 判定**: 0 件 + R7/R10 doctrine 維持確認 → main merge
+
+### 期待される収束軌跡
+
+Phase 3 (docs only) で 6 round / 10 finding だったのに対し、本 SPEC は code 変更 (hook + validator) を含むため:
+- 1st-round で finding 数: 5-8 件想定 (P1×1-2 + P2×3-4 + P3×残り)
+- 収束まで: 4-6 round 想定 (Phase 3 と同等程度)
+- 主な review 観点: hook idempotency / atomic write / portability / profile gating の正確性 / R10 一次ソース整合
+
+### 失敗時のエスカレーション
+
+5 round 経過しても新 P2 以上の finding が出続ける場合、SPEC 設計に根本的な問題がある signal。その場合は:
+1. SPEC を draft に戻し、Spec Agent で再設計
+2. `sage/failures.md` に「FAIL-SPEC-0015-DESIGN-ITERATION」として記録
+3. user に方針相談 (本 SPEC の scope 縮小 / 別 SPEC への分割等)
 
 ## 完了条件 (Plan レベル)
 
