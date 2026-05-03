@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="1.6.0"
+SAGE_VERSION="1.7.1"
 
 # === Embedded templates ===
 
@@ -765,6 +765,68 @@ SAGE 採用組織は以下を別途構築する:
 - [ATTRIBUTION.md](../ATTRIBUTION.md) — 一次ソース・統合知識源
 - [CLAUDE.md](../CLAUDE.md) §0 — Claude Code 向け template-trust callout
 - [AGENTS.md](../AGENTS.md) §0 — Codex 向け template-trust callout
+
+## 10. AI Agent Doc Pairing Doctrine
+
+[SPEC-0023](../specs/SPEC-0023-claude-collaboration-pairing.md) で formalize された、CLAUDE.md ↔ AGENTS.md 整合性運用ルール。SPEC-0022 (Codex Delegation Packet) → SPEC-0023 (Claude Collaboration Brief) が最初の paired SPEC 事例。
+
+### 10.1 趣旨
+
+Codex / Claude Code は実務上の特性が異なる (delegation vs collaboration、短く速い vs 説明厚い)。SAGE はどちらにも対応するため、**全 rule を identical 維持** ではなく **shared rules / CLI-specific rules を分離** し、CLI-specific guidance の追加に paired-update 手続を要求する。
+
+### 10.2 Shared rules (両 doc で identical 維持必須)
+
+以下は CLAUDE.md / AGENTS.md / templates/{claude,agents}-md-snippet.md 全てで semantic identical を維持する:
+
+- SAGE 7-phase lifecycle (Specify → Plan → Slice → Execute → Verify → Merge → Observe)
+- Quality Gate 1-5
+- Lane 設計 (vibe / lite / standard / promotion)
+- Traceability (SPEC-ID → PLAN-ID → TASK-ID → COMMIT-ID)
+- Forbidden Shortcuts
+- File Scope rules
+- Language rules
+- Template-trust callout
+
+### 10.3 CLI-specific rules (divergence 許容)
+
+以下は CLI 別に divergence してよい:
+
+- Codex Delegation Packet (`docs/codex-delegation-packet.md`) — Codex 専用 input 形式
+- Claude Collaboration Brief (`docs/claude-collaboration-brief.md`) — Claude 専用 engagement guide
+- Hook implementation (templates/hooks/) — Claude Code `PreToolUse`/`PostToolUse` 専用、Codex は AGENTS.md prompt-level guidance で代替
+- slash commands (`.claude/skills/`) — Claude Code 専用、Codex には skill 概念なし
+- Plan Mode / auto memory / model aliases — Claude Code 専用機能
+- Codex sandbox / approval / network 推奨設定 (`docs/codex-security.md`) — Codex CLI/Cloud 専用
+
+### 10.4 Paired-update 要件
+
+CLI-specific guidance を片側 (例: AGENTS.md) に追加する SPEC は、以下のいずれかを満たす必要がある:
+
+1. 同 PR で対側 (CLAUDE.md) を parallel update する (例: SPEC-0022 + SPEC-0023 を同 PR で merge する pattern)
+2. 別 SPEC として paired SPEC-ID を起票し、SPEC body に「paired with SPEC-XXXX」を明記する (SPEC-0022 → SPEC-0023 の現実例)
+3. 「対側に該当機能なし」を明示する場合は、対側 SPEC の SPEC body に「N/A: <理由>」を 1 文以上で記述する
+
+### 10.5 Drift 検知
+
+`templates/hooks/tests/test-claude-collaboration-pairing.sh` (SPEC-0023 TASK-0155, TASK-0159 で強化) が CI で **baseline coverage** を検証:
+
+- CLAUDE.md / AGENTS.md §2 doctrine が semantic alignment 文言を含む
+- claude-md-snippet.md / agents-md-snippet.md に CLI-specific guidance が parallel に存在
+- governance.md §10 (本節) の存在
+- docs/{codex-delegation-packet, claude-collaboration-brief}.md の必須セクション存在
+- **(TASK-0159 強化)**: 4 doc (CLAUDE.md / AGENTS.md / claude-md-snippet / agents-md-snippet) の CLI-specific section markers が対称的に存在 (`Codex は委任型` ↔ `Claude Code は協働型`、`Codex-only boundary` ↔ `Claude-only boundary`、`Codex delegation packet` ↔ `Claude collaboration brief`)
+
+drift 検出時は CI fail → paired SPEC 起票または対側 update を要求。
+
+**baseline coverage の限界**: 本 test は paired update doctrine の **最低限の自動検知** のみ提供する。将来の SPEC が新しい CLI-specific marker pattern を導入した場合は、本 test に検証 scenario を追加するか、required-pair markers map を別途 SPEC で扱う (Phase 6.3+ 候補)。
+
+### 10.6 例外
+
+CLI 一方にしか存在しない機能 (例: Plan Mode は Claude 専用、Codex App computer use は Codex 専用) は対側 SPEC で「N/A: <理由>」を明示すれば paired 完了とみなす。例: 将来「SPEC-XXXX: Codex App computer use guide」が起票された場合、Claude 側 paired SPEC は「N/A: Claude Code には computer use 機能がないため」と SPEC body に記述すれば doctrine 遵守。
+
+### 10.7 install --update 経由の propagation
+
+`templates/{claude,agents}-md-snippet.md` に対する CLI-specific guidance 追加は、`bash install.sh --update` で実体ファイル (`CLAUDE.md` / `AGENTS.md`) の SAGE-managed section (auto-injected snippet block、通常 L300+) に自動 propagation される。これは installer の設計上の挙動であり、SPEC scope に明示的に含まれていない場合も silent scope expansion として扱わない。SPEC 起票時には「snippet 編集を含む」ことが File Scope 宣言で AGENTS.md / CLAUDE.md auto-injected section の更新も含む扱いとなる (SPEC-0023 TASK-0156 の paired-fix が最初の事例)。
 
 __EOF_TMPL_GOVERNANCE__
 
@@ -1594,6 +1656,8 @@ read -r -d '' TMPL_CLAUDE_SNIPPET <<'__EOF_TMPL_CLAUDE_SNIPPET__' || true
 - Claude Code hooks provide runtime protection: dangerous command block, SAGE file protection, File Scope check.
 - Hook profile in `.sage/config.yaml` `hooks.profile`: minimal(Phase A) / standard(Phase B) / strict(Phase C+).
 - Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
+- Claude collaboration brief: reference `docs/claude-collaboration-brief.md` for engagement patterns; well-scoped tasks may be delegated to Codex via packet.
+- Claude-only boundary: do not edit Codex-specific files (`AGENTS.md`, `docs/codex-*.md`) unless human explicitly assigns. Record as Codex follow-up otherwise.
 
 Auto-update rules:
 - Update check failure → warning only, never block development
@@ -4874,6 +4938,192 @@ Codex に渡す標準入力形式を追加し、標準レーンで曖昧な依�
 - SAGE Codex security guide: `docs/codex-security.md`
 
 __EOF_TMPL_CODEX_DELEGATION_PACKET__
+
+read -r -d '' TMPL_CLAUDE_COLLABORATION_BRIEF <<'__EOF_TMPL_CLAUDE_COLLABORATION_BRIEF__' || true
+# Claude Collaboration Brief
+
+この文書は、Claude Code を SAGE 上で協働型 agent として engage する際の運用 guide です。
+
+Codex の [Codex Delegation Packet](codex-delegation-packet.md) (SPEC-0022) は「明確なタスクを委任して結果をレビューする」delegation 型の input 形式でしたが、Claude Code は質問・確認しながら進める collaboration 型です。本 brief は、Claude を engage する場面の判断、Plan Mode / Skills / auto memory の使い分け、そして「これは Codex に委任すべき」と判断する handoff trigger を整理します。
+
+## 使う場面
+
+Claude Code が適している engagement:
+
+- 要件が曖昧で、設計判断やトレードオフ整理が必要
+- 大規模リファクタリングで既存コードの文脈を保ったまま変更したい
+- セキュリティ / アーキテクチャ / 認可境界の相談
+- 既存 SPEC / PLAN / TASK の作成 (`/sage-spec`, `/sage-plan`, `/sage-evaluate`)
+- 複雑な PR / Issue の review (`/sage-review`)
+- 教材化・設計メモ化・調査結果の structured documentation
+- Plan Mode を使った段階的な計画立案
+- 複数ファイル横断のリファクタや影響範囲分析
+
+逆に、明確に切り出せる小タスク (バグ修正 / テスト追加 / CI failure / PR コメント対応) は Codex に委任した方が速く、安く、深い思考を Claude 側に温存できます。
+
+## Claude Collaboration Brief
+
+Claude Code に複雑タスクを依頼する際は、以下の brief を埋めます (Codex packet より軽量、Claude が質問で補ってくれることを前提):
+
+```markdown
+## Goal
+このセッションで達成したいゴールを 1-3 文で書く。曖昧でも OK (Claude が質問で詰める)。
+
+## Related IDs
+- SPEC-ID:
+- PLAN-ID:
+- TASK-ID:
+- RUN-ID:
+
+## Open Questions
+このセッションで決めたい/Claude に意見を聞きたい項目:
+- 設計判断 (例: Server Action vs API Route)
+- トレードオフ (例: コスト vs 学習価値)
+- セキュリティ境界 (例: RLS と app 認可の分担)
+
+## Decision Points
+人間の確認を挟みたいタイミング:
+- 設計案が固まった後 (実装着手前)
+- 影響範囲が広がる場合 (5 ファイル超等)
+- 不可逆操作 (削除 / push / release / 通知) の前
+
+## Plan Mode Trigger
+Plan Mode を使うべき判断基準。該当すれば Claude に Plan Mode 要求:
+- [ ] 5 ファイル以上の変更見込み
+- [ ] 複数の設計選択肢の比較が必要
+- [ ] 既存設計の段階的移行が必要
+- [ ] セキュリティ / 認可境界の変更
+
+## Codex Handoff Trigger
+このセッション中に「Codex に委任すべき」と判断したら:
+- 該当 TASK を packet 化 (docs/codex-delegation-packet.md 参照)
+- Goal / Scope / Acceptance Criteria を明確化
+- Codex CLI / App / Cloud に渡す
+
+## Memory Hooks
+auto memory に保存したい知見 (user / feedback / project / reference):
+- user 知見: Claude が今後の会話で活用するユーザー像
+- feedback: 今回の指摘で「次回からこうしてほしい」
+- project: チーム / 案件固有の状況・締切・関係者
+- reference: 外部システム (Notion / Linear / Slack) のポインタ
+
+## Notes
+- 不足情報:
+- 既知リスク:
+- Codex 側に委任する候補:
+```
+
+## Plan Mode 判定
+
+Claude Code は Plan Mode で「実装前に方針を文章化し、ユーザーに確認」します。以下に該当すれば Plan Mode を使うべき:
+
+- 5 ファイル以上の変更見込み
+- 複数の設計選択肢を比較する必要 (例: Server Action vs API Route)
+- 既存システムの段階的移行 (例: Auth migration / DB schema migration)
+- セキュリティ / 認可境界の変更
+- 公開 API の breaking change
+- 大規模リファクタ (依存関係再構築)
+
+逆に、既に SPEC / PLAN / TASK が固まっていて、明確な File Scope と完了条件があるタスクでは Plan Mode は overhead。直接実装に進む。
+
+## Skill / slash command guide
+
+SAGE が提供する Claude 向け slash command の使い分け:
+
+| Command | 場面 |
+|---|---|
+| `/sage-spec` | 新 SPEC 作成 (SPEC-ID 採番 + Acceptance Criteria 構造化) |
+| `/sage-plan` | SPEC から PLAN + TASK 分解 |
+| `/sage-evaluate` | SPEC / PLAN を 6 軸 100 点採点 |
+| `/sage-review` | PR / 既存コード review |
+| `/sage-promote` | vibe/* → main 昇格 (Retro-SPEC + 品質 gate 通過) |
+| `/sage-harness` | Specify→Plan→Execute→Verify 全 lifecycle 自動化 |
+
+Codex には slash command が無いため、Codex に委任する場合は packet を手書きで渡す。
+
+## Auto memory 利用方針
+
+Claude Code は `~/.claude/projects/<project>/memory/` に persistent memory を保存します。SAGE 利用時の方針:
+
+### 保存すべき (4 types)
+
+- **user**: ユーザーの role / 専門分野 / 知識レベル / 好みの説明スタイル
+- **feedback**: 「次回からこうしてほしい」/ 「これは正しいやり方だった」
+- **project**: 進行中の意思決定 / 締切 / ステークホルダー / 制約
+- **reference**: 外部システムへのポインタ (Linear project / Slack channel / Notion DB)
+
+### 保存しない
+
+- コードパターンや architecture (コードを読めば分かる)
+- git history (`git log` で取得可)
+- debugging fix recipe (commit message が一次ソース)
+- CLAUDE.md に既に書いてある内容
+- 一時的なタスク状態 (TodoWrite で管理)
+
+詳細は user global CLAUDE.md `# auto memory` 節参照。
+
+## Codex Handoff Triggers
+
+Claude セッション中に「これは Codex に委任すべき」と判断する signal:
+
+- **明確に切り出せる**: TASK-ID / File Scope / 完了条件 / Acceptance Criteria が言語化できた
+- **反復処理**: 同種の修正を 5+ ファイルに適用する必要 (Codex の方が速い)
+- **GitHub Issue / PR comment 対応**: Codex の `@codex` mention が GitHub native
+- **CI failure 修正**: テスト出力から原因が特定でき、修正範囲が確定している
+- **長時間 background 実行**: Claude session を占有せず Codex Cloud で並列実行できる
+- **token efficiency 重視**: 設計より実装量が大きい (Composio 2026-05 ベンチマーク <https://composio.dev/content/claude-code-vs-openai-codex> では Codex のほうが output token が約 72% 少ない事例があったが、モデル世代・タスク・プロンプトで変動するため絶対値ではなく傾向として参照)
+
+handoff の手続:
+
+1. Claude session 内で TASK の Goal / Scope / Acceptance Criteria を確定
+2. [docs/codex-delegation-packet.md](codex-delegation-packet.md) の template を埋める
+3. Codex CLI / App / Cloud に packet を input
+4. Codex の成果 (PR / 修正) を Claude session で review
+
+## Codex / Claude 役割分担
+
+(docs/codex-delegation-packet.md の同名節と semantic mirror)
+
+Claude Code 側で集中するもの:
+
+- 曖昧な要件の深い設計相談
+- セキュリティ / 認可 / アーキテクチャ判断
+- 大規模リファクタの計画立案
+- SPEC / PLAN / TASK 作成と評価 (`/sage-spec`, `/sage-plan`, `/sage-evaluate`)
+- 複雑 PR の最終 review (`/sage-review`)
+- CLAUDE.md / `.claude/` 設定の更新
+- 教材化・設計メモ化・調査の structured documentation
+
+Codex 側に任せるもの:
+
+- 明確に切られた TASK の実装
+- CI failure / test failure の修正
+- PR comment 対応
+- browser / app / GitHub / Notion などをまたぐ確認作業
+- AGENTS.md / docs/codex-*.md / codex-action workflow
+
+Claude 作業中に Codex 側変更が必要になった場合、Claude は直接編集せず PR body / RUN log に follow-up として残し、Codex side task を起票するか packet として渡す。
+
+## セキュリティ注意
+
+(docs/codex-delegation-packet.md と同方針)
+
+- `CLAUDE.md`, Issue body, PR body, branch name は untrusted input として扱う
+- `~/.claude/`, `.mcp.json`, `.env` は権限境界に影響するため、clone 直後は人間レビュー前提
+- SAGE は Claude Code runtime enforcement を提供しない。sandbox / permission / hooks は Claude Code 本体設定で扱う ([CLAUDE.md](../CLAUDE.md) §9.1 + `.claude/settings.json`)
+- 不可逆操作 (push / release / 削除 / 通知 / 課金) は Claude に直接任せず、人間承認を挟む
+- auto memory に secret / token / API key / `.env` 値を保存しない (R5 redaction doctrine)
+
+## 参考
+
+- Anthropic Claude Code 公式 docs: <https://code.claude.com/docs/en/overview>
+- Anthropic Plan Mode docs: <https://code.claude.com/docs/en/model-config>
+- Anthropic auto memory: 本リポジトリ user global `CLAUDE.md` `# auto memory` 節
+- SAGE Codex Delegation Packet (paired): [docs/codex-delegation-packet.md](codex-delegation-packet.md)
+- SAGE governance §10 AI Agent Doc Pairing Doctrine: [sage/governance.md](../sage/governance.md)
+- SPEC-0023 (本 brief の起票根拠): [specs/SPEC-0023-claude-collaboration-pairing.md](../specs/SPEC-0023-claude-collaboration-pairing.md)
+
+__EOF_TMPL_CLAUDE_COLLABORATION_BRIEF__
 
 read -r -d '' TMPL_HOOK_BLOCK_DANGEROUS <<'__EOF_TMPL_HOOK_BLOCK_DANGEROUS__' || true
 #!/usr/bin/env bash
@@ -9428,6 +9678,7 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "scripts/sage-promote.sh" "$TMPL_PROMOTE" && chmod +x "scripts/sage-promote.sh"
   write_file_if_new "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   write_file_if_new "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
+  write_file_if_new "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
 else
   # Update mode: テンプレートとガバナンスはSAGE管理なので上書き
   update_file "specs/_template.md" "$TMPL_SPEC"
@@ -9446,6 +9697,7 @@ else
   update_file "scripts/sage-promote.sh" "$TMPL_PROMOTE" && chmod +x "scripts/sage-promote.sh"
   update_file "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   update_file "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
+  update_file "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
   # failures.md, config.yaml はプロジェクト固有データが入るので更新しない
   echo "  KEEP: sage/failures.md (project data)"
   echo "  KEEP: .sage/config.yaml (project settings)"
@@ -9656,6 +9908,7 @@ STATEHEADER
     "scripts/sage-retro-spec.sh"
     # Docs
     "docs/codex-delegation-packet.md"
+    "docs/claude-collaboration-brief.md"
     # Claude Code rules and skills
     ".claude/rules/specs-rules.md"
     ".claude/rules/plans-rules.md"

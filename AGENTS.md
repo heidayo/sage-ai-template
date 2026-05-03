@@ -23,7 +23,7 @@ For **Codex sessions**, follow instructions in this order:
 3. **docs/rules.md** — architectural constraints
 4. **User instructions** — runtime directives
 
-`CLAUDE.md` is the Claude Code-specific counterpart. The two documents must stay semantically aligned.
+`CLAUDE.md` is the Claude Code-specific counterpart. The two documents must stay semantically aligned for SHARED rules. CLI-specific guidance (Codex Delegation Packet, Claude Collaboration Brief) may diverge but requires a paired update under [SPEC-0023](specs/SPEC-0023-claude-collaboration-pairing.md) §10 doctrine.
 
 ### 2.1 Codex specificity
 
@@ -318,6 +318,8 @@ This file (`AGENTS.md`) defines repository-wide development rules.
 - Development lanes: explore (`vibe/*`, no gates) | lite (`fix/*` / `chore/*` / `docs/*`, TASK-ID + max 3 files + no contract changes + Gate 1+3) | standard (`feature/*`, full SPEC + Gate 1-4) | promotion (`promote/*`, Retro-SPEC + TASK-ID + Gate 1-4).
 - `vibe/*` → `main` direct merge is prohibited. Use `promote/*` with Retro-SPEC.
 - Do not modify `sage/` without human approval.
+- Codex delegation packet: follow `docs/codex-delegation-packet.md`; standard-lane tasks need Goal / Scope / Non-goals / File Scope / Acceptance Criteria / Tests before implementation.
+- Codex-only boundary: do not edit Claude Code-specific files (`CLAUDE.md`, `.claude/`) unless a human explicitly assigns that scope to Codex. Record them as Claude follow-up otherwise.
 
 Prohibited:
 - Implementing without a SPEC

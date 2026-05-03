@@ -23,11 +23,14 @@ For **Claude Code sessions**, follow instructions in this order:
 3. **docs/rules.md** — architectural constraints
 4. **User instructions** — runtime directives
 
-`AGENTS.md` is the Codex-specific counterpart. The two documents must stay semantically aligned.
+`AGENTS.md` is the Codex-specific counterpart. The two documents must stay semantically aligned for SHARED rules. CLI-specific guidance (Codex Delegation Packet, Claude Collaboration Brief) may diverge but requires a paired update under [SPEC-0023](specs/SPEC-0023-claude-collaboration-pairing.md) §10 doctrine.
 
 ### 2.1 Claude Code specificity
 
 SAGE の `templates/hooks/` (block-dangerous-commands.sh / protect-sage-files.sh 他) は Claude Code の `PreToolUse` / `PostToolUse` 機構で実行されます。Claude Code 利用時は `.claude/settings.json` の `hooks` セクション + profile (`hooks.profile` in `.sage/config.yaml`) で有効化されます。**Codex セッションではこれらの hook は直接動作しません** — Codex 側の対応設定は [AGENTS.md §2.1 Codex specificity](AGENTS.md) を参照。
+- Claude Code は協働型 agent として扱う。詳細は [docs/claude-collaboration-brief.md](docs/claude-collaboration-brief.md) を参照する。
+- Well-scoped task は Codex に委任する判断をする (packet を書いて [docs/codex-delegation-packet.md](docs/codex-delegation-packet.md) に従う)。
+- Codex-specific ファイル (`AGENTS.md`, `docs/codex-*.md`) の修正は Codex 側 task に分離し、Claude は直接編集しない。
 
 ## 3. SAGE Lifecycle Protocol
 
@@ -313,6 +316,8 @@ This file (`CLAUDE.md`) defines repository-wide development rules.
 - Claude Code hooks provide runtime protection: dangerous command block, SAGE file protection, File Scope check.
 - Hook profile in `.sage/config.yaml` `hooks.profile`: minimal(Phase A) / standard(Phase B) / strict(Phase C+).
 - Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
+- Claude collaboration brief: reference `docs/claude-collaboration-brief.md` for engagement patterns; well-scoped tasks may be delegated to Codex via packet.
+- Claude-only boundary: do not edit Codex-specific files (`AGENTS.md`, `docs/codex-*.md`) unless human explicitly assigns. Record as Codex follow-up otherwise.
 
 Auto-update rules:
 - Update check failure → warning only, never block development
