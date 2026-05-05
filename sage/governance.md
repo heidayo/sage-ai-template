@@ -492,3 +492,84 @@ CLI 一方にしか存在しない機能 (例: Plan Mode は Claude 専用、Cod
 ### 10.7 install --update 経由の propagation
 
 `templates/{claude,agents}-md-snippet.md` に対する CLI-specific guidance 追加は、`bash install.sh --update` で実体ファイル (`CLAUDE.md` / `AGENTS.md`) の SAGE-managed section (auto-injected snippet block、通常 L300+) に自動 propagation される。これは installer の設計上の挙動であり、SPEC scope に明示的に含まれていない場合も silent scope expansion として扱わない。SPEC 起票時には「snippet 編集を含む」ことが File Scope 宣言で AGENTS.md / CLAUDE.md auto-injected section の更新も含む扱いとなる (SPEC-0023 TASK-0156 の paired-fix が最初の事例)。
+
+---
+
+## 11. Property-based Verify and Review Gate
+
+[SPEC-0024](../specs/SPEC-0024-property-based-verify-review-gate.md) で formalize された、SPEC 由来の意味論的性質を Verify / Review phase で機械的に証明試行する doctrine。一次ソース: [SPECA framework](https://github.com/NyxFoundation/speca/) (Phase 03 Map-Prove-Stress-Test, Phase 04 3-gate FP filter)。
+
+### 11.1 Property → Gate matrix
+
+各 SPEC は `## Properties` セクションで declarative property を列挙する。種別と Gate 対応:
+
+| Property 種別 | 主 Gate | 補助 Gate |
+|---|---|---|
+| API 契約 (Pre-condition / Post-condition) | Gate 2 (Functional) | Gate 4 |
+| 認可 / secret / MCP 権限 (Invariant) | Gate 3 (Security) | Gate 4 |
+| layer 境界 / forbidden dep (Invariant) | Gate 4 (Architecture) | - |
+| traceability / SPEC↔実装対応 (Assumption) | 横断 | Gate 1-5 |
+
+権限レベル別の下限 (specs/_template.md Properties セクション):
+- `system` / `platform` + Security 要件あり: 5 件以上必須
+- `platform` (Security 要件なし): 3 件以上推奨
+- `feature`: 任意、`Properties: not applicable + 理由` 許容
+
+### 11.2 Verdict 体系
+
+Review Agent の `review_feedback.verdict` enum (templates/skills/sage-review/SKILL.md):
+
+| Verdict | 意味 | merge 可否 |
+|---|---|---|
+| PASS | Property 全件証明試行成功 | 可 |
+| FAIL | Property 違反 + 反例あり | 不可 |
+| OUT_OF_TASK_SCOPE | Finding が TASK 範囲外既存問題 | 可 (Finding 記録のみ) |
+| FOLLOW_UP_REQUIRED | Finding 妥当だが本 TASK で fix しない | 可 (follow-up TASK 起票必須) |
+| DISPUTED_FP | 実装は正しく Finding 自体が誤り | 可 (audit log 記録必須) |
+| SKIPPED_WITH_APPROVAL_REQUIRED | 証明できないが反例も無い | 不可 (人間 approver の signature 必須) |
+
+### 11.3 3-gate FP filter (early-exit)
+
+Review Agent は finding 確定後、以下の順で false-positive filter を適用 (early-exit):
+
+1. **Dead Code gate**: 実行されない経路 → DISPUTED_FP (audit log: `fp_gate: dead_code`)
+2. **Trust Boundary gate**: untrusted input が制御不可 → 別 finding に切り分け
+3. **Scope Check gate**: TASK File Scope 外既存問題 → OUT_OF_TASK_SCOPE / FOLLOW_UP_REQUIRED
+
+いずれかの gate で verdict 確定したら後続 gate は skip。判定根拠は audit log に必須記録 (SEC-03)。
+
+### 11.4 Hard Fail との関係
+
+以下は 3-gate FP filter で覆せない (DISPUTED_FP にできない、recall-safe doctrine、SPECA Phase 04 と整合):
+
+- File Scope 違反 (実装が TASK 許可範囲外を変更 = Silent Scope Expansion)
+- Gate 1-4 のいずれか fail
+- secret / credentials のハードコード
+- 既知脆弱性を持つ依存の追加
+
+これらは sage-review SKILL.md の Hard Fail 条件と同等、本 doctrine で再確認する。
+
+### 11.5 SKIPPED_WITH_APPROVAL_REQUIRED の運用
+
+Property が証明できないが反例も出せない (NEEDS_HUMAN_REVIEW 相当) の場合:
+
+- 人間 approver の signature を PR body に記述: `Approved-by: <human-username> <reason>`
+- audit log (`.sage/audit/property-skip-YYYYMMDD.log`) に approver / reason / SPEC-ID / Property-ID を JSON-lines で記録
+- silent approval 禁止 (空 signature では merge block)
+- AI agent 名 (`<ai-agent>` 等) は invalid signature として CI で reject
+
+### 11.6 Property ↔ AC の関係
+
+- `Properties` は declarative な意味論的性質、`受け入れ条件 (AC)` は command-verifiable な検証手段
+- AC は Property 由来であるべき (Property の機械検証手段が AC)
+- 矛盾発生時は SPEC を更新する (Property を改変して隠蔽しない)
+- pilot 3 SPEC (SPEC-0011 / SPEC-0014 / SPEC-0015) は既存 AC と Property を併存させ、各 SPEC 実装メモに対応表を記載
+
+### 11.7 段階採用
+
+| 昇格 | 条件 |
+|---|---|
+| none → standard | SPEC-0024 merge + pilot 3 件 retrofit + test-property-section.sh PASS |
+| standard → strict | standard で 14 日運用 + 新 SPEC 起票 5 件以上で全件 Properties 含む |
+
+`.sage/config.yaml` `hooks.profile` で `standard` 時 WARN-only、`strict` 時 FAIL (新規 SPEC のみ、既存 SPEC は incremental migration)。

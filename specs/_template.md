@@ -82,6 +82,29 @@
 
 実装時に参考にすべき既存コード・パターン・制約。
 
+## Properties
+
+SPEC が満たすべき意味論的性質を declarative に列挙する。Verify / Review phase で機械的に proof-attempt が行われる (SPEC-0024 / governance §11)。
+
+権限レベル別の下限:
+- `system` / `platform` + Security 要件あり: 5 件以上必須
+- `platform` (Security 要件なし): 3 件以上推奨
+- `feature` (低リスク): 任意、`Properties: not applicable + 理由` 許容
+
+各 Property に Gate mapping `(Gate N)` を必須記入 (N = 2: Functional / 3: Security / 4: Architecture / 横断)。
+
+### Invariants
+- [INV-01] (Gate N) <常に成立すべき不変条件>
+
+### Pre-conditions
+- [PRE-01] (Gate N) <関数 / API 入口の前提条件>
+
+### Post-conditions
+- [POST-01] (Gate N) <関数 / API 出口の保証条件>
+
+### Assumptions
+- [ASM-01] (Gate 横断) <仕様外の前提 (環境 / ツール)>
+
 ## 関連ID
 
 - PLAN-ID: （計画フェーズで記入）

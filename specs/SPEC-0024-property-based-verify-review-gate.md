@@ -298,8 +298,8 @@ SAGE は Phase 1-6.1 で多層の防御を整備してきた:
   検証: `for v in PASS FAIL OUT_OF_TASK_SCOPE FOLLOW_UP_REQUIRED DISPUTED_FP SKIPPED_WITH_APPROVAL_REQUIRED; do grep -qF "$v" templates/skills/sage-review/SKILL.md || exit 1; done`
 - [ ] **AC-05**: `sage/failures.md` エントリフォーマットに `cause` field と enum 5 値が記述、既存 FAIL-0001 は **未変更**  
   検証: `grep -E "cause:.*trust-boundary" sage/failures.md && diff <(git show main:sage/failures.md | awk '/^### FAIL-0001/,/^### FAIL-[0-9]+/{print}') <(awk '/^### FAIL-0001/,/^### FAIL-[0-9]+/{print}' sage/failures.md)` (FAIL-0001 entry 領域の awk 出力が main と本 branch で完全一致 = diff exit 0、不一致なら非ゼロ終了で AC fail)
-- [ ] **AC-06**: `sage/governance.md` §11 が新節として存在し、§11.1〜§11.5 の 5 sub-section を含む  
-  検証: `grep -F "## §11 Property-based Verify and Review Gate" sage/governance.md && for s in §11.1 §11.2 §11.3 §11.4 §11.5; do grep -qF "$s" sage/governance.md || exit 1; done`
+- [ ] **AC-06**: `sage/governance.md` §11 が新節として存在し、§11.1〜§11.5 の 5 sub-section 以上を含む (本文内では §11 と記すが header は既存 §10 同様 `## 11.` 形式、SPEC-0023 governance §10 と整合)  
+  検証: `grep -F "## 11. Property-based Verify and Review Gate" sage/governance.md && for s in 11.1 11.2 11.3 11.4 11.5; do grep -qF "### $s" sage/governance.md || exit 1; done`
 - [ ] **AC-07**: `templates/hooks/tests/test-property-section.sh` が PASS、新規 SPEC で Properties 欠落時に FAIL を返す  
   検証: `bash templates/hooks/tests/test-property-section.sh`
 - [ ] **AC-08**: `templates/hooks/tests/run-tests.sh` 全 PASS (既存 187 + 新規 8 = 195+)  
