@@ -68,7 +68,7 @@ cause enum の意味 (SPECA paper §4.2 由来、適用例):
 
 ## 完了条件
 
-- [ ] `grep -E "cause:.*trust-boundary" sage/failures.md` で 1 件 hit (template 説明)
+- [ ] `grep -F '**cause**' sage/failures.md` で 1 件以上 hit (markdown bold field marker、既存 `**発生日**` `**TASK-ID**` 等と整合)
 - [ ] `for c in trust-boundary code-reading spec-misinterpretation not-applicable other; do grep -qF "$c" sage/failures.md || exit 1; done`
 - [ ] FAIL-0001 entry 本文未変更: `git diff main HEAD -- sage/failures.md | awk '/^### FAIL-0001/,/^### FAIL-/{print}' | grep -E "^[-+]" | grep -v "^[-+][-+][-+]"` で 0 行 (本文 diff なし)
 - [ ] template 節の `cause` 追加分のみ diff: `git diff main HEAD -- sage/failures.md | grep -c "^+" ` で ≤+15 行
