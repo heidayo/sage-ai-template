@@ -524,3 +524,27 @@ Codex 2nd Specify-phase review で「SPEC-0017 は inventory template だけへ�
 | `network_mode` (off / allowlist / unrestricted) | RUN log (実測) ↔ .sage/config.yaml | global |
 
 各 field の比較 source / target を明示することで、validator 実装時の曖昧性を排除。
+
+## Properties
+
+権限レベル `platform` + Security 要件あり (SEC-01..SEC-07、supply-chain detection) のため 5 件以上必須 (SPEC-0024 §11.1)。
+
+### AC ↔ Property 対応表 (SPEC-0024 retrofit、governance §11.6)
+
+本 SPEC retrofit (TASK-0167) で追加した Properties は、既存 AC-01..AC-13 の declarative version。矛盾発生時は SPEC を更新する (governance §11.4)。本 SPEC が SPEC-0024 implementation メモの "Property 記述の例" の reference となる pilot retrofit。
+
+### Invariants
+- [INV-01] (Gate 3) `.sage/mcp-allowlist.json` の全 server entry に `version_pin` (stdio) または `url_origin_pin` (http) が存在する。`@latest` は `policy.forbid_latest_tag: true` の時 registry から拒否される (FR-02 + drift4)
+- [INV-02] (Gate 3) HTTP MCP server の `auth_mode` は `bearer_env` / `oauth` / `none` のいずれか。`policy.http_require_auth: true` 時 `none` は禁止 (FR-02 + drift6)
+- [INV-03] (Gate 4) `.sage/audit/mcp-allowlist-YYYYMMDD.log` は drift event 専用、bypass log は別 filename (`mcp-allowlist-bypass.log`) に分離 (NFR-04 / NFR-04a)
+- [INV-04] (Gate 3) `http_headers` (静的) に sensitive header (canonical lowercase: `authorization` / `cookie` / `set-cookie` / `proxy-authorization` / `x-api-key` / `x-auth-token` / `x-token`、case-insensitive) が含まれない (drift7 で reject、SEC-07)
+
+### Pre-conditions
+- [PRE-01] (Gate 2) `.sage/mcp-allowlist.json` は JSON parseable (`python3 -c "import json; json.load(open('.sage/mcp-allowlist.json'))"` exit 0、EC-01)
+- [PRE-02] (Gate 2) hook 実行環境に Python 3 が存在 (NFR-03 graceful degradation、不在時 warn + skip)
+
+### Post-conditions
+- [POST-01] (Gate 2) hook 実行後、`.sage/audit/mcp-allowlist-YYYYMMDD.log` に drift event が JSON-lines 形式で append され、各行が `python3 -c "import json,sys; json.loads(sys.stdin.read())"` で独立 parseable (NFR-04 / NFR-04a)
+
+### Assumptions
+- [ASM-01] (Gate 横断) Codex CLI / Claude Code MCP の transport は `stdio` / `http` のみ (将来 `streamable-http` 等の追加時は SPEC 更新、`policy.forbid_unknown_transport: true` で防御)
