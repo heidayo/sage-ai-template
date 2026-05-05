@@ -33,7 +33,7 @@ SPEC-0024 / PLAN-0024 / 10 TASK file を draft + Codex review feedback (6 点) �
 - `specs/SPEC-0024-property-based-verify-review-gate.md` (Draft、20 AC、10 リスク、Codex 6 点反映済)
 - `plans/PLAN-0024-property-based-verify-review-gate.md` (Draft、10 TASK、依存グラフ、4 stream 並列計画)
 - `tasks/TASK-0161-*.md` 〜 `tasks/TASK-0170-*.md` (10 file)
-- sage-evaluate 100/100 (`bash scripts/sage-evaluate.sh specs/SPEC-0024-*.md plans/PLAN-0024-*.md`)
+- sage-evaluate 100/100 (`/sage-evaluate specs/SPEC-0024-*.md plans/PLAN-0024-*.md` skill workflow)
 
 ## File Scope（変更許可範囲）
 

@@ -106,3 +106,25 @@ error_log: |
 
   Source: https://github.com/NyxFoundation/speca/ + arXiv:2604.26495
   (SPECA Phase 03 Map-Prove-Stress-Test + Phase 04 3-gate FP filter)
+
+review_fix_2026_05_06:
+  task_id: TASK-0170
+  agent_id: codex-review-fix
+  status: pass
+  findings_resolved:
+    - "P1: real SPEC Property Gate mapping is now checked, not just counted"
+    - "P2: FAIL-0001 unchanged check now compares the full entry body"
+    - "P2: installer AC-11 now checks TMPL_SPEC payload + test-property-section write/update paths"
+    - "P2: SPEC-0014 generator module invariant matches the actual 01-07 module names"
+    - "P2: SKIPPED_WITH_APPROVAL_REQUIRED audit log schema scenario added"
+  final_verification:
+    - "bash templates/hooks/tests/test-property-section.sh: pass (9/9)"
+    - "bash templates/hooks/tests/run-tests.sh: pass (198/198)"
+    - "shellcheck templates/hooks/tests/test-property-section.sh scripts/generator/06-hooks-phase5.sh scripts/generator/07-installer-main.sh: pass"
+    - "bash scripts/generate-installer.sh > /tmp/sage-new-install-final.sh && diff install.sh /tmp/sage-new-install-final.sh: pass"
+    - "shasum -a 256 -c SHA256SUMS: pass (install.sh: OK)"
+    - "bash scripts/sage-validate.sh: pass (Check 9 Gist mismatch WARN expected on feature branch)"
+    - "bash scripts/sage-doctor.sh --check-only: pass (0 FAIL)"
+    - "bash scripts/sage-doc-drift.sh: pass"
+    - "gitleaks detect --source .: pass (no leaks)"
+    - "git diff --check: pass"

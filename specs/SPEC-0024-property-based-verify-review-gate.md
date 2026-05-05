@@ -102,9 +102,10 @@ SAGE は Phase 1-6.1 で多層の防御を整備してきた:
 
 ### installer 伝播
 
-- `scripts/generator/03-rules.sh` に Property template embed 追加 (specs/_template.md 同期)
-- `scripts/generator/07-installer-main.sh` に新 hook (test-property-section.sh) 配置追加
-- `install.sh` 再生成、`SHA256SUMS` 同期、`.sage-version` 1.7.0 → 1.8.0 (minor bump、新 hook + verdict 追加)
+- `specs/_template.md` の Properties セクションは既存 `scripts/generator/01-templates.sh` の `TMPL_SPEC` embed 経由で install.sh に伝播
+- `scripts/generator/06-hooks-phase5.sh` に新 hook test (test-property-section.sh) embed 追加
+- `scripts/generator/07-installer-main.sh` に新 hook test 配置追加
+- `install.sh` 再生成、`SHA256SUMS` 同期、`.sage-version` 1.7.1 → 1.8.0 (minor bump、新 hook + verdict 追加)
 
 ## スコープ外（明示的に除外）
 
@@ -215,15 +216,16 @@ SAGE は Phase 1-6.1 で多層の防御を整備してきた:
   - [SPEC-0015](SPEC-0015-mcp-allowlist-audit-and-agent-identity.md): MCP allowlist supply-chain pin の不変条件 (transport-aware schema / OAuth callback uniqueness / sensitive header redact / detection-only / audit log JSON validity 等) 5 件以上
   - 既存 AC とは併存 (AC は command-verifiable / Property は declarative)、矛盾発生時は SPEC を更新する手順を governance §11.4 で別途規定
 
-- **[FR-07]** `templates/hooks/tests/test-property-section.sh` 新規 (8+ scenarios):
+- **[FR-07]** `templates/hooks/tests/test-property-section.sh` 新規 (9 scenarios):
   1. 新規 SPEC (SPEC-0024 以降) に Properties セクション存在
   2. 4 種別ヘッダ (Invariants/Pre-conditions/Post-conditions/Assumptions) のうち 1 つ以上存在
-  3. 各 Property に Gate mapping `(Gate N)` 含む
-  4. 権限レベル `system`/`platform` + Security 要件あり SPEC で Property 5 件以上
+  3. SPEC-0024 の各 Property に Gate mapping `(Gate N)` を含み、5 件以上存在
+  4. pilot 3 SPEC の各 Property に Gate mapping `(Gate N)` を含み、各 5 件以上存在
   5. 権限レベル `feature` で `Properties: not applicable + 理由` 許容 (PASS 扱い)
   6. 異常系: Properties セクション削除 fixture で FAIL
   7. 異常系: Gate mapping 欠落 fixture で FAIL
-  8. 既存 SPEC (SPEC-0001..0023、pilot 3 件除く) は WARN-only (FAIL にしない、incremental migration)
+  8. SKIPPED_WITH_APPROVAL_REQUIRED audit log JSON-lines schema 検証
+  9. 既存 SPEC (SPEC-0001..0023、pilot 3 件除く) は WARN-only (FAIL にしない、incremental migration)
 
 - **[FR-08]** `CLAUDE.md` § 9 章末に Property doctrine cross-reference 追加 (R7 ≤+5 行):
   ```
@@ -240,11 +242,12 @@ SAGE は Phase 1-6.1 で多層の防御を整備してきた:
   - Review uses 3-gate FP filter (Dead Code / Trust Boundary / Scope Check).
 
 - **[FR-10]** installer 伝播:
-  - `scripts/generator/03-rules.sh` に `TMPL_PROPERTY_TEMPLATE` (FR-01 形式の Properties セクション template) を embed
+  - `scripts/generator/01-templates.sh` の既存 `TMPL_SPEC` embed 経由で `specs/_template.md` の Properties セクションを install.sh に伝播
+  - `scripts/generator/06-hooks-phase5.sh` に `TMPL_TEST_PROPERTY_SECTION` embed を追加
   - `scripts/generator/07-installer-main.sh` に `templates/hooks/tests/test-property-section.sh` の配置エントリ追加
   - `install.sh` 再生成 (`bash scripts/generate-installer.sh > install.sh`)
   - `SHA256SUMS` 再生成 (release tag push 時に sage-publish.sh が実行)
-  - `.sage-version` を `1.7.0` → `1.8.0` に bump (新 hook + 新 verdict 追加 = minor)
+  - `.sage-version` を `1.7.1` → `1.8.0` に bump (新 hook + 新 verdict 追加 = minor)
 
 ### 非機能要件
 
@@ -256,7 +259,7 @@ SAGE は Phase 1-6.1 で多層の防御を整備してきた:
 - **[NFR-06] graceful degradation**: 既存 SPEC で Properties セクション不在の場合、test は WARN 出力 + skip (FAIL にしない、AC-11 で incremental migration を担保)
 - **[NFR-07] paired update doctrine 準拠**: SPEC-0023 §10 で formalized された paired update を本 SPEC が踏襲。CLAUDE.md / AGENTS.md / 両 snippet の同期更新を 1 PR で完結
 - **[NFR-08] file scope 厳守**: 各 TASK は File Scope を明示、Properties retrofit (TASK-0167) は pilot 3 件のみで他 SPEC を触らない
-- **[NFR-09] code coverage**: not applicable (本 SPEC は `src/` 配下を変更しない、template + governance + hook 追加のみ)。代替指標として hook test scenario coverage を AC-07 で 8+ 件、AC-08 で 195+ (既存 187 + 新規 8) で必須化、`templates/hooks/tests/run-tests.sh` で CI 常時実行
+- **[NFR-09] code coverage**: not applicable (本 SPEC は `src/` 配下を変更しない、template + governance + hook 追加のみ)。代替指標として hook test scenario coverage を AC-07 で 9 件、AC-08 で 198+ (既存 189 + 新規 9) で必須化、`templates/hooks/tests/run-tests.sh` で CI 常時実行
 
 ### セキュリティ要件
 
@@ -281,7 +284,7 @@ SAGE は Phase 1-6.1 で多層の防御を整備してきた:
 
   | 昇格 | 条件 | 検証コマンド |
   |---|---|---|
-  | none → standard | 本 SPEC merge 完了 + pilot 3 件 retrofit 完了 + 新 hook 7/8 PASS | `bash templates/hooks/tests/test-property-section.sh` |
+  | none → standard | 本 SPEC merge 完了 + pilot 3 件 retrofit 完了 + 新 hook 9/9 PASS | `bash templates/hooks/tests/test-property-section.sh` |
   | standard → strict | standard で 14 日運用 + 新 SPEC 起票 5 件以上で全件 Properties 含む | `for spec in $(find specs -name 'SPEC-*.md' -newer specs/SPEC-0024-*.md); do grep -l "## Properties" "$spec"; done \| wc -l` で 5+ |
 
 - **[OPS-05] failures.md cause field の運用**: 新規 entry 起票時のみ任意 (添加) 記入推奨。既存 entry の cause を後付け推定する PR は禁止 (rejection、推定 retrofit が spec-misinterpretation の温床のため)
@@ -291,25 +294,25 @@ SAGE は Phase 1-6.1 で多層の防御を整備してきた:
 - [ ] **AC-01**: `specs/_template.md` に「## Properties」セクションが存在し、4 種別ヘッダ + 権限レベル別下限 + Gate mapping 例を含む  
   検証: `grep -F "## Properties" specs/_template.md && grep -F "Invariants" specs/_template.md && grep -F "(Gate" specs/_template.md`
 - [ ] **AC-02**: pilot 3 SPEC ([0011](SPEC-0011-hook-hardening-and-test-infrastructure.md), [0014](SPEC-0014-installer-modularize.md), [0015](SPEC-0015-mcp-allowlist-audit-and-agent-identity.md)) に Properties セクションが追加され、各 5 件以上の Property を含む  
-  検証: `for f in 0011 0014 0015; do n=$(grep -cE "^- \[(INV|PRE|POST|ASM)-[0-9]+\]" specs/SPEC-$f-*.md); [ "$n" -ge 5 ] || exit 1; done`
+  検証: `for f in specs/SPEC-0011-*.md specs/SPEC-0014-*.md specs/SPEC-0015-*.md; do n=$(grep -cE "^- \[(INV|PRE|POST|ASM)-[0-9]+\]" "$f"); m=$(grep -cE "^- \[(INV|PRE|POST|ASM)-[0-9]+\] \(Gate (2|3|4|横断)\)" "$f"); [ "$n" -ge 5 ] && [ "$m" -eq "$n" ] || exit 1; done`
 - [ ] **AC-03**: `templates/skills/sage-review/SKILL.md` に「3-gate FP filter」セクションが存在し、Dead Code / Trust Boundary / Scope Check の 3 gate と早期 exit ロジックを記述  
   検証: `grep -F "Dead Code" templates/skills/sage-review/SKILL.md && grep -F "Trust Boundary" templates/skills/sage-review/SKILL.md && grep -F "Scope Check" templates/skills/sage-review/SKILL.md && grep -F "early" templates/skills/sage-review/SKILL.md`
 - [ ] **AC-04**: `templates/skills/sage-review/SKILL.md` の `review_feedback` YAML schema が 6 verdict を含む  
   検証: `for v in PASS FAIL OUT_OF_TASK_SCOPE FOLLOW_UP_REQUIRED DISPUTED_FP SKIPPED_WITH_APPROVAL_REQUIRED; do grep -qF "$v" templates/skills/sage-review/SKILL.md || exit 1; done`
 - [ ] **AC-05**: `sage/failures.md` エントリフォーマットに `cause` field (markdown bold `**cause**` 形式、既存 field と整合) と enum 5 値が記述、既存 FAIL-0001 は **未変更**  
-  検証: `grep -F '**cause**' sage/failures.md && for c in trust-boundary code-reading spec-misinterpretation not-applicable other; do grep -qF "$c" sage/failures.md || exit 1; done && diff <(git show main:sage/failures.md | awk '/^### FAIL-0001/,/^### FAIL-[0-9]+/{print}') <(awk '/^### FAIL-0001/,/^### FAIL-[0-9]+/{print}' sage/failures.md)` (cause field 存在 + enum 5 値存在 + FAIL-0001 entry 領域 main と本 branch で完全一致 = diff exit 0、不一致なら非ゼロ終了で AC fail)
+  検証: `grep -F '**cause**' sage/failures.md && for c in trust-boundary code-reading spec-misinterpretation not-applicable other; do grep -qF "$c" sage/failures.md || exit 1; done && diff <(git show main:sage/failures.md | awk 'BEGIN{p=0} /^### FAIL-0001$/{p=1} /^### FAIL-[0-9]+$/ && $0!="### FAIL-0001" && p{exit} p{print}') <(awk 'BEGIN{p=0} /^### FAIL-0001$/{p=1} /^### FAIL-[0-9]+$/ && $0!="### FAIL-0001" && p{exit} p{print}' sage/failures.md)` (cause field 存在 + enum 5 値存在 + FAIL-0001 entry 全本文が main と本 branch で完全一致 = diff exit 0、不一致なら非ゼロ終了で AC fail)
 - [ ] **AC-06**: `sage/governance.md` §11 が新節として存在し、§11.1〜§11.5 の 5 sub-section 以上を含む (本文内では §11 と記すが header は既存 §10 同様 `## 11.` 形式、SPEC-0023 governance §10 と整合)  
   検証: `grep -F "## 11. Property-based Verify and Review Gate" sage/governance.md && for s in 11.1 11.2 11.3 11.4 11.5; do grep -qF "### $s" sage/governance.md || exit 1; done`
 - [ ] **AC-07**: `templates/hooks/tests/test-property-section.sh` が PASS、新規 SPEC で Properties 欠落時に FAIL を返す  
   検証: `bash templates/hooks/tests/test-property-section.sh`
-- [ ] **AC-08**: `templates/hooks/tests/run-tests.sh` 全 PASS (既存 187 + 新規 8 = 195+)  
+- [ ] **AC-08**: `templates/hooks/tests/run-tests.sh` 全 PASS (既存 189 + 新規 9 = 198+)
   検証: `bash templates/hooks/tests/run-tests.sh`
 - [ ] **AC-09**: `bash scripts/sage-validate.sh` PASS、`bash scripts/sage-doctor.sh` 0 FAIL  
   検証: 直接実行
 - [ ] **AC-10**: `bash scripts/generate-installer.sh > /tmp/new && diff install.sh /tmp/new` で 0 行 (byte-identical)  
   検証: 直接実行
-- [ ] **AC-11**: `install.sh` に `TMPL_PROPERTY_TEMPLATE` および `templates/hooks/tests/test-property-section.sh` 書き込みパスを含む  
-  検証: `grep -c "TMPL_PROPERTY_TEMPLATE\|test-property-section" install.sh` で 3+
+- [ ] **AC-11**: `install.sh` の `TMPL_SPEC` payload に Properties セクションを含み、`templates/hooks/tests/test-property-section.sh` の install / update 書き込みパスを含む
+  検証: `grep -F "read -r -d '' TMPL_SPEC" install.sh && awk 'BEGIN{p=0} /^read -r -d .* TMPL_SPEC /{p=1; next} /^__EOF_TMPL_SPEC__$/ && p{exit} p{print}' install.sh | grep -F "## Properties" && grep -F 'write_file_if_new "templates/hooks/tests/test-property-section.sh"' install.sh && grep -F 'update_file "templates/hooks/tests/test-property-section.sh"' install.sh`
 - [ ] **AC-12**: paired update — `CLAUDE.md` と `AGENTS.md` に Property doctrine cross-reference が同 semantic 内容で存在 (各 ≤+5 行)  
   検証: `grep -F "Property-based Verify" CLAUDE.md && grep -F "Property-based Verify" AGENTS.md && grep -F "SPEC-0024" CLAUDE.md && grep -F "SPEC-0024" AGENTS.md`
 - [ ] **AC-13**: `templates/claude-md-snippet.md` および `templates/agents-md-snippet.md` に parallel bullet (各 ≤+2 行) が追加  
@@ -319,13 +322,13 @@ SAGE は Phase 1-6.1 で多層の防御を整備してきた:
 - [ ] **AC-15** (異常系): Gate mapping 欠落 fixture (`[INV-01] <内容>` のみで `(Gate N)` 不在) で FAIL を返す  
   検証: test 内 mutation simulate
 - [ ] **AC-16** (backward compat): 既存 SPEC で Properties 不在のものは WARN-only、FAIL にしない (incremental migration 担保)  
-  検証: test scenario 8 で existing SPEC-0001 fixture を読み WARN-only
+  検証: test scenario 9 で existing SPEC-0001 fixture を読み WARN-only
 - [ ] **AC-17** (backward compat): `bash install.sh --update` で既存 `.sage/config.yaml` `installer_url` が書き換わらない  
   検証: 既存 fixture で `bash install.sh --update` 実行後 grep
-- [ ] **AC-18**: `.sage-version` が `1.7.0` → `1.8.0` に更新  
+- [ ] **AC-18**: `.sage-version` が `1.7.1` → `1.8.0` に更新
   検証: `grep -F "1.8.0" .sage-version`
 - [ ] **AC-19**: shellcheck error 0 件 (新規 test + 既存 modified scripts)  
-  検証: `shellcheck templates/hooks/tests/test-property-section.sh && shellcheck scripts/generator/03-rules.sh`
+  検証: `shellcheck templates/hooks/tests/test-property-section.sh scripts/generator/06-hooks-phase5.sh scripts/generator/07-installer-main.sh`
 - [ ] **AC-20**: SKIPPED_WITH_APPROVAL_REQUIRED の audit log JSON schema が NFR-05 の 5 必須 field を満たす  
   検証: test scenario で SKIPPED 出力を `python3 -c "import json,sys; r=json.loads(sys.stdin.read()); assert all(k in r for k in ['timestamp','approver','reason','spec_id','property_id'])"` で parse
 
@@ -495,7 +498,7 @@ PLAN-0024 で詳細化。基本は: foundation TASK-0161 → template/governance
 - **R4** (no SecPass thresholds): 本 SPEC は threshold 概念なし、verdict + audit log のみ
 - **R5** (RUN log redaction): SKIPPED_WITH_APPROVAL_REQUIRED の audit log は env 名のみ、secret 値含めない (SEC-02)
 - **R7** (CLAUDE/AGENTS 肥大化禁止): NFR-02 で各 ≤+5 行明示
-- **R8** (hook tests required): AC-07 / AC-14 / AC-15 で 8+ scenarios 必須、異常系 fixture 含む
+- **R8** (hook tests required): AC-07 / AC-14 / AC-15 / AC-20 で 9 scenarios 必須、異常系 fixture + audit schema fixture 含む
 - **R9** (shellcheck required): AC-19 で error 0 件必須
 - **R10** (一次ソース引用): SPECA paper [arXiv:2604.26495](https://arxiv.org/abs/2604.26495) と GitHub repo を一次ソース引用
 

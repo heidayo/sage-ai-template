@@ -13,7 +13,7 @@
 
 - [ ] controller / usecase / domain / frontend (該当なし、本 SPEC は documentation + tooling)
 - [x] infrastructure (governance §11 / installer / hook test)
-- [x] tooling (`scripts/generator/03-rules.sh` + `scripts/generator/07-installer-main.sh`)
+- [x] tooling (`scripts/generator/06-hooks-phase5.sh` + `scripts/generator/07-installer-main.sh`)
 - [x] docs (`CLAUDE.md` / `AGENTS.md` / `sage/governance.md` / `sage/failures.md` / `templates/claude-md-snippet.md` / `templates/agents-md-snippet.md` / `specs/_template.md`)
 - [x] skills (`templates/skills/sage-review/SKILL.md` + `.claude/skills/sage-review/SKILL.md`)
 - [x] specs retrofit (pilot 3 件: SPEC-0011 / SPEC-0014 / SPEC-0015)
@@ -26,7 +26,7 @@
 - **Review skill 利用者**: 3-gate FP filter (Dead Code / Trust Boundary / Scope Check) で finding 自動分類、新 verdict (OUT_OF_TASK_SCOPE / FOLLOW_UP_REQUIRED / DISPUTED_FP / SKIPPED_WITH_APPROVAL_REQUIRED) で粒度向上
 - **既存 SPEC 利用者**: NFR-01 backward compat により既存 23 SPEC は触らない、incremental migration (OPS-02)。pilot 3 件 (SPEC-0011/0014/0015) のみ Properties additive 追加
 - **新規 SAGE 導入リポジトリ**: install.sh が Property template を配置、新規 SPEC はセクション込みで生成
-- **CI**: 新 hook (test-property-section.sh) が run-tests.sh に追加 (8+ scenarios)、SPEC-0023 paired test (test-claude-collaboration-pairing.sh) を流用して CLAUDE/AGENTS 同期検証
+- **CI**: 新 hook (test-property-section.sh) が run-tests.sh に追加 (9 scenarios)、SPEC-0023 paired test (test-claude-collaboration-pairing.sh) を流用して CLAUDE/AGENTS 同期検証
 - **Codex 並用 team**: paired-update doctrine 準拠 (SPEC-0023 §10) で AGENTS.md / agents-md-snippet.md にも parallel reference 追加 (Codex 専用本文は scope 外)
 - **maintainer**: failures.md に cause field (additive) で root-cause 集計が可能になる、anti-pattern 昇格判定が定量化
 
@@ -110,7 +110,7 @@ SPEC-0023 §10 で formalized された paired update doctrine を本 SPEC が�
 
 ### installer 伝播
 
-`scripts/generator/03-rules.sh` に `TMPL_PROPERTY_TEMPLATE` (FR-01 形式) を embed 追加。`scripts/generator/07-installer-main.sh` に `templates/hooks/tests/test-property-section.sh` の write エントリ追加 (SPEC-0023 同 pattern)。`install.sh` 再生成、`.sage-version` 1.7.0 → 1.8.0 (minor bump、新 hook + 新 verdict 追加)。
+`specs/_template.md` の Properties セクションは既存 `scripts/generator/01-templates.sh` の `TMPL_SPEC` embed で伝播。`scripts/generator/06-hooks-phase5.sh` に `TMPL_TEST_PROPERTY_SECTION` embed を追加し、`scripts/generator/07-installer-main.sh` に `templates/hooks/tests/test-property-section.sh` の write/update エントリ追加 (SPEC-0023 同 pattern)。`install.sh` 再生成、`.sage-version` 1.7.1 → 1.8.0 (minor bump、新 hook + 新 verdict 追加)。
 
 ## TASK 分割 (10 TASK)
 
@@ -123,8 +123,8 @@ SPEC-0023 §10 で formalized された paired update doctrine を本 SPEC が�
 | TASK-0165 | `templates/skills/sage-review/SKILL.md` 3-gate FP filter + 6 verdict 拡張 + `.claude/skills/sage-review/SKILL.md` 同期 | shared-core | 60m | TASK-0162 | Yes (TASK-0166 と並列) |
 | TASK-0166 | `sage/failures.md` cause field additive (template only、既存 entry 不変) | shared-core | 20m | TASK-0162 | Yes (TASK-0165 と並列) |
 | TASK-0167 | pilot retrofit: SPEC-0011 / SPEC-0014 / SPEC-0015 に Properties セクション additive (各 5 件以上) | pilot | 90m | TASK-0162 | Yes (上記 4 TASK と並列、別 File Scope) |
-| TASK-0168 | `templates/hooks/tests/test-property-section.sh` 新規 (8+ scenarios) + `templates/hooks/tests/run-tests.sh` 統合 | shared-core | 60m | TASK-0162, TASK-0167 | No (pilot 完了が test fixture 前提) |
-| TASK-0169 | `scripts/generator/03-rules.sh` embed + `scripts/generator/07-installer-main.sh` write entry + `install.sh` 再生成 + `.sage-version` 1.7.0→1.8.0 + `SHA256SUMS` 同期 (release tag push 時) | shared-core | 75m | TASK-0163, TASK-0164, TASK-0165, TASK-0166, TASK-0167, TASK-0168 | No |
+| TASK-0168 | `templates/hooks/tests/test-property-section.sh` 新規 (9 scenarios) + `templates/hooks/tests/run-tests.sh` 統合 | shared-core | 60m | TASK-0162, TASK-0167 | No (pilot 完了が test fixture 前提) |
+| TASK-0169 | `scripts/generator/06-hooks-phase5.sh` embed + `scripts/generator/07-installer-main.sh` write entry + `install.sh` 再生成 + `.sage-version` 1.7.1→1.8.0 + `SHA256SUMS` 同期 (PR 内) | shared-core | 75m | TASK-0163, TASK-0164, TASK-0165, TASK-0166, TASK-0167, TASK-0168 | No |
 | TASK-0170 | paired-verification (test-claude-collaboration-pairing.sh 流用 grep 拡張) + RUN-0009 + final verification (run-tests / sage-doctor / sage-doc-drift / sage-validate) | paired-verification | 45m | TASK-0169 | No |
 
 合計: 545 min (9.1h、wall-clock 並列実行で約 360min = 6h)
@@ -162,8 +162,8 @@ TASK-0163  TASK-0164  TASK-0165  TASK-0166  TASK-0167
 
 ## 検証方法
 
-- **Unit test**: `bash templates/hooks/tests/run-tests.sh` で既存 187 + 新規 8 scenario PASS (合計 195+)
-- **Integration test**: `bash templates/hooks/tests/test-property-section.sh` 単体で 8/8 PASS、異常系 fixture (AC-14/15) も test 内で simulate
+- **Unit test**: `bash templates/hooks/tests/run-tests.sh` で既存 189 + 新規 9 scenario PASS (合計 198+)
+- **Integration test**: `bash templates/hooks/tests/test-property-section.sh` 単体で 9/9 PASS、異常系 fixture (AC-14/15) と AC-20 audit schema を test 内で simulate
 - **Byte-identical regression**: `bash scripts/generate-installer.sh > /tmp/new.sh && diff install.sh /tmp/new.sh` 0 行
 - **Backward compat**: 既存 `.sage/config.yaml` (Gist URL fixture) で `bash install.sh --update` exit 0、`installer_url` 不変、既存 SPEC は WARN-only
 - **Validate / Doctor / Doc-drift**: 既存 3 script で 0 FAIL / PASS
@@ -199,7 +199,7 @@ PLAN レベル risk (SPEC レベル risk は SPEC-0024 §「リスク」参照):
 | **R5** (RUN log redaction) | SKIPPED_WITH_APPROVAL_REQUIRED の audit log は env 名のみ (SEC-02) |
 | **R6** (license vs security 分離) | 本 SPEC は documentation + governance、license に触らない |
 | **R7** (CLAUDE/AGENTS 肥大化禁止) | NFR-02 で各 ≤+5 行明示、長文は SPEC-0024 + governance §11 に集約 |
-| **R8** (hook tests required) | TASK-0168 で 8+ scenario test 必須、AC-14/15 異常系 fixture 含む |
+| **R8** (hook tests required) | TASK-0168 で 9 scenario test 必須、AC-14/15 異常系 fixture + AC-20 audit schema 含む |
 | **R9** (shellcheck required) | AC-19 で test + 既存 modified scripts に shellcheck error 0 件必須 |
 | **R10** (一次ソース引用) | SPECA paper [arXiv:2604.26495](https://arxiv.org/abs/2604.26495) と [GitHub repo](https://github.com/NyxFoundation/speca/) を一次ソース引用 |
 
@@ -241,5 +241,5 @@ Phase 6.1 / SPEC-0022 / SPEC-0023 implementation review pattern を踏襲。
 - [ ] SPEC-0024 全 AC (AC-01..AC-20) 達成
 - [ ] PR description に SPEC-0024 / PLAN-0024 / 10 TASK link + paired with SPEC-0023 doctrine の 2 例目である旨明記
 - [ ] Codex implementation review 0 件 P1/P2 (本 PR は Claude 側成果のため Codex がレビュー)
-- [ ] `.sage-version` 1.7.0 → 1.8.0 (minor bump、新 hook + 新 verdict 追加)
+- [ ] `.sage-version` 1.7.1 → 1.8.0 (minor bump、新 hook + 新 verdict 追加)
 - [ ] CHANGELOG entry (該当 file 不在のため、PR description で代用)

@@ -67,14 +67,14 @@ notes:
 ### final verification
 
 ```bash
-bash templates/hooks/tests/run-tests.sh           # 195+ PASS
-bash templates/hooks/tests/test-property-section.sh  # 8+ PASS
+bash templates/hooks/tests/run-tests.sh           # 198+ PASS
+bash templates/hooks/tests/test-property-section.sh  # 9/9 PASS
 bash templates/hooks/tests/test-claude-collaboration-pairing.sh  # paired test PASS
 bash scripts/sage-validate.sh                     # PASS
 bash scripts/sage-doctor.sh                       # 0 FAIL
 bash scripts/sage-doc-drift.sh                    # PASS
 bash scripts/generate-installer.sh > /tmp/new.sh && diff install.sh /tmp/new.sh  # 0 行
-shellcheck templates/hooks/tests/test-property-section.sh scripts/generator/03-rules.sh scripts/generator/07-installer-main.sh  # error 0 件
+shellcheck templates/hooks/tests/test-property-section.sh scripts/generator/06-hooks-phase5.sh scripts/generator/07-installer-main.sh  # error 0 件
 gitleaks detect --source .                        # PASS (secret なし)
 ```
 
@@ -108,8 +108,8 @@ gitleaks detect --source .                        # PASS (secret なし)
 - [ ] `.sage/runs/RUN-0009.yaml` 存在 + RUN-0009 / SPEC-0024 / 10 TASK-ID 含む
 - [ ] SPEC-0024 / PLAN-0024 status = Review
 - [ ] TASK-0161..0170 status = Done
-- [ ] `bash templates/hooks/tests/run-tests.sh` 195+ PASS
-- [ ] `bash templates/hooks/tests/test-property-section.sh` 8+ PASS
+- [ ] `bash templates/hooks/tests/run-tests.sh` 198+ PASS
+- [ ] `bash templates/hooks/tests/test-property-section.sh` 9/9 PASS
 - [ ] `bash templates/hooks/tests/test-claude-collaboration-pairing.sh` PASS (paired-update doctrine 検証)
 - [ ] `bash scripts/sage-doctor.sh` 0 FAIL
 - [ ] `bash scripts/sage-doc-drift.sh` PASS

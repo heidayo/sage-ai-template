@@ -244,7 +244,7 @@ Step 3 [昇格]
 ### Invariants
 - [INV-01] (Gate 4) `scripts/generator/` の 7 module で生成した install.sh が canonical install.sh と byte-identical (`bash scripts/generate-installer.sh > /tmp/new && diff install.sh /tmp/new` で 0 行、AC-byte-identical と対応)
 - [INV-02] (Gate 3) install.sh で配布される全 managed_files が SHA256SUMS と一致 (SPEC-0018 supply chain hardening と整合)
-- [INV-03] (Gate 4) 7 module の責務分離 (00-header / 01-config / 02-templates / 03-rules / 04-skills / 05-hooks / 06-scripts / 07-installer-main) を維持、cross-module 直接呼び出し禁止
+- [INV-03] (Gate 4) 7 module の責務分離 (01-templates / 02-config / 03-rules / 04-hooks-base / 05-hooks-phase2b / 06-hooks-phase5 / 07-installer-main) を維持、cross-module 直接呼び出し禁止
 - [INV-04] (Gate 3) generator は手書き install.sh への直接編集を禁止 (`bash scripts/generate-installer.sh > install.sh` のみが正規 path)
 
 ### Pre-conditions
