@@ -628,6 +628,7 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/hooks/tests/test-runlog-index.sh" "$TMPL_TEST_RUNLOG_INDEX" && chmod +x "templates/hooks/tests/test-runlog-index.sh"
   write_file_if_new "templates/hooks/tests/test-runlog-search.sh" "$TMPL_TEST_RUNLOG_SEARCH" && chmod +x "templates/hooks/tests/test-runlog-search.sh"
   write_file_if_new "templates/hooks/tests/test-runlog-db-doctor.sh" "$TMPL_TEST_RUNLOG_DB_DOCTOR" && chmod +x "templates/hooks/tests/test-runlog-db-doctor.sh"
+  write_file_if_new "templates/hooks/tests/test-property-section.sh" "$TMPL_TEST_PROPERTY_SECTION" && chmod +x "templates/hooks/tests/test-property-section.sh"
   write_file_if_new "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   write_file_if_new "templates/settings/README.md" "$TMPL_SETTINGS_README"
 else
@@ -657,6 +658,7 @@ else
   update_file "templates/hooks/tests/test-runlog-index.sh" "$TMPL_TEST_RUNLOG_INDEX" && chmod +x "templates/hooks/tests/test-runlog-index.sh"
   update_file "templates/hooks/tests/test-runlog-search.sh" "$TMPL_TEST_RUNLOG_SEARCH" && chmod +x "templates/hooks/tests/test-runlog-search.sh"
   update_file "templates/hooks/tests/test-runlog-db-doctor.sh" "$TMPL_TEST_RUNLOG_DB_DOCTOR" && chmod +x "templates/hooks/tests/test-runlog-db-doctor.sh"
+  update_file "templates/hooks/tests/test-property-section.sh" "$TMPL_TEST_PROPERTY_SECTION" && chmod +x "templates/hooks/tests/test-property-section.sh"
   update_file "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   update_file "templates/settings/README.md" "$TMPL_SETTINGS_README"
 fi
