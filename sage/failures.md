@@ -16,11 +16,19 @@
 - **発生日**: YYYY-MM-DD
 - **TASK-ID**: TASK-XXXX
 - **該当アンチパターン**: (あれば) Vibe Merge / Big Bang Prompt / Silent Scope Expansion / AI Monolith / Invisible Development / Human-Only Guard
+- **cause** (任意、SPEC-0024 OPS-05 — **新規 entry のみ**、既存 entry の後付け推定は禁止): trust-boundary / code-reading / spec-misinterpretation / not-applicable / other
 - **症状**: 何が起きたか
 - **根本原因**: なぜ起きたか
 - **修正**: どう直したか
 - **防止策**: 今後どう防ぐか（CI追加 / ルール追加 / テンプレ修正等）
 - **昇格済み**: Yes / No（anti-patterns.mdに追加済みか）
+
+cause enum の意味 (SPECA paper §4.2 由来、SPEC-0024 で SAGE に採用):
+- `trust-boundary`: untrusted/attacker-controlled input の信頼境界誤解 (例: SQL injection、CSRF token 不足、auth バイパス)
+- `code-reading`: 実装読解のミス (例: dead code branch の見落とし、複雑な制御フロー誤読)
+- `spec-misinterpretation`: SPEC 文言の誤解 (例: MUST と SHOULD の混同、scope 不明確な記述)
+- `not-applicable`: 上記分類が当てはまらない構造的問題 (例: infrastructure 障害、CI 環境固有の flaky)
+- `other`: 上記いずれにも分類できない (詳細は症状欄に記述)
 
 ---
 

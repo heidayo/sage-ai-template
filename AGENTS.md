@@ -247,6 +247,12 @@ Phase 6.1: Installer supply chain hardening (SPEC-0018) — GitHub Releases prim
 Profile in `.sage/config.yaml` `hooks.profile`: minimal → standard → strict → none.
 Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
 
+## 9.2 Property-based Verify (SPEC-0024)
+
+全 SPEC は権限レベルに応じて Properties セクション (Invariant / Pre / Post / Assumption) を持つ。
+Review Agent は Dead Code / Trust Boundary / Scope Check の 3-gate FP filter を適用。
+詳細: [sage/governance.md §11](sage/governance.md)。
+
 ## 10. Language Rules
 
 | Context | Language |
@@ -320,6 +326,8 @@ This file (`AGENTS.md`) defines repository-wide development rules.
 - Do not modify `sage/` without human approval.
 - Codex delegation packet: follow `docs/codex-delegation-packet.md`; standard-lane tasks need Goal / Scope / Non-goals / File Scope / Acceptance Criteria / Tests before implementation.
 - Codex-only boundary: do not edit Claude Code-specific files (`CLAUDE.md`, `.claude/`) unless a human explicitly assigns that scope to Codex. Record them as Claude follow-up otherwise.
+- Properties section is required for new SPECs (system/platform). See `sage/governance.md` §11.
+- Review uses 3-gate FP filter (Dead Code / Trust Boundary / Scope Check).
 
 Prohibited:
 - Implementing without a SPEC

@@ -13,6 +13,8 @@
 - Do not modify `sage/` without human approval.
 - Codex delegation packet: follow `docs/codex-delegation-packet.md`; standard-lane tasks need Goal / Scope / Non-goals / File Scope / Acceptance Criteria / Tests before implementation.
 - Codex-only boundary: do not edit Claude Code-specific files (`CLAUDE.md`, `.claude/`) unless a human explicitly assigns that scope to Codex. Record them as Claude follow-up otherwise.
+- Properties section is required for new SPECs (system/platform). See `sage/governance.md` §11.
+- Review uses 3-gate FP filter (Dead Code / Trust Boundary / Scope Check).
 
 Prohibited:
 - Implementing without a SPEC

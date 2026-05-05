@@ -232,3 +232,26 @@ Step 3 [昇格]
 | SPEC-0017 | Agent identity inventory | merged (PR #23) |
 
 本 SPEC は Phase 5+ の **最終 refactor SPEC**。完了で SAGE v2 ロードマップ 17 SPEC 全完了予定。
+
+## Properties
+
+権限レベル `platform` + Security 要件あり (supply-chain trust、SPEC-0018 と直交補完) のため 5 件以上必須 (SPEC-0024 §11.1)。
+
+### AC ↔ Property 対応表 (SPEC-0024 retrofit、governance §11.6)
+
+本 SPEC retrofit (TASK-0167) で追加した Properties は、既存 AC の declarative version。矛盾発生時は SPEC を更新する (governance §11.4)。
+
+### Invariants
+- [INV-01] (Gate 4) `scripts/generator/` の 7 module で生成した install.sh が canonical install.sh と byte-identical (`bash scripts/generate-installer.sh > /tmp/new && diff install.sh /tmp/new` で 0 行、AC-byte-identical と対応)
+- [INV-02] (Gate 3) install.sh で配布される全 managed_files が SHA256SUMS と一致 (SPEC-0018 supply chain hardening と整合)
+- [INV-03] (Gate 4) 7 module の責務分離 (01-templates / 02-config / 03-rules / 04-hooks-base / 05-hooks-phase2b / 06-hooks-phase5 / 07-installer-main) を維持、cross-module 直接呼び出し禁止
+- [INV-04] (Gate 3) generator は手書き install.sh への直接編集を禁止 (`bash scripts/generate-installer.sh > install.sh` のみが正規 path)
+
+### Pre-conditions
+- [PRE-01] (Gate 2) install.sh 実行環境に bash 4+ + standard unix tools (`sha256sum` / `shasum` / `curl`) が存在
+
+### Post-conditions
+- [POST-01] (Gate 2) `bash install.sh --update` 実行後、既存 `.sage/config.yaml` の `installer_url` 値は不変 (backward compat、Phase 5+ 全 SPEC で維持)
+
+### Assumptions
+- [ASM-01] (Gate 横断) generator の embed 方式 (`TMPL_*` heredoc) で template content が install.sh 内に literal embed される (template の bytes-as-is 配布)

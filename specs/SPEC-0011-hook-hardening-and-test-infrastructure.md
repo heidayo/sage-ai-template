@@ -141,6 +141,29 @@ Codex review (cross-model adversarial) の以下に対応する:
 - shellcheck の baseline 化は GitHub Actions `set-output` 経由 + Annotation で実装
 - install.sh 再生成は Phase 1 同様 generator 経由
 
+### AC ↔ Property 対応表 (SPEC-0024 retrofit、governance §11.6)
+
+本 SPEC retrofit (TASK-0167) で追加した Properties は、既存 AC の declarative version。矛盾発生時は SPEC を更新する (Property を改変して隠蔽しない、governance §11.4)。
+
+## Properties
+
+権限レベル `platform` + Security 要件あり (R8 hook tests / R9 shellcheck doctrine) のため 5 件以上必須 (SPEC-0024 §11.1)。
+
+### Invariants
+- [INV-01] (Gate 3) 全 hook script は shellcheck error 0 件で merge される (R9 doctrine、AC-shellcheck と対応)
+- [INV-02] (Gate 3) Hook テストは `templates/hooks/tests/run-tests.sh` の glob 自動発見で統合され、CI で常時実行される (R8 doctrine、AC-test と対応)
+- [INV-03] (Gate 4) Hook の profile gating (`.sage/config.yaml` `hooks.profile`) で `none` / `minimal` / `standard` / `strict` の動作が差別化される (escalation 一方向、降格は別 PR)
+- [INV-04] (Gate 3) `block-dangerous-commands.sh` の chain 長判定は `tr -cd ';|&' | wc -c` で count、grep regex に依存しない (既存 pattern と分離、誤検知抑制)
+
+### Pre-conditions
+- [PRE-01] (Gate 2) Hook 実行環境に bash 4+ が存在する (NFR-03 portability、macOS / Linux 両対応)
+
+### Post-conditions
+- [POST-01] (Gate 2) Hook 実行後、kill 系コマンド (`kill` / `pkill` / `killall`) を 1 回も呼ばない (detection-only doctrine、SPEC-0015 SEC-01 と整合)
+
+### Assumptions
+- [ASM-01] (Gate 横断) macOS / Linux 両対応の bash + 標準 unix tools が利用可能 (NFR-03)
+
 ## 関連ID
 
 - PLAN-ID: PLAN-0011 (本 SPEC と同時作成)

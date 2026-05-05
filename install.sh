@@ -12,7 +12,7 @@
 # ============================================
 set -euo pipefail
 
-SAGE_VERSION="1.7.1"
+SAGE_VERSION="1.8.0"
 
 # === Embedded templates ===
 
@@ -100,6 +100,29 @@ read -r -d '' TMPL_SPEC <<'__EOF_TMPL_SPEC__' || true
 ## 実装メモ（Implementation Agent向け）
 
 実装時に参考にすべき既存コード・パターン・制約。
+
+## Properties
+
+SPEC が満たすべき意味論的性質を declarative に列挙する。Verify / Review phase で機械的に proof-attempt が行われる (SPEC-0024 / governance §11)。
+
+権限レベル別の下限:
+- `system` / `platform` + Security 要件あり: 5 件以上必須
+- `platform` (Security 要件なし): 3 件以上推奨
+- `feature` (低リスク): 任意、`Properties: not applicable + 理由` 許容
+
+各 Property に Gate mapping `(Gate N)` を必須記入 (N = 2: Functional / 3: Security / 4: Architecture / 横断)。
+
+### Invariants
+- [INV-01] (Gate N) <常に成立すべき不変条件>
+
+### Pre-conditions
+- [PRE-01] (Gate N) <関数 / API 入口の前提条件>
+
+### Post-conditions
+- [POST-01] (Gate N) <関数 / API 出口の保証条件>
+
+### Assumptions
+- [ASM-01] (Gate 横断) <仕様外の前提 (環境 / ツール)>
 
 ## 関連ID
 
@@ -828,6 +851,87 @@ CLI 一方にしか存在しない機能 (例: Plan Mode は Claude 専用、Cod
 
 `templates/{claude,agents}-md-snippet.md` に対する CLI-specific guidance 追加は、`bash install.sh --update` で実体ファイル (`CLAUDE.md` / `AGENTS.md`) の SAGE-managed section (auto-injected snippet block、通常 L300+) に自動 propagation される。これは installer の設計上の挙動であり、SPEC scope に明示的に含まれていない場合も silent scope expansion として扱わない。SPEC 起票時には「snippet 編集を含む」ことが File Scope 宣言で AGENTS.md / CLAUDE.md auto-injected section の更新も含む扱いとなる (SPEC-0023 TASK-0156 の paired-fix が最初の事例)。
 
+---
+
+## 11. Property-based Verify and Review Gate
+
+[SPEC-0024](../specs/SPEC-0024-property-based-verify-review-gate.md) で formalize された、SPEC 由来の意味論的性質を Verify / Review phase で機械的に証明試行する doctrine。一次ソース: [SPECA framework](https://github.com/NyxFoundation/speca/) (Phase 03 Map-Prove-Stress-Test, Phase 04 3-gate FP filter)。
+
+### 11.1 Property → Gate matrix
+
+各 SPEC は `## Properties` セクションで declarative property を列挙する。種別と Gate 対応:
+
+| Property 種別 | 主 Gate | 補助 Gate |
+|---|---|---|
+| API 契約 (Pre-condition / Post-condition) | Gate 2 (Functional) | Gate 4 |
+| 認可 / secret / MCP 権限 (Invariant) | Gate 3 (Security) | Gate 4 |
+| layer 境界 / forbidden dep (Invariant) | Gate 4 (Architecture) | - |
+| traceability / SPEC↔実装対応 (Assumption) | 横断 | Gate 1-5 |
+
+権限レベル別の下限 (specs/_template.md Properties セクション):
+- `system` / `platform` + Security 要件あり: 5 件以上必須
+- `platform` (Security 要件なし): 3 件以上推奨
+- `feature`: 任意、`Properties: not applicable + 理由` 許容
+
+### 11.2 Verdict 体系
+
+Review Agent の `review_feedback.verdict` enum (templates/skills/sage-review/SKILL.md):
+
+| Verdict | 意味 | merge 可否 |
+|---|---|---|
+| PASS | Property 全件証明試行成功 | 可 |
+| FAIL | Property 違反 + 反例あり | 不可 |
+| OUT_OF_TASK_SCOPE | Finding が TASK 範囲外既存問題 | 可 (Finding 記録のみ) |
+| FOLLOW_UP_REQUIRED | Finding 妥当だが本 TASK で fix しない | 可 (follow-up TASK 起票必須) |
+| DISPUTED_FP | 実装は正しく Finding 自体が誤り | 可 (audit log 記録必須) |
+| SKIPPED_WITH_APPROVAL_REQUIRED | 証明できないが反例も無い | 不可 (人間 approver の signature 必須) |
+
+### 11.3 3-gate FP filter (early-exit)
+
+Review Agent は finding 確定後、以下の順で false-positive filter を適用 (early-exit):
+
+1. **Dead Code gate**: 実行されない経路 → DISPUTED_FP (audit log: `fp_gate: dead_code`)
+2. **Trust Boundary gate**: untrusted input が制御不可 → 別 finding に切り分け
+3. **Scope Check gate**: TASK File Scope 外既存問題 → OUT_OF_TASK_SCOPE / FOLLOW_UP_REQUIRED
+
+いずれかの gate で verdict 確定したら後続 gate は skip。判定根拠は audit log に必須記録 (SEC-03)。
+
+### 11.4 Hard Fail との関係
+
+以下は 3-gate FP filter で覆せない (DISPUTED_FP にできない、recall-safe doctrine、SPECA Phase 04 と整合):
+
+- File Scope 違反 (実装が TASK 許可範囲外を変更 = Silent Scope Expansion)
+- Gate 1-4 のいずれか fail
+- secret / credentials のハードコード
+- 既知脆弱性を持つ依存の追加
+
+これらは sage-review SKILL.md の Hard Fail 条件と同等、本 doctrine で再確認する。
+
+### 11.5 SKIPPED_WITH_APPROVAL_REQUIRED の運用
+
+Property が証明できないが反例も出せない (NEEDS_HUMAN_REVIEW 相当) の場合:
+
+- 人間 approver の signature を PR body に記述: `Approved-by: <human-username> <reason>`
+- audit log (`.sage/audit/property-skip-YYYYMMDD.log`) に approver / reason / SPEC-ID / Property-ID を JSON-lines で記録
+- silent approval 禁止 (空 signature では merge block)
+- AI agent 名 (`<ai-agent>` 等) は invalid signature として CI で reject
+
+### 11.6 Property ↔ AC の関係
+
+- `Properties` は declarative な意味論的性質、`受け入れ条件 (AC)` は command-verifiable な検証手段
+- AC は Property 由来であるべき (Property の機械検証手段が AC)
+- 矛盾発生時は SPEC を更新する (Property を改変して隠蔽しない)
+- pilot 3 SPEC (SPEC-0011 / SPEC-0014 / SPEC-0015) は既存 AC と Property を併存させ、各 SPEC 実装メモに対応表を記載
+
+### 11.7 段階採用
+
+| 昇格 | 条件 |
+|---|---|
+| none → standard | SPEC-0024 merge + pilot 3 件 retrofit + test-property-section.sh PASS |
+| standard → strict | standard で 14 日運用 + 新 SPEC 起票 5 件以上で全件 Properties 含む |
+
+`.sage/config.yaml` `hooks.profile` で `standard` 時 WARN-only、`strict` 時 FAIL (新規 SPEC のみ、既存 SPEC は incremental migration)。
+
 __EOF_TMPL_GOVERNANCE__
 
 read -r -d '' TMPL_FAILURES <<'__EOF_TMPL_FAILURES__' || true
@@ -849,11 +953,19 @@ read -r -d '' TMPL_FAILURES <<'__EOF_TMPL_FAILURES__' || true
 - **発生日**: YYYY-MM-DD
 - **TASK-ID**: TASK-XXXX
 - **該当アンチパターン**: (あれば) Vibe Merge / Big Bang Prompt / Silent Scope Expansion / AI Monolith / Invisible Development / Human-Only Guard
+- **cause** (任意、SPEC-0024 OPS-05 — **新規 entry のみ**、既存 entry の後付け推定は禁止): trust-boundary / code-reading / spec-misinterpretation / not-applicable / other
 - **症状**: 何が起きたか
 - **根本原因**: なぜ起きたか
 - **修正**: どう直したか
 - **防止策**: 今後どう防ぐか（CI追加 / ルール追加 / テンプレ修正等）
 - **昇格済み**: Yes / No（anti-patterns.mdに追加済みか）
+
+cause enum の意味 (SPECA paper §4.2 由来、SPEC-0024 で SAGE に採用):
+- `trust-boundary`: untrusted/attacker-controlled input の信頼境界誤解 (例: SQL injection、CSRF token 不足、auth バイパス)
+- `code-reading`: 実装読解のミス (例: dead code branch の見落とし、複雑な制御フロー誤読)
+- `spec-misinterpretation`: SPEC 文言の誤解 (例: MUST と SHOULD の混同、scope 不明確な記述)
+- `not-applicable`: 上記分類が当てはまらない構造的問題 (例: infrastructure 障害、CI 環境固有の flaky)
+- `other`: 上記いずれにも分類できない (詳細は症状欄に記述)
 
 ---
 
@@ -1658,6 +1770,8 @@ read -r -d '' TMPL_CLAUDE_SNIPPET <<'__EOF_TMPL_CLAUDE_SNIPPET__' || true
 - Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
 - Claude collaboration brief: reference `docs/claude-collaboration-brief.md` for engagement patterns; well-scoped tasks may be delegated to Codex via packet.
 - Claude-only boundary: do not edit Codex-specific files (`AGENTS.md`, `docs/codex-*.md`) unless human explicitly assigns. Record as Codex follow-up otherwise.
+- Properties section is required for new SPECs (system/platform). See `sage/governance.md` §11.
+- Review uses 3-gate FP filter (Dead Code / Trust Boundary / Scope Check).
 
 Auto-update rules:
 - Update check failure → warning only, never block development
@@ -1686,6 +1800,8 @@ read -r -d '' TMPL_AGENTS_SNIPPET <<'__EOF_TMPL_AGENTS_SNIPPET__' || true
 - Do not modify `sage/` without human approval.
 - Codex delegation packet: follow `docs/codex-delegation-packet.md`; standard-lane tasks need Goal / Scope / Non-goals / File Scope / Acceptance Criteria / Tests before implementation.
 - Codex-only boundary: do not edit Claude Code-specific files (`CLAUDE.md`, `.claude/`) unless a human explicitly assigns that scope to Codex. Record them as Claude follow-up otherwise.
+- Properties section is required for new SPECs (system/platform). See `sage/governance.md` §11.
+- Review uses 3-gate FP filter (Dead Code / Trust Boundary / Scope Check).
 
 Prohibited:
 - Implementing without a SPEC
@@ -2200,6 +2316,36 @@ Reference: `sage/anti-patterns.md`
 - Comprehension Debt Accumulation: AI生成コードを理解せず受入（AP-08）
 - Benchmark Illusion: ベンチマークスコアで品質を判断（AP-09）
 
+## 3-gate FP filter (SPEC-0024)
+
+Review Agent は finding 確定後、以下の順で false-positive filter を適用 (early-exit、いずれかの gate で verdict 確定したら後続 skip):
+
+### Gate 1: Dead Code
+Finding 対象コードが実行されない経路 (router で reachable でない、feature flag で off 等) → `DISPUTED_FP`。
+- audit log: `fp_gate: dead_code`, `fp_reason: <unreachability の根拠 (例: src/auth/router.go:18 で先に block される)>`
+
+### Gate 2: Trust Boundary
+Finding が信頼境界外 (untrusted input が制御不可な場合) → 別 finding に切り分け (新 finding raise)。
+- audit log: `fp_gate: trust_boundary`, `fp_reason: <boundary 説明 (例: 攻撃者が制御できる入力ではない)>`
+
+### Gate 3: Scope Check
+Finding が TASK File Scope 外の既存問題 → `OUT_OF_TASK_SCOPE` (Finding 記録のみ、merge 可)。
+本 TASK で fix しない判断 → `FOLLOW_UP_REQUIRED` (follow-up TASK 起票必須、merge 可)。
+- audit log: `fp_gate: scope_check`, `fp_reason: <scope 外と判断した根拠>`
+
+### Hard Fail (3-gate で覆せない)
+以下は `DISPUTED_FP` にできない (recall-safe doctrine、governance §11.4):
+- File Scope 違反 (実装が TASK 許可範囲外を変更 = Silent Scope Expansion)
+- Gate 1-4 のいずれか fail
+- secret / credentials のハードコード
+- 既知脆弱性を持つ依存の追加
+
+### SKIPPED_WITH_APPROVAL_REQUIRED
+Property が証明できないが反例も出せない場合、`SKIPPED_WITH_APPROVAL_REQUIRED`。
+- 人間 approver の signature を PR body に `Approved-by: <human-username> <reason>` で記載必須
+- audit log (`.sage/audit/property-skip-YYYYMMDD.log`) に approver / reason / SPEC-ID / Property-ID を JSON-lines で記録
+- 空 signature / AI agent 名 (`<ai-agent>` 等) は invalid signature として CI で reject
+
 ## Rules
 - This review MUST be in a separate session from implementation
 - Never approve changes that fail quality gates
@@ -2245,7 +2391,7 @@ Reference: `sage/anti-patterns.md`
 review_feedback:
   round: N
   iteration: M
-  verdict: PASS | FAIL
+  verdict: PASS | FAIL | OUT_OF_TASK_SCOPE | FOLLOW_UP_REQUIRED | DISPUTED_FP | SKIPPED_WITH_APPROVAL_REQUIRED  # SPEC-0024 §11.2: 6 verdicts
   review_score: N
   subscores:
     spec_alignment: N/25
@@ -2266,6 +2412,12 @@ review_feedback:
       file: "path/to/file"
       expected: "期待される状態"
       actual: "現在の状態"
+      fp_gate: "dead_code | trust_boundary | scope_check | none"  # SPEC-0024 §11.3 (none = 通常 finding)
+      fp_reason: "FP gate 判定根拠"  # fp_gate != none 時必須、audit log に必須記録 (silent suppression 禁止)
+  approval_required:  # SPEC-0024 §11.5: verdict = SKIPPED_WITH_APPROVAL_REQUIRED 時必須
+    approver: null  # human username (AI agent 名は invalid signature)
+    reason: null
+    signed_at: null  # ISO 8601 UTC
   fix_scope:
     implementation: [{ file, reason }]
     test: [{ file, reason }]
@@ -8918,6 +9070,223 @@ echo "SUMMARY pass=$PASS fail=$FAIL"
 
 __EOF_TMPL_TEST_RUNLOG_DB_DOCTOR__
 
+read -r -d '' TMPL_TEST_PROPERTY_SECTION <<'__EOF_TMPL_TEST_PROPERTY_SECTION__' || true
+#!/usr/bin/env bash
+# =============================================================================
+# TASK-0168: test-property-section.sh (SPEC-0024)
+# Purpose: Verify Property-based Verify and Review Gate doctrine consistency:
+#          - specs/_template.md has Properties section with 4 sub-headers
+#          - sage/governance.md §11 has 5+ sub-sections (Property → Gate matrix
+#            / Verdict / 3-gate FP filter / Hard Fail / SKIPPED procedure)
+#          - SPEC-0024 itself has Properties + Gate mapping (eat-your-own-dog-food)
+#          - pilot 3 SPECs (0011 / 0014 / 0015) have ≥5 Properties each with Gate mapping
+#          - Includes 2 in-memory mutation scenarios (異常系) for negative path
+#          - SKIPPED_WITH_APPROVAL_REQUIRED audit log schema is JSON-lines parseable
+#          - Backward compat: existing SPECs without Properties → WARN-only
+#            (NFR-06 incremental migration)
+# =============================================================================
+set -uo pipefail
+
+PASS=0
+FAIL=0
+WARN=0
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TEMPLATE="${REPO_ROOT}/specs/_template.md"
+GOVERNANCE="${REPO_ROOT}/sage/governance.md"
+SPEC_0011="${REPO_ROOT}/specs/SPEC-0011-hook-hardening-and-test-infrastructure.md"
+SPEC_0014="${REPO_ROOT}/specs/SPEC-0014-installer-modularize.md"
+SPEC_0015="${REPO_ROOT}/specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md"
+SPEC_0024="${REPO_ROOT}/specs/SPEC-0024-property-based-verify-review-gate.md"
+PROPERTY_LINE_RE='^- \[(INV|PRE|POST|ASM)-[0-9]+\]'
+PROPERTY_GATE_RE='^- \[(INV|PRE|POST|ASM)-[0-9]+\] \(Gate (2|3|4|横断)\)'
+
+echo "# property-based verify (SPEC-0024)"
+
+count_properties() {
+  grep -cE "$PROPERTY_LINE_RE" "$1" || true
+}
+
+count_gate_mapped_properties() {
+  grep -cE "$PROPERTY_GATE_RE" "$1" || true
+}
+
+# --- Scenario 1: specs/_template.md has ## Properties section ---
+if grep -qF "## Properties" "$TEMPLATE"; then
+  echo "ok 1 specs/_template.md has ## Properties section"
+  PASS=$((PASS + 1))
+else
+  echo "not ok 1 specs/_template.md missing ## Properties section"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Scenario 2: specs/_template.md has 4 Property sub-headers ---
+sub_headers=(
+  "### Invariants"
+  "### Pre-conditions"
+  "### Post-conditions"
+  "### Assumptions"
+)
+missing=()
+for h in "${sub_headers[@]}"; do
+  if ! grep -qF "$h" "$TEMPLATE"; then
+    missing+=("$h")
+  fi
+done
+if [[ ${#missing[@]} -eq 0 ]]; then
+  echo "ok 2 specs/_template.md has 4 Property sub-headers (Invariants/Pre/Post/Assumptions)"
+  PASS=$((PASS + 1))
+else
+  echo "not ok 2 specs/_template.md missing sub-headers: ${missing[*]}"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Scenario 3: SPEC-0024 itself has Properties + Gate mapping (eat-your-own-dog-food) ---
+if [[ -f "$SPEC_0024" ]]; then
+  prop_count=$(count_properties "$SPEC_0024")
+  mapped_count=$(count_gate_mapped_properties "$SPEC_0024")
+  if [[ "$prop_count" -ge 5 && "$mapped_count" -eq "$prop_count" ]]; then
+    echo "ok 3 SPEC-0024 has $prop_count Properties and all have Gate mapping (eat-your-own-dog-food, ≥5)"
+    PASS=$((PASS + 1))
+  else
+    echo "not ok 3 SPEC-0024 Properties invalid: properties=$prop_count gate_mapped=$mapped_count (need ≥5 and all mapped)"
+    FAIL=$((FAIL + 1))
+  fi
+else
+  echo "not ok 3 SPEC-0024 file missing"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Scenario 4: pilot 3 SPECs have ≥5 Properties + Gate mapping each ---
+pilot_fail=0
+pilot_summary=""
+for f in "$SPEC_0011" "$SPEC_0014" "$SPEC_0015"; do
+  base=$(basename "$f")
+  if [[ ! -f "$f" ]]; then
+    pilot_fail=$((pilot_fail + 1))
+    pilot_summary+=" $base(missing)"
+    continue
+  fi
+  n=$(count_properties "$f")
+  mapped=$(count_gate_mapped_properties "$f")
+  pilot_summary+=" $base(properties=$n,mapped=$mapped)"
+  if [[ "$n" -lt 5 || "$mapped" -ne "$n" ]]; then
+    pilot_fail=$((pilot_fail + 1))
+  fi
+done
+if [[ "$pilot_fail" -eq 0 ]]; then
+  echo "ok 4 pilot 3 SPECs ≥5 Properties each and all have Gate mapping:${pilot_summary}"
+  PASS=$((PASS + 1))
+else
+  echo "not ok 4 pilot SPECs Property count / Gate mapping failed:${pilot_summary}"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Scenario 5: governance §11 has 5+ sub-sections ---
+if grep -qF "## 11. Property-based Verify and Review Gate" "$GOVERNANCE"; then
+  sub_count=$(grep -cE "^### 11\.[1-9]" "$GOVERNANCE")
+  if [[ "$sub_count" -ge 5 ]]; then
+    echo "ok 5 governance §11 exists with $sub_count sub-sections (≥5)"
+    PASS=$((PASS + 1))
+  else
+    echo "not ok 5 governance §11 has only $sub_count sub-sections (need ≥5)"
+    FAIL=$((FAIL + 1))
+  fi
+else
+  echo "not ok 5 governance §11 (## 11. Property-based Verify and Review Gate) missing"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Scenario 6: 異常系 — Properties セクション削除 fixture detected as missing ---
+fixture6_no_props=$(
+  cat <<'EOF'
+# SPEC-9999: test fixture without Properties
+
+## 背景・目的
+test SPEC body.
+
+## 関連ID
+- PLAN-ID: PLAN-9999
+EOF
+)
+if echo "$fixture6_no_props" | grep -qF "## Properties"; then
+  echo "not ok 6 (異常系) fixture without Properties incorrectly contains Properties marker"
+  FAIL=$((FAIL + 1))
+else
+  echo "ok 6 (異常系) fixture without Properties correctly detected as missing"
+  PASS=$((PASS + 1))
+fi
+
+# --- Scenario 7: 異常系 — Gate mapping 欠落 fixture detected ---
+fixture7_no_gate=$(
+  cat <<'EOF'
+## Properties
+### Invariants
+- [INV-01] missing gate mapping line
+- [INV-02] (Gate 3) properly annotated line
+- [INV-03] also missing gate mapping
+EOF
+)
+gate_missing=0
+while IFS= read -r line; do
+  if [[ "$line" =~ ^-\ \[(INV|PRE|POST|ASM)- ]]; then
+    if ! [[ "$line" =~ \(Gate\ [234横]+(断)?\) ]]; then
+      gate_missing=$((gate_missing + 1))
+    fi
+  fi
+done <<<"$fixture7_no_gate"
+if [[ "$gate_missing" -ge 1 ]]; then
+  echo "ok 7 (異常系) Gate mapping 欠落 detected ($gate_missing item(s) missing in fixture)"
+  PASS=$((PASS + 1))
+else
+  echo "not ok 7 (異常系) Gate mapping 欠落 not detected (fixture should have 2 missing)"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Scenario 8: SKIPPED_WITH_APPROVAL_REQUIRED audit log schema is JSON-lines parseable ---
+skip_audit_json='{"timestamp":"2026-05-06T00:00:00Z","approver":"human-reviewer","reason":"manual proof required","spec_id":"SPEC-0024","property_id":"ASM-01"}'
+if printf '%s\n' "$skip_audit_json" | python3 -c 'import json,sys; r=json.loads(sys.stdin.read()); required=["timestamp","approver","reason","spec_id","property_id"]; missing=[k for k in required if not isinstance(r.get(k), str) or not r[k]]; assert not missing, missing; assert not r["approver"].startswith("<"), "invalid AI placeholder approver"'; then
+  echo "ok 8 SKIPPED_WITH_APPROVAL_REQUIRED audit log JSON-lines schema has required fields"
+  PASS=$((PASS + 1))
+else
+  echo "not ok 8 SKIPPED_WITH_APPROVAL_REQUIRED audit log JSON-lines schema invalid"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Scenario 9: backward compat — existing SPECs without Properties → WARN-only (NFR-06) ---
+existing_without_props=0
+existing_total=0
+for f in "$REPO_ROOT"/specs/SPEC-00*.md; do
+  base=$(basename "$f")
+  # Skip pilot 3 (TASK-0167 retrofit), SPEC-0024 (own), and the template
+  case "$base" in
+    SPEC-0011-* | SPEC-0014-* | SPEC-0015-* | SPEC-0024-*)
+      continue
+      ;;
+  esac
+  existing_total=$((existing_total + 1))
+  if ! grep -qF "## Properties" "$f"; then
+    existing_without_props=$((existing_without_props + 1))
+  fi
+done
+# Per NFR-06, this scenario MUST NOT FAIL — existing SPECs are WARN-only
+echo "ok 9 backward compat: $existing_without_props/$existing_total existing SPECs without Properties (WARN-only, NFR-06 incremental migration)"
+PASS=$((PASS + 1))
+WARN=$((WARN + existing_without_props))
+
+# --- Summary (run-tests.sh parses this line via regex SUMMARY pass=N fail=M) ---
+echo ""
+echo "  (info: $WARN existing SPECs without Properties — NFR-06 incremental migration, WARN-only)"
+echo "SUMMARY pass=$PASS fail=$FAIL"
+
+if [[ "$FAIL" -eq 0 ]]; then
+  exit 0
+else
+  exit 1
+fi
+
+__EOF_TMPL_TEST_PROPERTY_SECTION__
+
 read -r -d '' TMPL_SETTINGS_SANDBOX <<'__EOF_TMPL_SETTINGS_SANDBOX__' || true
 {
   "permissions": {
@@ -9794,6 +10163,7 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "templates/hooks/tests/test-runlog-index.sh" "$TMPL_TEST_RUNLOG_INDEX" && chmod +x "templates/hooks/tests/test-runlog-index.sh"
   write_file_if_new "templates/hooks/tests/test-runlog-search.sh" "$TMPL_TEST_RUNLOG_SEARCH" && chmod +x "templates/hooks/tests/test-runlog-search.sh"
   write_file_if_new "templates/hooks/tests/test-runlog-db-doctor.sh" "$TMPL_TEST_RUNLOG_DB_DOCTOR" && chmod +x "templates/hooks/tests/test-runlog-db-doctor.sh"
+  write_file_if_new "templates/hooks/tests/test-property-section.sh" "$TMPL_TEST_PROPERTY_SECTION" && chmod +x "templates/hooks/tests/test-property-section.sh"
   write_file_if_new "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   write_file_if_new "templates/settings/README.md" "$TMPL_SETTINGS_README"
 else
@@ -9823,6 +10193,7 @@ else
   update_file "templates/hooks/tests/test-runlog-index.sh" "$TMPL_TEST_RUNLOG_INDEX" && chmod +x "templates/hooks/tests/test-runlog-index.sh"
   update_file "templates/hooks/tests/test-runlog-search.sh" "$TMPL_TEST_RUNLOG_SEARCH" && chmod +x "templates/hooks/tests/test-runlog-search.sh"
   update_file "templates/hooks/tests/test-runlog-db-doctor.sh" "$TMPL_TEST_RUNLOG_DB_DOCTOR" && chmod +x "templates/hooks/tests/test-runlog-db-doctor.sh"
+  update_file "templates/hooks/tests/test-property-section.sh" "$TMPL_TEST_PROPERTY_SECTION" && chmod +x "templates/hooks/tests/test-property-section.sh"
   update_file "templates/settings/sandbox.json" "$TMPL_SETTINGS_SANDBOX"
   update_file "templates/settings/README.md" "$TMPL_SETTINGS_README"
 fi

@@ -64,6 +64,36 @@ Reference: `sage/anti-patterns.md`
 - Comprehension Debt Accumulation: AI生成コードを理解せず受入（AP-08）
 - Benchmark Illusion: ベンチマークスコアで品質を判断（AP-09）
 
+## 3-gate FP filter (SPEC-0024)
+
+Review Agent は finding 確定後、以下の順で false-positive filter を適用 (early-exit、いずれかの gate で verdict 確定したら後続 skip):
+
+### Gate 1: Dead Code
+Finding 対象コードが実行されない経路 (router で reachable でない、feature flag で off 等) → `DISPUTED_FP`。
+- audit log: `fp_gate: dead_code`, `fp_reason: <unreachability の根拠 (例: src/auth/router.go:18 で先に block される)>`
+
+### Gate 2: Trust Boundary
+Finding が信頼境界外 (untrusted input が制御不可な場合) → 別 finding に切り分け (新 finding raise)。
+- audit log: `fp_gate: trust_boundary`, `fp_reason: <boundary 説明 (例: 攻撃者が制御できる入力ではない)>`
+
+### Gate 3: Scope Check
+Finding が TASK File Scope 外の既存問題 → `OUT_OF_TASK_SCOPE` (Finding 記録のみ、merge 可)。
+本 TASK で fix しない判断 → `FOLLOW_UP_REQUIRED` (follow-up TASK 起票必須、merge 可)。
+- audit log: `fp_gate: scope_check`, `fp_reason: <scope 外と判断した根拠>`
+
+### Hard Fail (3-gate で覆せない)
+以下は `DISPUTED_FP` にできない (recall-safe doctrine、governance §11.4):
+- File Scope 違反 (実装が TASK 許可範囲外を変更 = Silent Scope Expansion)
+- Gate 1-4 のいずれか fail
+- secret / credentials のハードコード
+- 既知脆弱性を持つ依存の追加
+
+### SKIPPED_WITH_APPROVAL_REQUIRED
+Property が証明できないが反例も出せない場合、`SKIPPED_WITH_APPROVAL_REQUIRED`。
+- 人間 approver の signature を PR body に `Approved-by: <human-username> <reason>` で記載必須
+- audit log (`.sage/audit/property-skip-YYYYMMDD.log`) に approver / reason / SPEC-ID / Property-ID を JSON-lines で記録
+- 空 signature / AI agent 名 (`<ai-agent>` 等) は invalid signature として CI で reject
+
 ## Rules
 - This review MUST be in a separate session from implementation
 - Never approve changes that fail quality gates
@@ -109,7 +139,7 @@ Reference: `sage/anti-patterns.md`
 review_feedback:
   round: N
   iteration: M
-  verdict: PASS | FAIL
+  verdict: PASS | FAIL | OUT_OF_TASK_SCOPE | FOLLOW_UP_REQUIRED | DISPUTED_FP | SKIPPED_WITH_APPROVAL_REQUIRED  # SPEC-0024 §11.2: 6 verdicts
   review_score: N
   subscores:
     spec_alignment: N/25
@@ -130,6 +160,12 @@ review_feedback:
       file: "path/to/file"
       expected: "期待される状態"
       actual: "現在の状態"
+      fp_gate: "dead_code | trust_boundary | scope_check | none"  # SPEC-0024 §11.3 (none = 通常 finding)
+      fp_reason: "FP gate 判定根拠"  # fp_gate != none 時必須、audit log に必須記録 (silent suppression 禁止)
+  approval_required:  # SPEC-0024 §11.5: verdict = SKIPPED_WITH_APPROVAL_REQUIRED 時必須
+    approver: null  # human username (AI agent 名は invalid signature)
+    reason: null
+    signed_at: null  # ISO 8601 UTC
   fix_scope:
     implementation: [{ file, reason }]
     test: [{ file, reason }]

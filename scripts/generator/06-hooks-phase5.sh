@@ -38,6 +38,9 @@ embed_file "TMPL_TEST_RUNLOG_SEARCH" "$ROOT/templates/hooks/tests/test-runlog-se
 echo ""
 embed_file "TMPL_TEST_RUNLOG_DB_DOCTOR" "$ROOT/templates/hooks/tests/test-runlog-db-doctor.sh"
 echo ""
+# Phase 6.x (SPEC-0024) Property-based Verify hook test
+embed_file "TMPL_TEST_PROPERTY_SECTION" "$ROOT/templates/hooks/tests/test-property-section.sh"
+echo ""
 # Phase 2B (SPEC-0012) settings template (Claude Code sandbox doctrine)
 embed_file "TMPL_SETTINGS_SANDBOX" "$ROOT/templates/settings/sandbox.json"
 echo ""
