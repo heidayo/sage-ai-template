@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0162 |
 | SPEC-ID   | SPEC-0024 |
 | PLAN-ID   | PLAN-0024 |
-| ステータス | Pending |
+| ステータス | Done |
 | 担当Agent | Spec Agent (governance 専属) |
 | 並列可否  | No (governance 確定が後続前提) |
 | 依存TASK  | TASK-0161 |

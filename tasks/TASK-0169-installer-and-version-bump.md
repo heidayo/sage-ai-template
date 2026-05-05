@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0169 |
 | SPEC-ID   | SPEC-0024 |
 | PLAN-ID   | PLAN-0024 |
-| ステータス | Pending |
+| ステータス | Done |
 | 担当Agent | Implementation (shared-core) |
 | 並列可否  | No (全 doctrine 確定後に installer 同期) |
 | 依存TASK  | TASK-0163, TASK-0164, TASK-0165, TASK-0166, TASK-0167, TASK-0168 |

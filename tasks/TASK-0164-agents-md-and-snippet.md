@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0164 |
 | SPEC-ID   | SPEC-0024 |
 | PLAN-ID   | PLAN-0024 |
-| ステータス | Pending |
+| ステータス | Done |
 | 担当Agent | Implementation (Codex-facing) |
 | 並列可否  | Yes (TASK-0163 と並列、別 File Scope) |
 | 依存TASK  | TASK-0162 |

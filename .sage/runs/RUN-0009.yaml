@@ -1,0 +1,108 @@
+run_id: RUN-0009
+task_id: TASK-0170
+agent_id: implementation
+started_at: "2026-05-05T15:00:00Z"
+completed_at: "2026-05-06T00:30:00Z"
+status: pass
+runtime: "claude-code"
+tool_runtime: "claude-opus-4-7-1m"
+approval_policy: "on-request"
+network_mode: "off"
+spec_id: SPEC-0024
+plan_id: PLAN-0024
+task_ids:
+  - TASK-0161  # SPEC + PLAN + 10 TASK draft + sage-evaluate 100/100
+  - TASK-0162  # specs/_template.md Properties + governance §11
+  - TASK-0163  # CLAUDE.md §9.2 + claude-md-snippet.md
+  - TASK-0164  # AGENTS.md §9.2 + agents-md-snippet.md
+  - TASK-0165  # sage-review SKILL 3-gate FP filter + 6 verdicts
+  - TASK-0166  # sage/failures.md cause field additive (FAIL-0001 unchanged)
+  - TASK-0167  # pilot retrofit Properties (SPEC-0011/0014/0015)
+  - TASK-0168  # test-property-section.sh + SPEC-0024 self-Properties
+  - TASK-0169  # generator embed + install.sh regen + 1.7.1→1.8.0 + SHA256SUMS
+  - TASK-0170  # RUN-0009 + status updates + final verification
+files_changed:
+  - "specs/SPEC-0024-property-based-verify-review-gate.md"
+  - "plans/PLAN-0024-property-based-verify-review-gate.md"
+  - "tasks/TASK-0161-spec-plan-task-draft.md"
+  - "tasks/TASK-0162-template-and-governance.md"
+  - "tasks/TASK-0163-claude-md-and-snippet.md"
+  - "tasks/TASK-0164-agents-md-and-snippet.md"
+  - "tasks/TASK-0165-review-skill-fp-filter.md"
+  - "tasks/TASK-0166-failures-cause-additive.md"
+  - "tasks/TASK-0167-pilot-retrofit.md"
+  - "tasks/TASK-0168-test-property-section-hook.md"
+  - "tasks/TASK-0169-installer-and-version-bump.md"
+  - "tasks/TASK-0170-paired-verification-and-final.md"
+  - "specs/_template.md"
+  - "specs/SPEC-0011-hook-hardening-and-test-infrastructure.md"
+  - "specs/SPEC-0014-installer-modularize.md"
+  - "specs/SPEC-0015-mcp-allowlist-audit-and-agent-identity.md"
+  - "sage/governance.md"
+  - "sage/failures.md"
+  - "CLAUDE.md"
+  - "AGENTS.md"
+  - "templates/claude-md-snippet.md"
+  - "templates/agents-md-snippet.md"
+  - "templates/skills/sage-review/SKILL.md"
+  - "templates/hooks/tests/test-property-section.sh"
+  - "scripts/generator/06-hooks-phase5.sh"
+  - "scripts/generator/07-installer-main.sh"
+  - "install.sh"
+  - "SHA256SUMS"
+  - ".sage-version"
+  - ".sage/runs/RUN-0009.yaml"
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped  # main/production PR で発火、本 PR は feature branch
+error_log: |
+  Claude implementation for SPEC-0024 Property-based Verify and Review Gate
+  (SPECA-anchored). 2nd application of paired-update doctrine under
+  governance §10, following SPEC-0023 precedent.
+
+  Cross-model adversarial review applied (Codex 2 rounds before commit):
+    - Round 1 (outline): 6 corrections applied (paired SPEC scope, verdict
+      semantics, cause additive doctrine, Property threshold by permission)
+    - Round 2 (implementation): 5 corrections applied (TASK-0161 sage-evaluate
+      skill ref, TASK-0168 run-tests glob auto-discovery, TASK-0169 SHA256SUMS
+      sync in PR, AC-05 verification robustness, PLAN [x] → [ ])
+
+  After Codex review round 2, user requested implementation completion
+  without further review cycle. All 10 TASKs (TASK-0161..0170) executed
+  in dependency order, each with own commit.
+
+  10 TASK commits:
+    1c3cc0e TASK-0161: foundation draft (12 files)
+    1a15f82 TASK-0162: template + governance §11 (3 files, 78-line §11)
+    4042995 TASK-0163: CLAUDE.md §9.2 + claude-md-snippet.md (≤+5 lines)
+    8a19e98 TASK-0164: AGENTS.md §9.2 + agents-md-snippet.md (paired)
+    0ce38ce TASK-0165: sage-review SKILL 3-gate FP filter + 6 verdicts
+    e9241d2 TASK-0166: failures.md cause additive (FAIL-0001 unchanged)
+    d934252 TASK-0167: pilot retrofit (SPEC-0011/0014/0015, 22 properties total)
+    540497c TASK-0168: test-property-section.sh + SPEC-0024 self-Properties
+    060e2d1 TASK-0169: install.sh regen + 1.7.1→1.8.0 + SHA256SUMS
+    (this RUN: TASK-0170: status updates + RUN-0009 + final verification)
+
+  Final verification:
+    - bash templates/hooks/tests/run-tests.sh: pass (197/197)
+    - bash templates/hooks/tests/test-property-section.sh: pass (8/8)
+    - bash scripts/generate-installer.sh > /tmp/new.sh && diff install.sh /tmp/new.sh: pass (byte-identical)
+    - shasum -a 256 -c SHA256SUMS: pass (install.sh: OK)
+    - bash scripts/sage-validate.sh: pass (Check 9 WARN on Gist mismatch is expected on non-main feature branch)
+    - shellcheck on changed shell files: pass
+
+  Note: .claude/skills/sage-review/SKILL.md is gitignored per
+  .gitignore line 17 — local sync via install.sh / sage-templates-sync-check.sh
+  handles the runtime copy. Only canonical templates/ tracked in git.
+
+  CLAUDE/AGENTS paired update doctrine compliance:
+    - CLAUDE.md §9.2 + AGENTS.md §9.2: semantic identical (3 content lines)
+    - claude-md-snippet.md + agents-md-snippet.md: identical 2 bullets
+    - 2nd documented paired-update example after SPEC-0022/0023 pair
+    - test-claude-collaboration-pairing.sh continues to PASS without modification
+
+  Source: https://github.com/NyxFoundation/speca/ + arXiv:2604.26495
+  (SPECA Phase 03 Map-Prove-Stress-Test + Phase 04 3-gate FP filter)

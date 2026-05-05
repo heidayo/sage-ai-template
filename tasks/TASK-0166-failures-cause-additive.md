@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0166 |
 | SPEC-ID   | SPEC-0024 |
 | PLAN-ID   | PLAN-0024 |
-| ステータス | Pending |
+| ステータス | Done |
 | 担当Agent | Implementation (shared-core) |
 | 並列可否  | Yes (TASK-0165 / TASK-0167 と並列、別 File Scope) |
 | 依存TASK  | TASK-0162 |

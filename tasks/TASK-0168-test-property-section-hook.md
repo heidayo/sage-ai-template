@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0168 |
 | SPEC-ID   | SPEC-0024 |
 | PLAN-ID   | PLAN-0024 |
-| ステータス | Pending |
+| ステータス | Done |
 | 担当Agent | Test Agent |
 | 並列可否  | No (pilot 3 件 retrofit が test fixture の前提) |
 | 依存TASK  | TASK-0162, TASK-0167 |

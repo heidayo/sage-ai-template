@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0161 |
 | SPEC-ID   | SPEC-0024 |
 | PLAN-ID   | PLAN-0024 |
-| ステータス | In Progress |
+| ステータス | Done |
 | 担当Agent | Spec Agent |
 | 並列可否  | No (foundation) |
 | 依存TASK  | none |

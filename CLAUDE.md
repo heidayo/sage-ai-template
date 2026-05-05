@@ -324,6 +324,8 @@ This file (`CLAUDE.md`) defines repository-wide development rules.
 - Health check: `make doctor` | Repair: `make repair` | Metrics: `make report`
 - Claude collaboration brief: reference `docs/claude-collaboration-brief.md` for engagement patterns; well-scoped tasks may be delegated to Codex via packet.
 - Claude-only boundary: do not edit Codex-specific files (`AGENTS.md`, `docs/codex-*.md`) unless human explicitly assigns. Record as Codex follow-up otherwise.
+- Properties section is required for new SPECs (system/platform). See `sage/governance.md` §11.
+- Review uses 3-gate FP filter (Dead Code / Trust Boundary / Scope Check).
 
 Auto-update rules:
 - Update check failure → warning only, never block development

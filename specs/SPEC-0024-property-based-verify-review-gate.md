@@ -5,9 +5,9 @@
 | フィールド | 内容 |
 |-----------|------|
 | SPEC-ID   | SPEC-0024 |
-| ステータス | Draft |
+| ステータス | Review |
 | 作成日    | 2026-05-05 |
-| 更新日    | 2026-05-05 |
+| 更新日    | 2026-05-06 |
 | 担当Agent | Spec Agent |
 | 依存SPEC  | SPEC-0007 (AI risk mitigation), SPEC-0015 (MCP audit), SPEC-0023 (pairing doctrine) |
 | 権限レベル | platform |

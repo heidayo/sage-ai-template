@@ -7,7 +7,7 @@
 | TASK-ID   | TASK-0170 |
 | SPEC-ID   | SPEC-0024 |
 | PLAN-ID   | PLAN-0024 |
-| ステータス | Pending |
+| ステータス | Done |
 | 担当Agent | Test Agent (paired-verification) + Implementation (final regen) |
 | 並列可否  | No (最終検証) |
 | 依存TASK  | TASK-0169 |
