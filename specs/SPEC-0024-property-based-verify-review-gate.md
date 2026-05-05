@@ -513,6 +513,25 @@ PLAN-0024 で詳細化。基本は: foundation TASK-0161 → template/governance
 | SPEC-XXXX | Tree-sitter MCP code pre-resolution | 未起票 (Phase 6.x) |
 | SPEC-XXXX | Property auto-generation (LLM 自動抽出) | 未起票 (Phase 6.x、本 SPEC の incremental migration 後) |
 
+## Properties
+
+権限レベル `platform` + Security 要件あり (SEC-01..SEC-06) のため 5 件以上必須 (本 SPEC §11.1 自己適用、eat-your-own-dog-food)。
+
+### Invariants
+- [INV-01] (Gate 4) `sage/governance.md` §11 が 5 sub-section (§11.1〜§11.5) 以上を含む状態で merge される (AC-06 と対応)
+- [INV-02] (Gate 3) Properties template / governance §11 / sage-review SKILL.md の例値に secret / token / API key を含めない (env 名参照のみ、SEC-02 / SEC-06)
+- [INV-03] (Gate 4) pilot retrofit (TASK-0167) は SPEC-0011 / SPEC-0014 / SPEC-0015 の既存 AC を変更せず additive 追加のみ (NFR-08 file scope 厳守)
+- [INV-04] (Gate 3) paired-update doctrine (governance §10) で CLAUDE.md / AGENTS.md / 両 snippet が semantic identical を維持 (AC-12 / AC-13 と対応)
+
+### Pre-conditions
+- [PRE-01] (Gate 2) SAGE base infrastructure (governance §1-§10 / hooks / runlog / installer modular) が存在する (SPEC-0010..0023 完了済)
+
+### Post-conditions
+- [POST-01] (Gate 2) `bash templates/hooks/tests/test-property-section.sh` が 8 scenario 全 PASS (AC-07 と対応)
+
+### Assumptions
+- [ASM-01] (Gate 横断) SPECA framework (Phase 03/04) の Property doctrine が SAGE の document-level governance に適用可能 (audit framework と development system は orthogonal だが、Property declarative 記述は両方に有効)
+
 ## 関連ID
 
 - PLAN-ID: PLAN-0024
