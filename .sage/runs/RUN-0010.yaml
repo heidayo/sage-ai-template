@@ -1,0 +1,156 @@
+run_id: RUN-0010
+task_id: TASK-0000
+agent_id: planning
+started_at: "2026-05-07T02:11:36Z"
+completed_at: "2026-05-07T02:11:36Z"
+status: pass
+runtime: "codex-cli"
+tool_runtime: "codex-desktop"
+approval_policy: "never"
+network_mode: "unrestricted"
+files_changed:
+  - ".sage/runs/RUN-0010.yaml"
+gate_results:
+  structural: skipped
+  functional: skipped
+  security: skipped
+  architecture: skipped
+  release: skipped
+error_log: |
+  Discussion note only. No implementation, source, spec, plan, task, governance,
+  hook, workflow, or installer changes were made.
+
+  Topic:
+    SAGE / sage-ai-template distribution model for client-project use, especially
+    cases where the user cannot add SAGE files to a participating client's
+    repository.
+
+  Starting concern:
+    The user was worried that introducing their own OSS into a client project
+    could mix OSS-origin files into the client's GitHub repository. This concern
+    is valid for the current sage-ai-template design because install.sh expands
+    SAGE files into the target project, including AGENTS.md, CLAUDE.md, .claude/,
+    sage/, scripts/, templates/hooks/, and possibly CI/workflow files.
+
+  Repository observation:
+    Current sage-ai-template is closer to a template/vendor expansion model than
+    a package dependency model. README.md documents a large generated installer,
+    and install.sh creates or updates many project-local files and directories:
+    specs/, plans/, tasks/, sage/, .sage/, docs/, scripts/, .claude/rules/,
+    .claude/skills/, templates/hooks/, CLAUDE.md, AGENTS.md, and .claude/settings.json.
+
+  Earlier direction:
+    A safer client adoption model would separate SAGE-owned assets from
+    project-owned assets:
+      - Project-owned: AGENTS.md, CLAUDE.md, .sage/config.yaml, specs/, plans/,
+        tasks/.
+      - Package-owned: rules, skills, hooks, gate logic, templates, governance
+        docs, validation scripts.
+      - Runtime-only: metrics, cache, logs, install state.
+
+    Proposed package/CLI direction:
+      - @heidayo/sage-core
+      - @heidayo/sage-cli
+      - @heidayo/sage-codex
+      - @heidayo/sage-claude
+
+    Proposed commands:
+      - sage init
+      - sage doctor
+      - sage gate
+      - sage update
+      - sage adopt
+      - sage export
+
+    CLI requirements from the reference materials:
+      - --json for machine-readable output
+      - --dry-run for side-effect previews
+      - --no-input / --yes for non-interactive agent and CI use
+      - stable semantic exit codes
+      - stdout for data, stderr for logs/progress/errors
+      - actionable error messages with next steps
+
+  Key refinement from the latest user clarification:
+    The real first-class use case is not only "safe project adoption" or
+    "thin bootstrap". It is "zero-footprint personal external tool mode":
+    SAGE should be usable by the user locally without adding files to a client
+    repository at all.
+
+  Recommended distribution levels:
+    Level 0: personal external tool / zero-footprint mode
+      - Client repo gets no SAGE files.
+      - SAGE state lives outside the repo, e.g. ~/.sage/projects/<project-hash>/.
+      - Specs, plans, tasks, run logs, cache, and config can be personal/local.
+      - The target repo is analyzed from the outside.
+      - SAGE can emit context, patches, reports, and gate results without
+        committing SAGE assets to the client repo.
+
+    Level 1: thin bootstrap
+      - Minimal project-owned entry files only.
+      - Candidate files: AGENTS.md, CLAUDE.md, .sage/config.yaml, specs/, plans/,
+        tasks/.
+      - Avoid copying SAGE-owned rules, hooks, skills, scripts, and governance
+        internals by default.
+
+    Level 2: vendor/project adoption
+      - Current install.sh-like behavior.
+      - SAGE files are copied into the project.
+      - Useful only when the project/team explicitly accepts SAGE as part of the
+        repository.
+
+  Proposed Level 0 commands:
+    - sage attach /path/to/client-project --mode external
+    - sage spec create
+    - sage plan create
+    - sage task next
+    - sage gate --project /path/to/client-project
+    - sage context --for codex
+    - sage context --for claude
+
+  Proposed Level 0 storage:
+    ~/.sage/
+      projects/
+        <project-hash>/
+          config.yaml
+          specs/
+          plans/
+          tasks/
+          runs/
+          cache/
+
+  Agent integration implication:
+    If AGENTS.md / CLAUDE.md are not placed in the target repo, Codex and Claude
+    Code will not automatically load project-local SAGE instructions. This can be
+    compensated by:
+      - sage context --for codex
+      - sage context --for claude
+      - personal Codex plugin / skill installation
+      - user-level Claude Code skills/settings
+      - a wrapper such as sage run that starts or guides the agent with the
+        external SAGE context
+
+  Security and distribution implications:
+    - Treat client repositories, branch names, issue bodies, PR text, README
+      content, project-local config, hooks, and MCP definitions as untrusted.
+    - Prefer minimal rights, explicit allowlists, dry-run previews, and
+      non-interactive CLI contracts.
+    - Keep MCP/app/plugin distribution auditable and explicit.
+    - For Codex cloud, default agent internet access should remain off unless
+      narrowly allowed by domain and HTTP method.
+    - For local agent use, sandbox, approval policy, network access, and config
+      trust must remain explicit.
+    - Supply-chain checks should include invisible/control Unicode detection,
+      dependency provenance, and generated-file boundary checks.
+
+  Current conclusion:
+    The next design target should be:
+      @heidayo/sage-cli external mode
+
+    Acceptance direction for that future work:
+      - It must not write SAGE files into a target client repository by default.
+      - It must store SAGE state outside the target repository.
+      - It must support --dry-run, --json, --no-input, and stable exit codes.
+      - It must be able to generate context for Codex and Claude without requiring
+        project-local bootstrap files.
+      - It should later support optional thin-bootstrap and vendor modes, but
+        zero-footprint personal mode should be treated as the first-class use case.
