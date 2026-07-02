@@ -62,6 +62,7 @@ N/A（Web アプリケーションではないためスキップ。検証対象�
 - [ ] [CHECK-014] AC-13 バックアップ規約の CLAUDE.md 反映 — clean install 後 `grep -q '.sage/backup/' CLAUDE.md` が成功: (case: `claude_md_backup_convention`) PASS
 - [ ] [CHECK-015] 境界ケース1 UPDATE 0件 — 完全冪等な再実行でバックアップ世代を作成しない（空世代でローテーションを消費しない）: (case: `idempotent_reinstall` のサブアサーション) PASS
 - [ ] [CHECK-016] 境界ケース2 マーカー両方欠損 — 既存の末尾 append 挙動を維持し既存行は不変（事前バックアップあり）: (case: `marker_both_missing_append`) PASS
+- [ ] [CHECK-017] AC-14 導入先 gitignore エントリ — clean install 後 `grep -qF '.sage/backup/' .gitignore` が成功し、再 install で重複行が増えない: (case: `gitignore_backup_entry`) PASS
 
 ### 非機能検証（該当する場合）
 
@@ -84,7 +85,7 @@ N/A — CLI installer のためスキップ。
 | test-installer-preservation.sh | 全ケース PASS | 必須（1つでも失敗 = Fail） |
 | run-tests.sh（既存テスト） | 全件 PASS | 必須 |
 | SHA256SUMS 検証 | PASS | 必須 |
-| 機能検証 CHECK-001〜016 | 全項目 Pass | 必須 |
+| 機能検証 CHECK-001〜017 | 全項目 Pass | 必須 |
 | 非機能検証 | 全項目 Pass | 必須 |
 | ブラウザ検証 | — | N/A |
 
@@ -100,7 +101,7 @@ fail_feedback:
   iteration: M
   verdict: FAIL
   failed_items:
-    - id: "CHECK-XXX"          # 上記 CHECK-001〜016 のいずれか
+    - id: "CHECK-XXX"          # 上記 CHECK-001〜017 のいずれか
       category: "functional"   # functional | structural | security | architecture
       expected: "対応する AC の期待値を具体的に記述（例: AC-03 世代数 3）"
       actual: "実測値を具体的に記述（例: 世代数 4）"
@@ -115,9 +116,9 @@ fail_feedback:
 
 ### フィードバック形式のルール
 
-- `failed_items.id` は本 Done Definition の CHECK-ID（CHECK-001〜016）と一致させること
+- `failed_items.id` は本 Done Definition の CHECK-ID（CHECK-001〜017）と一致させること
 - `category` は 4 種類のいずれか: `functional`, `structural`, `security`, `architecture`
 - `log_snippet` は最大 10 行。長い場合はファイルパスで参照する
-- `fix_scope` には該当 TASK（TASK-0178〜0183）の File Scope 内のファイルのみ記載する
+- `fix_scope` には該当 TASK（TASK-0178〜0184）の File Scope 内のファイルのみ記載する
 - `instruction` は Implementation Agent が即座に実行可能な具体性で記述する
 - `same_fail_count` が 3 に達した場合は abort し、`sage/failures.md` へ TASK-ID 付きで記録する（CLAUDE.md §5）

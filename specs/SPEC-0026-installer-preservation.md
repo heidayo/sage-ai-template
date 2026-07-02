@@ -29,7 +29,7 @@
   - 上書き・変更対象の既存ファイル (UPDATE 対象。CREATE 対象は除く) を書き込み前に `.sage/backup/<timestamp>/` へ元の相対パス構造を維持して保存する
   - バックアップ世代数上限は直近3世代とし、超過分の最古世代を削除する。削除時・保存時はその旨を stdout に出力する
   - `--dry-run` 時はバックアップを作成しない (書き込みが発生しないため)
-  - `.sage/backup/` は既に `.gitignore` 対象であることを確認済み — 追加変更不要だが、テストで gitignore 対象であることを検証する
+  - `.sage/backup/` の gitignore 対応: 本リポジトリの `.gitignore` は対応済み。installer が導入先に生成する `.gitignore` (`07-installer-main.sh` の `setup_gitignore`) には `.sage/metrics/` のみで `.sage/backup/` が含まれないため、新規生成・既存追記の両経路で `.sage/backup/` を追加する。テストで gitignore 対象であることを検証する
 - diff プレビュー強化:
   - `install.sh --diff` オプションを新設し、UPDATE 対象ファイルごとに unified diff (`diff -u` 相当) を表示して書き込みは行わない (dry-run + diff 表示)
   - CLAUDE.md / AGENTS.md についてはマーカー内 SAGE managed セクションの差分を表示する (マーカー外は変更されないことが前提であり、diff にマーカー外行が現れた場合はそれ自体が保全違反のシグナル)
@@ -70,6 +70,7 @@
 - [FR-06] install の冪等性: 同一テンプレートで `bash install.sh` を2回連続実行した場合、2回目実行後の managed ファイル群・install-state は1回目実行後と同一である (バックアップ世代は増えない — UPDATE 0件のため)
 - [FR-07] generator 変更後、`install.sh` は再生成され SHA256SUMS と一致する
 - [FR-08] `templates/claude-md-snippet.md` (CLAUDE.md managed セクションのソース) にバックアップ規約を 1〜2 行追記する: 「Template update backs up modified files to `.sage/backup/<timestamp>/` (3 generations). Restore: `cp .sage/backup/<ts>/<file> <file>`」
+- [FR-09] installer が導入先に生成する `.gitignore` (`setup_gitignore`) に `.sage/backup/` エントリを追加する。新規生成時はエントリを含め、既存 `.gitignore` への追記時は同エントリが存在しない場合のみ追記する (冪等)
 
 ### 非機能要件
 - [NFR-01] 後方互換: 旧導入先 (`.sage/backup/` 不在・旧 install-state) で `bash install.sh` が失敗しない。新オプション未使用時の既存 CLI 挙動 (`--dry-run` / `--verify-checksum` / provenance) は不変
@@ -102,6 +103,7 @@
 - [ ] AC-11: 異常系 (非タイムスタンプエントリ保持) — `.sage/backup/` 直下にタイムスタンプ形式でないエントリを置いた状態で世代ローテーションを発生させ、当該エントリが削除されず保持される (case: `rotation_skips_foreign_entries`)
 - [ ] AC-12: 異常系 (timestamp 衝突) — 同一秒内の連続実行を模した状態で `bash install.sh` を実行し、既存世代ディレクトリが上書きされず `-N` suffix 付きディレクトリに保存される (case: `timestamp_collision_no_overwrite`)
 - [ ] AC-13: バックアップ規約の CLAUDE.md 反映 (FR-08 対応) — clean install 後 `grep -q '.sage/backup/' CLAUDE.md` が成功する (case: `claude_md_backup_convention`)
+- [ ] AC-14: 導入先 gitignore エントリ (FR-09 対応) — clean install 後 `grep -qF '.sage/backup/' .gitignore` が成功し、再 install で重複行が増えない (case: `gitignore_backup_entry`)
 
 ### 検証方針
 
@@ -172,8 +174,9 @@
 | T4 | templates/claude-md-snippet.md へのバックアップ規約追記 (FR-08) + install.sh 再生成 + SHA256SUMS 更新 | AC-06/13 | `shasum -a 256 -c SHA256SUMS` PASS + clean install 後 `grep -q '.sage/backup/' CLAUDE.md` PASS | T1-T3 後 |
 | T5 | test-installer-preservation.sh 追加 | AC-01〜05 (AC-04b 含む)/08/09/11/12/13 | `bash templates/hooks/tests/test-installer-preservation.sh` 全ケース PASS | T4 後 |
 | T6 | docs: 復元手順 + マーカー方式対比表 | AC-10 | AC-10 の grep 検証 PASS + run-tests.sh 非破壊 | T1 後に並列可 |
+| T7 | generator: setup_gitignore への `.sage/backup/` エントリ追加 (FR-09、新規生成・既存追記の両経路、冪等) + テストケース `gitignore_backup_entry` 追加 | AC-14 | clean install 後 `grep -qF '.sage/backup/' .gitignore` PASS + 再 install で行数不変 | T1 後に並列可 (追補タスク) |
 
-  実行順: T1 → T2 → T3 → T4 → T5。T6 は T1 完了後に並列可。各 TASK は単一責務 (generator 機能 / 再生成 / テスト / docs) を維持する。
+  実行順: T1 → T2 → T3 → T4 → T5。T6 / T7 は T1 完了後に並列可。各 TASK は単一責務 (generator 機能 / 再生成 / テスト / docs) を維持する。
 
 ## Properties
 
@@ -210,4 +213,5 @@
   - [TASK-0181](../tasks/TASK-0181-snippet-and-regenerate.md) (T4: snippet 追記 + install.sh 再生成 + SHA256SUMS)
   - [TASK-0182](../tasks/TASK-0182-test-installer-preservation.md) (T5: test-installer-preservation.sh)
   - [TASK-0183](../tasks/TASK-0183-docs-restore-and-matrix.md) (T6: docs 復元手順 + 対比表)
+  - [TASK-0184](../tasks/TASK-0184-gitignore-backup-entry.md) (T7: setup_gitignore への .sage/backup/ エントリ追加)
 - Done Definition: [done-def-SPEC-0026-round-1](../tasks/done-def-SPEC-0026-round-1.md)

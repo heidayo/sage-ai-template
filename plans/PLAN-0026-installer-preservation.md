@@ -58,8 +58,9 @@ overlay 機構 (SPEC-0025)・GitHub Releases フロー (SPEC-0018)・`sage/` 配
 | TASK-0181 | claude-md-snippet 追記 (FR-08) + install.sh 再生成 + SHA256SUMS 更新 | T4 | Implementation | 30m | TASK-0180（推移的に TASK-0178/0179） | No |
 | TASK-0182 | test-installer-preservation.sh 追加 | T5 | Test | 2h | TASK-0181 | No |
 | TASK-0183 | docs: 復元手順 + マーカー方式対比表 | T6 | Implementation | 1h | TASK-0178 | Yes（TASK-0179〜0182 と並列可） |
+| TASK-0184 | generator: setup_gitignore への `.sage/backup/` エントリ追加 (FR-09、冪等) + case `gitignore_backup_entry` + install.sh/SHA256SUMS 再生成追随 | T7 | Implementation | 1h | TASK-0178 | Yes（TASK-0183 と並列可。TASK-0179〜0182 とは 07-installer-main.sh / SHA256SUMS を共有するため直列推奨） |
 
-実行順: TASK-0178 → TASK-0179 → TASK-0180 → TASK-0181 → TASK-0182。TASK-0183 は TASK-0178 完了後に並列可。
+実行順: TASK-0178 → TASK-0179 → TASK-0180 → TASK-0181 → TASK-0182。TASK-0183 / TASK-0184 は TASK-0178 完了後に並列可（追補タスク）。
 並列 TASK 同士 (TASK-0183 vs TASK-0179〜0182) の File Scope は互いに素 (`README.md` / `docs/` vs generator / templates / SHA256SUMS)。
 
 ## リスク
