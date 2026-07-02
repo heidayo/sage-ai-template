@@ -14,6 +14,25 @@ echo ""
 embed_file "TMPL_RULES_GOVERNANCE" "$ROOT/templates/rules/sage-governance-rules.md"
 echo ""
 
+# SPEC-0025 (FR-04 / AC-05): append the local overlay reference notice to
+# every managed rules template so all installed .claude/rules/*.md point
+# project-specific rules to rules/local/. Defined once here to avoid drift
+# across the five managed rules files.
+cat <<'RULES_NOTICE'
+# SPEC-0025: local overlay reference notice appended to all managed rules (FR-04).
+RULES_LOCAL_NOTICE='
+---
+
+<!-- SAGE managed rules file (SPEC-0025): replaced entirely on install.sh update. Put project-specific rules under .claude/rules/local/ instead. -->
+注記: このファイルは install.sh 更新で全置換されます。プロジェクト固有ルールは `.claude/rules/local/` に置いてください。'
+TMPL_RULES_SPECS="${TMPL_RULES_SPECS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_PLANS="${TMPL_RULES_PLANS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_TASKS="${TMPL_RULES_TASKS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_SRC="${TMPL_RULES_SRC}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_GOVERNANCE="${TMPL_RULES_GOVERNANCE}${RULES_LOCAL_NOTICE}"
+RULES_NOTICE
+echo ""
+
 # SPEC-0025: rules writer with local overlay exclusion. References
 # is_unmanaged_path (defined once in module 07's main logic — INV-03)
 # so rules generation never creates, overwrites, or deletes anything
