@@ -1887,8 +1887,56 @@ fi
 # --- Lane: promotion (promote/*) — TASK-ID required ---
 # --- Lane: standard (feature/*, others) — TASK-ID required ---
 
+# --- SPEC-0027: TASK-ID acceptance pattern (config-first, embedded fallback) ---
+# This hook is a standalone distribution artifact: it must work without
+# scripts/sage-id-pattern.sh. The embedded fallback below must stay identical
+# to the loader's fallback definition (INV-03). If .sage/id-patterns.json is
+# readable, its task.accept patterns take precedence (FR-06). Config values
+# are only ever used as grep -E pattern arguments — never evaluated (SEC-01).
+TASK_ID_PATTERN="TASK-[0-9]{4}"
+ID_PATTERNS_FILE=".sage/id-patterns.json"
+if [ -f "$ID_PATTERNS_FILE" ]; then
+  CFG_JOINED=""
+  CFG_COUNT=0
+  while IFS= read -r CFG_PAT; do
+    [ -n "$CFG_PAT" ] || continue
+    # Skip invalid EREs so a broken pattern cannot disable validation (SEC-03)
+    printf '' | grep -E -- "$CFG_PAT" > /dev/null 2>&1
+    if [ $? -ge 2 ]; then
+      echo "WARN: pre-commit-task-id: invalid ERE in $ID_PATTERNS_FILE ignored: $CFG_PAT" >&2
+      continue
+    fi
+    if [ -z "$CFG_JOINED" ]; then
+      CFG_JOINED="$CFG_PAT"
+    else
+      CFG_JOINED="$CFG_JOINED|$CFG_PAT"
+    fi
+    CFG_COUNT=$((CFG_COUNT + 1))
+  done <<EOF_ID_PATTERNS
+$(awk -v type="task" '
+    intype == 0 && $0 ~ ("\"" type "\"[[:space:]]*:") { intype = 1 }
+    intype == 1 && $0 ~ /"accept"[[:space:]]*:/ { inaccept = 1 }
+    inaccept == 1 {
+      line = $0
+      sub(/.*"accept"[[:space:]]*:/, "", line)
+      while (match(line, /"[^"]*"/)) {
+        printf "%s\n", substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+      if (line ~ /\]/) { intype = 0; inaccept = 0 }
+    }
+  ' "$ID_PATTERNS_FILE" 2>/dev/null)
+EOF_ID_PATTERNS
+  if [ "$CFG_COUNT" -eq 1 ]; then
+    TASK_ID_PATTERN="$CFG_JOINED"
+  elif [ "$CFG_COUNT" -gt 1 ]; then
+    TASK_ID_PATTERN="($CFG_JOINED)"
+  fi
+  # CFG_COUNT=0 (unparsable/missing/empty accept) => keep embedded fallback
+fi
+
 # All non-explore lanes require TASK-ID
-if ! echo "$COMMIT_MSG" | grep -qE "TASK-[0-9]{4}"; then
+if ! echo "$COMMIT_MSG" | grep -qE "$TASK_ID_PATTERN"; then
   # Determine lane for helpful error message
   LANE="standard"
   if echo "$BRANCH" | grep -qE "^(fix|chore|docs)/"; then
@@ -1916,6 +1964,138 @@ if ! echo "$COMMIT_MSG" | grep -qE "TASK-[0-9]{4}"; then
 fi
 
 __EOF_TMPL_COMMIT_HOOK__
+
+read -r -d '' TMPL_ID_PATTERN_LOADER <<'__EOF_TMPL_ID_PATTERN_LOADER__' || true
+#!/bin/bash
+# sage-id-pattern.sh — shared ID acceptance pattern loader (SPEC-0027)
+#
+# Usage (source only — direct execution is unsupported):
+#   . scripts/sage-id-pattern.sh
+#   sage_id_accept_regex task    # -> acceptance ERE (config-aware, e.g. "(TASK-[0-9]{4}|TASK-[a-z]+-[0-9a-f]{4})")
+#   sage_id_default_regex task   # -> default-format ERE for ID generation scans (never config-extended)
+#
+# Config: .sage/id-patterns.json — {"<type>": {"accept": ["<ERE>", ...]}}
+#   type ∈ spec/plan/task/run/fail. Parsed with POSIX tools only (no jq).
+#   Missing file / unparsable JSON / missing type / empty accept => fallback
+#   to the built-in default regex (WARN to stderr on anomaly, always exit 0).
+# Security: config values are used only as grep -E pattern arguments,
+#   never evaluated as shell code (SEC-01/INV-02).
+
+SAGE_ID_PATTERNS_FILE="${SAGE_ID_PATTERNS_FILE:-.sage/id-patterns.json}"
+
+# Built-in fallback definitions — must stay identical to the embedded
+# fallback in templates/pre-commit-task-id.sh (INV-03).
+_sage_id_fallback_regex() {
+  case "$1" in
+    spec) printf 'SPEC-[0-9]{4}\n' ;;
+    plan) printf 'PLAN-[0-9]{4}\n' ;;
+    task) printf 'TASK-[0-9]{4}\n' ;;
+    run)  printf 'RUN-[0-9]{4}\n' ;;
+    fail) printf 'FAIL-[0-9]{4}\n' ;;
+    *)    return 1 ;;
+  esac
+}
+
+# Extract the "accept" array entries for a type from the config file.
+# Supported format is the documented subset (one pattern per line or a
+# single-line array). Anything unparsable simply yields no output, which
+# resolves to the safe fallback in the caller (PRE-01).
+_sage_id_extract_accept() {
+  awk -v type="$1" '
+    intype == 0 && $0 ~ ("\"" type "\"[[:space:]]*:") { intype = 1 }
+    intype == 1 && $0 ~ /"accept"[[:space:]]*:/ { inaccept = 1 }
+    inaccept == 1 {
+      line = $0
+      # Strip up to the accept key on its own line so the key itself is not
+      # captured as a pattern.
+      sub(/.*"accept"[[:space:]]*:/, "", line)
+      while (match(line, /"[^"]*"/)) {
+        printf "%s\n", substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+      # Close only on a "]" outside quoted strings ("]" may appear inside
+      # an ERE pattern such as TASK-[0-9]{4}).
+      if (line ~ /\]/) { intype = 0; inaccept = 0 }
+    }
+  ' "$2" 2>/dev/null
+}
+
+# sage_id_accept_regex <type> — acceptance ERE. Multiple accept patterns are
+# combined into (p1|p2|...). Always prints a non-empty valid ERE and returns 0
+# for known types (POST-01).
+sage_id_accept_regex() {
+  local _type="$1" _fallback _file _joined _count _pat
+  if ! _fallback="$(_sage_id_fallback_regex "$_type")"; then
+    echo "WARN: sage-id-pattern: unknown id type '$_type'" >&2
+    return 1
+  fi
+  _file="$SAGE_ID_PATTERNS_FILE"
+  if [ ! -f "$_file" ]; then
+    # Absent config is the documented default state — silent fallback (AC-01).
+    printf '%s\n' "$_fallback"
+    return 0
+  fi
+  _joined=""
+  _count=0
+  local _grep_status
+  while IFS= read -r _pat; do
+    [ -n "$_pat" ] || continue
+    # Reject invalid EREs so a broken pattern cannot disable validation.
+    # grep exits 2 on a bad pattern; 0/1 both mean the pattern is valid.
+    _grep_status=0
+    printf '' | grep -E -- "$_pat" > /dev/null 2>&1 || _grep_status=$?
+    if [ "$_grep_status" -ge 2 ]; then
+      echo "WARN: sage-id-pattern: invalid ERE for type '$_type' ignored: $_pat" >&2
+      continue
+    fi
+    if [ -z "$_joined" ]; then
+      _joined="$_pat"
+    else
+      _joined="$_joined|$_pat"
+    fi
+    _count=$((_count + 1))
+  done <<EOF_PATTERNS
+$(_sage_id_extract_accept "$_type" "$_file")
+EOF_PATTERNS
+  if [ "$_count" -eq 0 ]; then
+    # Unparsable JSON / missing type / empty accept — safe fallback (FR-04, SEC-03).
+    echo "WARN: sage-id-pattern: no usable accept patterns for type '$_type' in $_file — using default '$_fallback'" >&2
+    printf '%s\n' "$_fallback"
+    return 0
+  fi
+  if [ "$_count" -eq 1 ]; then
+    printf '%s\n' "$_joined"
+  else
+    printf '(%s)\n' "$_joined"
+  fi
+  return 0
+}
+
+# sage_id_default_regex <type> — default-format ERE for sequential-number
+# scans in sage-id-gen.sh. Custom accept patterns never extend generation
+# (FR-07/PRE-02), so this is always the built-in default.
+sage_id_default_regex() {
+  local _fallback
+  if ! _fallback="$(_sage_id_fallback_regex "$1")"; then
+    echo "WARN: sage-id-pattern: unknown id type '$1'" >&2
+    return 1
+  fi
+  printf '%s\n' "$_fallback"
+  return 0
+}
+
+__EOF_TMPL_ID_PATTERN_LOADER__
+
+read -r -d '' TMPL_ID_PATTERNS <<'__EOF_TMPL_ID_PATTERNS__' || true
+{
+  "spec": { "accept": ["SPEC-[0-9]{4}"] },
+  "plan": { "accept": ["PLAN-[0-9]{4}"] },
+  "task": { "accept": ["TASK-[0-9]{4}"] },
+  "run": { "accept": ["RUN-[0-9]{4}"] },
+  "fail": { "accept": ["FAIL-[0-9]{4}"] }
+}
+
+__EOF_TMPL_ID_PATTERNS__
 
 read -r -d '' TMPL_RULES_SPECS <<'__EOF_TMPL_RULES_SPECS__' || true
 ---
@@ -4040,6 +4220,12 @@ read -r -d '' TMPL_VALIDATE <<'__EOF_TMPL_VALIDATE__' || true
 # CLAUDE.mdの必須セクション存在確認 + テンプレートフィールド検証
 set -euo pipefail
 
+# SPEC-0027: ID acceptance patterns come from the shared loader (config-aware).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+TASK_ACCEPT_RE="$(sage_id_accept_regex task)"
+
 ERRORS=0
 
 echo "=== SAGE Validation ==="
@@ -4229,7 +4415,7 @@ if [[ "$CURRENT_BRANCH" == promote/* ]]; then
     if [ -z "$PROMOTION_COMMITS" ]; then
       echo "  OK: 昇格後コミットなし（TASK-ID チェック対象なし）"
     else
-      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "TASK-[0-9]{4}" || echo "0")
+      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "$TASK_ACCEPT_RE" || echo "0")
       if [ "$COMMITS_WITHOUT_TASKID" -gt 0 ]; then
         echo "  ERROR: promote/* ブランチの昇格後コミットに TASK-ID なしが ${COMMITS_WITHOUT_TASKID} 件あります"
         ERRORS=$((ERRORS + 1))
@@ -4400,6 +4586,13 @@ read -r -d '' TMPL_ID_GEN <<'__EOF_TMPL_ID_GEN__' || true
 # Usage: bash scripts/sage-id-gen.sh spec|plan|task
 set -euo pipefail
 
+# SPEC-0027: default-format regex comes from the shared loader. Generation and
+# sequential scans use the default format only — custom accept patterns never
+# affect numbering (FR-07/PRE-02).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+
 TYPE="${1:-}"
 
 if [ -z "$TYPE" ]; then
@@ -4436,17 +4629,21 @@ case "$TYPE" in
     ;;
 esac
 
+# Default-format ERE for the sequential scan (PREFIX + 4-digit number)
+DEFAULT_RE="$(sage_id_default_regex "$TYPE")"
+
 # Find the highest existing ID
 LAST_NUM=0
 if [ "$TYPE" = "fail" ]; then
   # Search in failures.md
   if [ -f "sage/failures.md" ]; then
-    LAST_NUM=$(grep -oE "${PREFIX}-[0-9]{4}" sage/failures.md 2>/dev/null | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+    LAST_NUM=$(grep -oE "$DEFAULT_RE" sage/failures.md 2>/dev/null | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
   fi
 else
-  # Search in directory for files matching PREFIX-XXXX
+  # Search in directory for files matching the default format (PREFIX-XXXX);
+  # custom-format IDs are ignored by design (SPEC-0027 FR-07)
   if [ -d "$DIR" ]; then
-    LAST_NUM=$(ls "$DIR" 2>/dev/null | grep -oE "${PREFIX}-[0-9]{4}" | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+    LAST_NUM=$(ls "$DIR" 2>/dev/null | grep -oE "$DEFAULT_RE" | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
   fi
 fi
 
@@ -4467,6 +4664,12 @@ read -r -d '' TMPL_TRACE_CHECK <<'__EOF_TMPL_TRACE_CHECK__' || true
 # 直近のコミットにTASK-IDが含まれているか確認
 set -euo pipefail
 
+# SPEC-0027: ID acceptance patterns come from the shared loader (config-aware).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+TASK_ACCEPT_RE="$(sage_id_accept_regex task)"
+
 echo "=== SAGE Traceability Check ==="
 echo ""
 
@@ -4480,7 +4683,7 @@ while IFS= read -r line; do
   HASH=$(echo "$line" | cut -d' ' -f1)
   MSG=$(echo "$line" | cut -d' ' -f2-)
 
-  if echo "$MSG" | grep -qE 'TASK-[0-9]{4}'; then
+  if echo "$MSG" | grep -qE "$TASK_ACCEPT_RE"; then
     echo "  OK: $HASH — $MSG"
   elif echo "$MSG" | grep -qE '^(initial commit|merge|Merge)'; then
     echo "  SKIP: $HASH — $MSG (merge/initial)"
@@ -10309,6 +10512,9 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "sage/adoption-phases.md" "$TMPL_ADOPTION"
   write_file_if_new "sage/traceability.md" "$TMPL_TRACEABILITY"
   write_file_if_new ".sage/config.yaml" "$TMPL_CONFIG"
+  # SPEC-0027: id-patterns.json is preserve-if-exists (AC-12) — never overwritten
+  write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
+  write_file_if_new "scripts/sage-id-pattern.sh" "$TMPL_ID_PATTERN_LOADER"
   write_file_if_new "scripts/sage-validate.sh" "$TMPL_VALIDATE" && chmod +x "scripts/sage-validate.sh"
   write_file_if_new "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   write_file_if_new "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
@@ -10328,6 +10534,10 @@ else
   update_file "sage/quality-gates.md" "$TMPL_QUALITY_GATES"
   update_file "sage/adoption-phases.md" "$TMPL_ADOPTION"
   update_file "sage/traceability.md" "$TMPL_TRACEABILITY"
+  # SPEC-0027: loader is SAGE-managed (updated); id-patterns.json is
+  # project-customizable — installed only when missing (preserve-if-exists)
+  update_file "scripts/sage-id-pattern.sh" "$TMPL_ID_PATTERN_LOADER"
+  write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
   update_file "scripts/sage-validate.sh" "$TMPL_VALIDATE" && chmod +x "scripts/sage-validate.sh"
   update_file "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   update_file "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
@@ -10540,6 +10750,7 @@ STATEHEADER
     "sage/adoption-phases.md"
     "sage/traceability.md"
     # Scripts
+    "scripts/sage-id-pattern.sh"
     "scripts/sage-validate.sh"
     "scripts/sage-id-gen.sh"
     "scripts/sage-trace-check.sh"
@@ -10576,6 +10787,7 @@ STATEHEADER
     "CLAUDE.md"
     "AGENTS.md"
     ".sage/config.yaml"
+    ".sage/id-patterns.json"
     "sage/failures.md"
     ".claude/settings.json"
   )

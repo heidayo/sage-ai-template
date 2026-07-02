@@ -730,6 +730,9 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "sage/adoption-phases.md" "$TMPL_ADOPTION"
   write_file_if_new "sage/traceability.md" "$TMPL_TRACEABILITY"
   write_file_if_new ".sage/config.yaml" "$TMPL_CONFIG"
+  # SPEC-0027: id-patterns.json is preserve-if-exists (AC-12) — never overwritten
+  write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
+  write_file_if_new "scripts/sage-id-pattern.sh" "$TMPL_ID_PATTERN_LOADER"
   write_file_if_new "scripts/sage-validate.sh" "$TMPL_VALIDATE" && chmod +x "scripts/sage-validate.sh"
   write_file_if_new "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   write_file_if_new "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
@@ -749,6 +752,10 @@ else
   update_file "sage/quality-gates.md" "$TMPL_QUALITY_GATES"
   update_file "sage/adoption-phases.md" "$TMPL_ADOPTION"
   update_file "sage/traceability.md" "$TMPL_TRACEABILITY"
+  # SPEC-0027: loader is SAGE-managed (updated); id-patterns.json is
+  # project-customizable — installed only when missing (preserve-if-exists)
+  update_file "scripts/sage-id-pattern.sh" "$TMPL_ID_PATTERN_LOADER"
+  write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
   update_file "scripts/sage-validate.sh" "$TMPL_VALIDATE" && chmod +x "scripts/sage-validate.sh"
   update_file "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   update_file "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
@@ -961,6 +968,7 @@ STATEHEADER
     "sage/adoption-phases.md"
     "sage/traceability.md"
     # Scripts
+    "scripts/sage-id-pattern.sh"
     "scripts/sage-validate.sh"
     "scripts/sage-id-gen.sh"
     "scripts/sage-trace-check.sh"
@@ -997,6 +1005,7 @@ STATEHEADER
     "CLAUDE.md"
     "AGENTS.md"
     ".sage/config.yaml"
+    ".sage/id-patterns.json"
     "sage/failures.md"
     ".claude/settings.json"
   )
