@@ -3,6 +3,13 @@
 # Usage: bash scripts/sage-id-gen.sh spec|plan|task
 set -euo pipefail
 
+# SPEC-0027: default-format regex comes from the shared loader. Generation and
+# sequential scans use the default format only — custom accept patterns never
+# affect numbering (FR-07/PRE-02).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+
 TYPE="${1:-}"
 
 if [ -z "$TYPE" ]; then
@@ -39,17 +46,21 @@ case "$TYPE" in
     ;;
 esac
 
+# Default-format ERE for the sequential scan (PREFIX + 4-digit number)
+DEFAULT_RE="$(sage_id_default_regex "$TYPE")"
+
 # Find the highest existing ID
 LAST_NUM=0
 if [ "$TYPE" = "fail" ]; then
   # Search in failures.md
   if [ -f "sage/failures.md" ]; then
-    LAST_NUM=$(grep -oE "${PREFIX}-[0-9]{4}" sage/failures.md 2>/dev/null | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+    LAST_NUM=$(grep -oE "$DEFAULT_RE" sage/failures.md 2>/dev/null | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
   fi
 else
-  # Search in directory for files matching PREFIX-XXXX
+  # Search in directory for files matching the default format (PREFIX-XXXX);
+  # custom-format IDs are ignored by design (SPEC-0027 FR-07)
   if [ -d "$DIR" ]; then
-    LAST_NUM=$(ls "$DIR" 2>/dev/null | grep -oE "${PREFIX}-[0-9]{4}" | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+    LAST_NUM=$(ls "$DIR" 2>/dev/null | grep -oE "$DEFAULT_RE" | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
   fi
 fi
 
