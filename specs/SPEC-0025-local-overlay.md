@@ -33,7 +33,7 @@ sage-ai-template を実プロジェクトに導入した際、`.claude/rules/*.m
   - generator 変更に伴い `install.sh` を再生成し、SHA256SUMS を更新する
 - `.sage/install-state.yaml` に managed / unmanaged (overlay) の宣言セクションを追加する (`unmanaged_paths:` として `.claude/rules/local/`, `.codex/rules/local/` を列挙。`--verify-checksum` はこれらを検証対象外とする)
 - managed ルールファイル (`templates/rules/` 由来の `.claude/rules/*.md`) の末尾に「プロジェクト固有ルールは `local/` に置く。このファイルは install.sh 更新で全置換される」旨の参照規約注記 (英語コメント + 日本語1行) を追加する
-- CLAUDE.md テンプレート (SAGE managed セクション、`scripts/generator/01-templates.sh` 内) に overlay ディレクトリの存在と読み込み規約 (「`.claude/rules/local/*.md` はプロジェクト固有ルールとして managed rules と同順位で参照する」) を記載する
+- CLAUDE.md テンプレート (SAGE managed セクションのソース = `templates/claude-md-snippet.md`。`scripts/generator/02-config.sh` が embed し `07-installer-main.sh` の `upsert_sage_section()` が注入。`01-templates.sh` にはポインタコメントのみ) に overlay ディレクトリの存在と読み込み規約 (「`.claude/rules/local/*.md` はプロジェクト固有ルールとして managed rules と同順位で参照する」) を記載する
 - overlay 不可侵を検証する bash テスト `templates/hooks/tests/test-local-overlay.sh` を追加する (`_helpers.sh` / `run-tests.sh` の既存流儀に従う)
 - README / docs に「カスタマイズと更新の共存」ガイドを新設または更新する (日本語)
 
@@ -54,7 +54,7 @@ sage-ai-template を実プロジェクトに導入した際、`.claude/rules/*.m
 - [FR-02] `.sage/install-state.yaml` に `unmanaged_paths` セクションが出力され、overlay ディレクトリが宣言される
 - [FR-03] `install.sh --verify-checksum` は `unmanaged_paths` 配下を検証対象外とし、overlay ファイルの存在有無・内容で PASS/FAIL が変わらない
 - [FR-04] managed ルールファイル (`.claude/rules/*.md`) 末尾に local overlay への参照規約注記が含まれる
-- [FR-05] CLAUDE.md の SAGE managed セクションに overlay の存在と読み込み規約が記載される
+- [FR-05] CLAUDE.md の SAGE managed セクション (ソース: `templates/claude-md-snippet.md`) に overlay の存在と読み込み規約が記載される
 - [FR-06] generator 変更後、`install.sh` は再生成され SHA256SUMS と一致する (再現性維持)
 
 ### 非機能要件
@@ -123,7 +123,7 @@ sage-ai-template を実プロジェクトに導入した際、`.claude/rules/*.m
 
 - `scripts/generator/07-installer-main.sh`: `upsert_sage_section()`、install-state 生成部 (L697 付近)、`--verify-checksum` (L62/L72/L433 付近) が主要変更点
 - `scripts/generator/03-rules.sh`: rules ファイル生成に末尾注記を追加
-- `scripts/generator/01-templates.sh`: CLAUDE.md managed セクションに overlay 規約を追記
+- `templates/claude-md-snippet.md`: CLAUDE.md managed セクションのソース。overlay 規約はここに追記する (`scripts/generator/02-config.sh` が embed、`07-installer-main.sh` の `upsert_sage_section()` が注入)。`scripts/generator/01-templates.sh` はソースではないため、ポインタコメントの追加のみ
 - テストは `templates/hooks/tests/_helpers.sh` と `test-installer-modularize.sh` の流儀 (一時ディレクトリ + 生成 install.sh 実行) を踏襲
 - 禁止事項: AGENTS.md / `docs/codex-*.md` の直接編集 (Codex follow-up として TASK 分離)、`sage/` 配下の変更、TASK File Scope 外の変更 (AP-03)、1 TASK で generator + docs + tests を一括変更する Big Bang (AP-02 — Slice で分割すること)、テスト未実行での受け入れ (AP-09)、TASK-ID を含まないコミット禁止 (commit-msg hook で強制、AP-05)
 - Slice 向け分割ヒント:
@@ -134,7 +134,7 @@ sage-ai-template を実プロジェクトに導入した際、`.claude/rules/*.m
 | T2 | install.sh 再生成 + SHA256SUMS 更新 | AC-06 | `shasum -a 256 -c SHA256SUMS` PASS |
 | T3 | test-local-overlay.sh 追加 | AC-01〜04/08/09 | `bash templates/hooks/tests/test-local-overlay.sh` 全ケース PASS |
 | T4 | managed rules 末尾注記 | AC-05 | AC-05 の grep 検証 PASS |
-| T5 | CLAUDE.md 規約追記 (01-templates.sh) | AC-10 | 生成 CLAUDE.md に `rules/local/` 規約行を grep 確認 |
+| T5 | CLAUDE.md 規約追記 (templates/claude-md-snippet.md + 01-templates.sh ポインタコメント) | AC-10 | 生成 CLAUDE.md に `rules/local/` 規約行を grep 確認 |
 | T6 | README ガイド新設/更新 | AC-07 | `grep -q 'local/' README.md` + run-tests.sh 非破壊 |
 
   実行順: T1 → T2 → T3。T4 / T5 / T6 は T1 完了後に並列可。

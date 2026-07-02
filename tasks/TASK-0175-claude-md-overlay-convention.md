@@ -1,4 +1,4 @@
-# TASK-0175: CLAUDE.md テンプレートへの local overlay 読み込み規約追記（01-templates.sh）
+# TASK-0175: CLAUDE.md テンプレートへの local overlay 読み込み規約追記（templates/claude-md-snippet.md）
 
 ## メタデータ
 
@@ -15,24 +15,26 @@
 
 ## 責務
 
-CLAUDE.md テンプレート（SAGE managed セクション、`scripts/generator/01-templates.sh` 内）に overlay ディレクトリの存在と読み込み規約（「`.claude/rules/local/*.md` はプロジェクト固有ルールとして managed rules と同順位で参照する」）を generator 経由で追記する。
+CLAUDE.md テンプレート（SAGE managed セクションのソース = `templates/claude-md-snippet.md`。`scripts/generator/02-config.sh` が embed し `07-installer-main.sh` の `upsert_sage_section()` が注入）に overlay ディレクトリの存在と読み込み規約（「`.claude/rules/local/*.md` はプロジェクト固有ルールとして managed rules と同順位で参照する」）を追記する。あわせて `scripts/generator/01-templates.sh` にソース所在を示すポインタコメントのみを追加する。
 
 ## 入力
 
 - SPEC-0025（FR-05, AC-10, ASM-02）
-- `scripts/generator/01-templates.sh`（CLAUDE.md managed セクション生成部）
+- `templates/claude-md-snippet.md`（CLAUDE.md SAGE managed セクションのソース）
+- `scripts/generator/02-config.sh`（snippet の embed 経路の確認、変更不要）
 - `upsert_sage_section()` の既存マーカー方式（`scripts/generator/07-installer-main.sh`）— managed セクション内への追記であることの確認
 
 ## 出力
 
-- 変更済み `scripts/generator/01-templates.sh`（SAGE managed セクションに overlay 読み込み規約を出力）
+- 変更済み `templates/claude-md-snippet.md`（SAGE managed セクションに overlay 読み込み規約を追記）
+- 変更済み `scripts/generator/01-templates.sh`（ソース所在のポインタコメントのみ追加）
 
 ※ `install.sh` 再生成 + `SHA256SUMS` 更新は TASK-0177 に直列化（本 TASK では行わない）
 
 ## File Scope（変更許可範囲）
 
 - 作成: なし
-- 変更: `scripts/generator/01-templates.sh`
+- 変更: `templates/claude-md-snippet.md`, `scripts/generator/01-templates.sh`（ポインタコメントのみ）
 - 削除: なし
 
 ## 禁止事項
@@ -47,7 +49,8 @@ CLAUDE.md テンプレート（SAGE managed セクション、`scripts/generator
 
 ## 完了条件
 
-- [ ] `scripts/generator/01-templates.sh` の CLAUDE.md managed セクション出力に `rules/local/` 読み込み規約が含まれる（`grep -q 'rules/local/' scripts/generator/01-templates.sh`。clean install での AC-10 検証は TASK-0177 再生成後、TASK-0173 の `claude_md_convention` ケースで機械検証）
+- [ ] `templates/claude-md-snippet.md` に `rules/local/` 読み込み規約が含まれる（`grep -q 'rules/local/' templates/claude-md-snippet.md`。clean install での AC-10 検証は TASK-0177 再生成後、TASK-0173 の `claude_md_convention` ケースで機械検証）
+- [ ] `scripts/generator/01-templates.sh` にソース所在のポインタコメントが含まれる（`grep -q 'claude-md-snippet.md' scripts/generator/01-templates.sh`）
 - [ ] `bash templates/hooks/tests/run-tests.sh` が全件 PASS（非破壊）
 
 ※ `shasum -a 256 -c SHA256SUMS`（AC-06）の PASS は TASK-0177 の完了条件

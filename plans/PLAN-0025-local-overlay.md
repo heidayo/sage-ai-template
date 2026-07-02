@@ -15,7 +15,7 @@
 - [ ] controller
 - [ ] usecase
 - [ ] domain
-- [x] infrastructure（installer generator: `scripts/generator/01-templates.sh` / `03-rules.sh` / `07-installer-main.sh`、生成物 `install.sh` + `SHA256SUMS`）
+- [x] infrastructure（installer generator: `scripts/generator/01-templates.sh` / `03-rules.sh` / `07-installer-main.sh`、テンプレートソース `templates/claude-md-snippet.md`、生成物 `install.sh` + `SHA256SUMS`）
 - [ ] frontend
 - [ ] infra
 - [x] test（`templates/hooks/tests/test-local-overlay.sh` 新設）
@@ -27,7 +27,8 @@
 |------|---------|
 | `scripts/generator/07-installer-main.sh` | overlay 除外判定 `is_unmanaged_path()` の定義（単一箇所 = INV-03）、install-state 生成部への `unmanaged_paths` 追加、`--verify-checksum` の検証対象除外、非ディレクトリ/symlink WARN 処理 |
 | `scripts/generator/03-rules.sh` | rules 生成での `*/rules/local/**` 不可侵 + managed rules 末尾への参照規約注記 |
-| `scripts/generator/01-templates.sh` | CLAUDE.md SAGE managed セクションへの overlay 読み込み規約追記 |
+| `templates/claude-md-snippet.md` | CLAUDE.md SAGE managed セクションのソース。overlay 読み込み規約を追記（`scripts/generator/02-config.sh` が embed、`07-installer-main.sh` の `upsert_sage_section()` が注入） |
+| `scripts/generator/01-templates.sh` | ソース所在を示すポインタコメントの追加のみ |
 | `install.sh` / `SHA256SUMS` | generator 変更に伴う再生成・checksum 更新（FR-06 / NFR-02 再現性） |
 | `.sage/install-state.yaml`（契約） | `unmanaged_paths:` キー追加（追加のみ、既存キー変更なし） |
 | `templates/hooks/tests/` | `test-local-overlay.sh` 新設、`run-tests.sh` から実行される既存テスト群は非破壊（AC-07） |
@@ -53,7 +54,7 @@
 | TASK-0172 | install.sh 再生成 + SHA256SUMS 更新 | T2 | AC-06 | Implementation | 30m | TASK-0171 | No |
 | TASK-0173 | test-local-overlay.sh 追加 | T3 | AC-01〜04/08/09/10 | Test | 2h | TASK-0177（推移的に TASK-0172/0174/0175 を含む。テストは TASK-0177 再生成後の install.sh を対象とする） | No |
 | TASK-0174 | managed rules 末尾注記（03-rules.sh、generator/templates のみ） | T4 | AC-05 (実装側) | Implementation | 1h | TASK-0171, TASK-0172 | Yes（T5/T6 と並列可） |
-| TASK-0175 | CLAUDE.md 規約追記（01-templates.sh、generator のみ） | T5 | AC-10 (実装側) | Implementation | 1h | TASK-0171, TASK-0172 | Yes（T4/T6 と並列可） |
+| TASK-0175 | CLAUDE.md 規約追記（templates/claude-md-snippet.md + 01-templates.sh ポインタコメント） | T5 | AC-10 (実装側) | Implementation | 1h | TASK-0171, TASK-0172 | Yes（T4/T6 と並列可） |
 | TASK-0176 | README「カスタマイズと更新の共存」ガイド | T6 | OPS-02 / SEC-01 (+AC-07 非破壊) | Implementation | 1h | TASK-0171, TASK-0172 | Yes（T4/T5 と並列可） |
 | TASK-0177 | install.sh 再生成 + SHA256SUMS 更新（T4/T5 反映） | T7 | AC-06 (+05/10 の生成物反映確認) | Implementation | 30m | TASK-0174, TASK-0175 | No |
 
