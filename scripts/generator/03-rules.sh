@@ -14,6 +14,32 @@ echo ""
 embed_file "TMPL_RULES_GOVERNANCE" "$ROOT/templates/rules/sage-governance-rules.md"
 echo ""
 
+# SPEC-0025: rules writer with local overlay exclusion. References
+# is_unmanaged_path (defined once in module 07's main logic — INV-03)
+# so rules generation never creates, overwrites, or deletes anything
+# under .claude/rules/local/ or .codex/rules/local/.
+cat <<'RULES_LOGIC'
+# SPEC-0025: overlay-safe rules writer (references is_unmanaged_path).
+write_rules_file() {
+  local path="$1"
+  local content="$2"
+  if is_unmanaged_path "$path"; then
+    if [ "${DRY_RUN:-false}" = "true" ]; then
+      echo "  WOULD-SKIP:   $path (unmanaged overlay path, SPEC-0025)"
+    else
+      echo "  SKIP: $path (unmanaged overlay path, SPEC-0025)"
+    fi
+    return 0
+  fi
+  if [ "$MODE" = "install" ]; then
+    write_file_if_new "$path" "$content"
+  else
+    update_file "$path" "$content"
+  fi
+}
+RULES_LOGIC
+echo ""
+
 # Skills
 embed_file "TMPL_SKILL_SPEC" "$ROOT/templates/skills/sage-spec/SKILL.md"
 echo ""
