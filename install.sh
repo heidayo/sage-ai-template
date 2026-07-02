@@ -10081,6 +10081,11 @@ fi
 
 INSTALLED_VERSION=$(check_installed_version)
 
+# SPEC-0025 PRE-02 / AC-08: report anomalous overlay paths before any write
+# and before the "already at version" early exit, so the WARN is emitted on
+# every invocation regardless of install/update/no-op mode.
+warn_unmanaged_anomalies
+
 # Auto-detect: if already installed, switch to update mode
 if [ -n "$INSTALLED_VERSION" ] && [ "$MODE" = "install" ]; then
   echo "SAGE v${INSTALLED_VERSION} is already installed."
@@ -10102,9 +10107,6 @@ else
 fi
 echo "========================================="
 echo ""
-
-# SPEC-0025 PRE-02 / AC-08: report anomalous overlay paths before any write.
-warn_unmanaged_anomalies
 
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
