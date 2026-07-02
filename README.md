@@ -461,6 +461,10 @@ bash install.sh   # 何度更新しても local/ は不変
 
 `TASK-hei-a7f3` のような作業者プレフィックス形式の ID を併用したい場合、`.sage/id-patterns.json` で受理パターンを拡張できます（受理のみ。生成はデフォルト形式のまま）。installer は既存の `.sage/id-patterns.json` を上書きしません（preserve-if-exists）。書式・設定例・注意点は [docs/id-patterns.md](docs/id-patterns.md) を参照してください。
 
+### project_checks スタックプリセット（SPEC-0028）
+
+新規導入時に `bash install.sh --stack go|ts-pnpm|node-npm|python` で `.sage/config.yaml` の `project_checks` を標準コマンドで初期化できます。`--stack` 未指定時はマーカーファイル（`go.mod` / `pnpm-lock.yaml` 等）から自動検出します（優先順位: go > ts-pnpm > node-npm > python）。既存の `.sage/config.yaml` は変更しません（preserve-if-exists）。プリセットの実体は `templates/project-checks/` 配下です。詳細は [docs/stack-presets.md](docs/stack-presets.md) を参照してください。
+
 ### 更新前バックアップと復元（SPEC-0026）
 
 installer は更新時、内容が変わる既存ファイルを書き込み前に `.sage/backup/<timestamp>/`（直近3世代）へ自動バックアップします。更新前の差分確認は `bash install.sh --diff`、復元は `cp .sage/backup/<最新timestamp>/<ファイル> <ファイル>` です。マーカー方式で防御される / 防御されないケースの対比表を含む詳細は [docs/installer-preservation.md](docs/installer-preservation.md) を参照してください。
