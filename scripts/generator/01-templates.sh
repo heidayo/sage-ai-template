@@ -2,6 +2,11 @@
 # Module 01: SPEC/PLAN/TASK + sage governance templates (SPEC-0014)
 # Sourced by scripts/generate-installer.sh — depends on embed_file function.
 # Do not chmod +x; do not run standalone.
+#
+# SPEC-0025 (FR-05 / AC-10): the CLAUDE.md SAGE managed section — including
+# the rules/local/ overlay reading convention — is sourced from
+# templates/claude-md-snippet.md, embedded as TMPL_CLAUDE_SNIPPET in
+# module 02-config.sh and injected by upsert_sage_section() in module 07.
 
 embed_file "TMPL_SPEC" "$ROOT/specs/_template.md"
 echo ""
