@@ -27,5 +27,7 @@ Auto-update rules:
 
 Project-specific rules: put your own files in `.claude/rules/local/` — the installer never creates, overwrites, or deletes this directory (SPEC-0025 local overlay). Read `.claude/rules/local/*.md` as project-specific rules with the same precedence as managed rules. Do not edit managed rules (`specs-rules.md` etc.) — they are replaced entirely on update.
 
+Template update backs up modified files to `.sage/backup/<timestamp>/` (3 generations). Restore: `cp .sage/backup/<ts>/<file> <file>`. Preview changes first with `bash install.sh --diff` (SPEC-0026).
+
 Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (runtime guards)
 <!-- === End SAGE === -->

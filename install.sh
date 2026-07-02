@@ -1790,6 +1790,8 @@ Auto-update rules:
 
 Project-specific rules: put your own files in `.claude/rules/local/` — the installer never creates, overwrites, or deletes this directory (SPEC-0025 local overlay). Read `.claude/rules/local/*.md` as project-specific rules with the same precedence as managed rules. Do not edit managed rules (`specs-rules.md` etc.) — they are replaced entirely on update.
 
+Template update backs up modified files to `.sage/backup/<timestamp>/` (3 generations). Restore: `cp .sage/backup/<ts>/<file> <file>`. Preview changes first with `bash install.sh --diff` (SPEC-0026).
+
 Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (runtime guards)
 <!-- === End SAGE === -->
 
@@ -9802,6 +9804,84 @@ do_verify_checksum_remote() {
   fi
 }
 
+# --- SPEC-0026: pre-write backup (backup_before_write) ---
+# INV-04: backup judgment + execution live in this single function; every
+# write path that can change an existing file must call it before writing.
+BACKUP_ROOT=".sage/backup"
+BACKUP_GEN_DIR=""
+
+# FR-02 / SEC-01: keep the newest 3 generations. Only directories whose
+# name matches ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ are rotation candidates;
+# anything else under .sage/backup/ is preserved (AC-11).
+_backup_rotate_generations() {
+  local dirs count oldest
+  dirs=$(ls -1 "$BACKUP_ROOT" 2>/dev/null | grep -E '^[0-9]{8}-[0-9]{6}(-[0-9]+)?$' | sort || true)
+  count=$(printf '%s' "$dirs" | grep -c . || true)
+  while [ "$count" -gt 3 ]; do
+    oldest=$(printf '%s\n' "$dirs" | head -1)
+    [ -n "$oldest" ] || break
+    rm -rf "${BACKUP_ROOT:?}/${oldest:?}"
+    echo "  BACKUP-ROTATE: removed oldest generation $BACKUP_ROOT/$oldest"
+    dirs=$(printf '%s\n' "$dirs" | tail -n +2)
+    count=$((count - 1))
+  done
+}
+
+# FR-01: create the generation directory lazily — only when the first
+# actual UPDATE backup happens (no empty generations). On timestamp
+# collision, append -N instead of reusing an existing generation (AC-12).
+_backup_ensure_gen_dir() {
+  if [ -n "$BACKUP_GEN_DIR" ]; then
+    return 0
+  fi
+  local ts candidate n
+  ts=$(date -u +%Y%m%d-%H%M%S)
+  candidate="$ts"
+  n=0
+  while [ -e "$BACKUP_ROOT/$candidate" ]; do
+    n=$((n + 1))
+    candidate="$ts-$n"
+  done
+  if ! mkdir -p "$BACKUP_ROOT/$candidate" 2>/dev/null; then
+    return 1
+  fi
+  BACKUP_GEN_DIR="$BACKUP_ROOT/$candidate"
+  _backup_rotate_generations
+  return 0
+}
+
+# backup_before_write <path> [<new_content>]
+# PRE-01: back up only when the file exists AND the content will change
+# (when <new_content> is given; without it, the caller has already
+# determined the file will change). SEC-03: print paths only, never
+# file contents. AC-09 fail-safe: if the backup cannot be written,
+# abort the installer (non-zero exit) without touching the target file.
+backup_before_write() {
+  local path="$1"
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    return 0
+  fi
+  if [ ! -f "$path" ]; then
+    return 0  # CREATE, not UPDATE — nothing to back up
+  fi
+  if is_unmanaged_path "$path"; then
+    return 0  # SPEC-0025: overlay paths are never written, never backed up
+  fi
+  if [ "$#" -ge 2 ] && [ "$(cat "$path")" = "$2" ]; then
+    return 0  # content unchanged — not an UPDATE
+  fi
+  if ! _backup_ensure_gen_dir; then
+    echo "ERROR: cannot create backup directory under $BACKUP_ROOT — aborting without overwriting $path (fail-safe, SPEC-0026)" >&2
+    exit 1
+  fi
+  local dest="$BACKUP_GEN_DIR/$path"
+  if ! mkdir -p "$(dirname "$dest")" 2>/dev/null || ! cp "$path" "$dest" 2>/dev/null; then
+    echo "ERROR: backup of $path to $dest failed — aborting without overwriting (fail-safe, SPEC-0026)" >&2
+    exit 1
+  fi
+  echo "  BACKUP: $dest"
+}
+
 write_file_if_new() {
   local path="$1"
   local content="$2"
@@ -9850,11 +9930,22 @@ update_file() {
     fi
     return 0
   fi
+  # SPEC-0026 FR-03: in diff mode show the unified diff for UPDATE targets
+  # (existing file whose content would change) and write nothing.
+  if [ "${DIFF_MODE:-false}" = "true" ]; then
+    if [ -f "$path" ] && [ "$(cat "$path")" != "$content" ]; then
+      echo "  DIFF: $path"
+      printf '%s\n' "$content" | diff -u -L "$path (current)" -L "$path (new)" "$path" - || true
+    fi
+    return 0
+  fi
   if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "  WOULD-UPDATE: $path"
     return 0
   fi
   mkdir -p "$dir"
+  # SPEC-0026 INV-02: never overwrite an existing file without a backup.
+  backup_before_write "$path" "$content"
   echo "$content" > "$path"
   echo "  UPDATE: $path"
 }
@@ -9863,10 +9954,25 @@ upsert_sage_section() {
   local file="$1"
   local snippet="$2"
 
-  if [ "${DRY_RUN:-false}" = "true" ]; then
+  # SPEC-0026 FR-05 / PRE-03: check marker consistency before any edit.
+  # A file with only one of the two markers is treated as damaged: editing
+  # it (replace or append) risks destroying user content, so skip it
+  # entirely (no change, no append), WARN, and keep the installer going.
+  local has_start=false has_end=false
+  if [ -f "$file" ]; then
+    grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null && has_start=true
+    grep -qF "$SAGE_END_MARKER" "$file" 2>/dev/null && has_end=true
+  fi
+  if [ "$has_start" != "$has_end" ]; then
+    echo "  WARN: $file has only one SAGE marker (start: $has_start / end: $has_end) — skipped without changes to avoid losing customizations (SPEC-0026)." >&2
+    echo "        Repair the markers manually, then re-run: see docs/installer-preservation.md" >&2
+    return 0
+  fi
+
+  if [ "${DRY_RUN:-false}" = "true" ] && [ "${DIFF_MODE:-false}" != "true" ]; then
     if [ ! -f "$file" ]; then
       echo "  WOULD-CREATE: $file"
-    elif grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null; then
+    elif [ "$has_start" = "true" ]; then
       echo "  WOULD-UPDATE: $file (SAGE section)"
     else
       echo "  WOULD-APPEND: $file (SAGE section)"
@@ -9875,16 +9981,24 @@ upsert_sage_section() {
   fi
 
   if [ ! -f "$file" ]; then
+    if [ "${DIFF_MODE:-false}" = "true" ]; then
+      echo "  WOULD-CREATE: $file"
+      return 0
+    fi
     echo "$snippet" > "$file"
     echo "  CREATE: $file"
     return
   fi
 
-  if grep -qF "$SAGE_START_MARKER" "$file"; then
+  # Build the expected post-upsert content in a temp file. It is used for
+  # the real write (mv), the pre-write backup comparison (TASK-0178) and
+  # the --diff preview (SPEC-0026 FR-04: the diff is taken against this
+  # expected content, so any change outside the markers shows up too).
+  local tmp_result=$(mktemp)
+  if [ "$has_start" = "true" ]; then
     # SAGEセクションが既にある → マーカー間を置換
     local tmp_before=$(mktemp)
     local tmp_after=$(mktemp)
-    local tmp_result=$(mktemp)
 
     # マーカーの行番号を取得
     local start_line=$(grep -nF "$SAGE_START_MARKER" "$file" | head -1 | cut -d: -f1)
@@ -9909,13 +10023,33 @@ upsert_sage_section() {
     cat "$tmp_before" > "$tmp_result"
     echo "$snippet" >> "$tmp_result"
     cat "$tmp_after" >> "$tmp_result"
-
-    mv "$tmp_result" "$file"
     rm -f "$tmp_before" "$tmp_after"
+  else
+    # マーカーなし → 末尾 append (既存行は不変)
+    cat "$file" > "$tmp_result"
+    echo "" >> "$tmp_result"
+    echo "$snippet" >> "$tmp_result"
+  fi
+
+  if [ "${DIFF_MODE:-false}" = "true" ]; then
+    if ! cmp -s "$file" "$tmp_result"; then
+      echo "  DIFF: $file"
+      diff -u -L "$file (current)" -L "$file (new)" "$file" "$tmp_result" || true
+    fi
+    rm -f "$tmp_result"
+    return 0
+  fi
+
+  if [ "$has_start" = "true" ]; then
+    # SPEC-0026 INV-02: back up before replacing the SAGE section
+    # (skipped inside backup_before_write when content is unchanged).
+    backup_before_write "$file" "$(cat "$tmp_result")"
+    mv "$tmp_result" "$file"
     echo "  UPDATE: $file (SAGE section replaced)"
   else
-    echo "" >> "$file"
-    echo "$snippet" >> "$file"
+    # SPEC-0026 INV-02: appending changes the file — back it up first.
+    backup_before_write "$file"
+    mv "$tmp_result" "$file"
     echo "  APPEND: $file (SAGE section added)"
   fi
 }
@@ -9947,6 +10081,8 @@ setup_commit_hook() {
   if [ -f "$hook_file" ] && grep -qF "SAGE" "$hook_file"; then
     echo "  SKIP: $hook_file (SAGE hook already present)"
   elif [ -f "$hook_file" ]; then
+    # SPEC-0026 INV-02: appending changes the file — back it up first.
+    backup_before_write "$hook_file"
     echo "" >> "$hook_file"
     echo "# --- SAGE: TASK-ID check ---" >> "$hook_file"
     echo "$TMPL_COMMIT_HOOK" >> "$hook_file"
@@ -9968,6 +10104,8 @@ audit_existing_claude_md() {
     return
   fi
 
+  # SPEC-0026 INV-02: back up a previous audit report before regenerating.
+  backup_before_write "$report"
   echo "# SAGE Adoption Audit" > "$report"
   echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$report"
   echo "" >> "$report"
@@ -10027,15 +10165,20 @@ setup_gitignore() {
     return
   fi
   if [ ! -f .gitignore ]; then
-    touch .gitignore
+    echo '.sage/metrics/' > .gitignore
+  elif ! grep -qxF '.sage/metrics/' .gitignore 2>/dev/null; then
+    # SPEC-0026 INV-02: appending changes an existing file — back it up first.
+    backup_before_write .gitignore
+    echo '.sage/metrics/' >> .gitignore
   fi
-  grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo '.sage/metrics/' >> .gitignore
   echo "  OK"
 }
 
 # --- Parse arguments ---
 MODE="install"
 DRY_RUN=false
+# SPEC-0026 FR-03: --diff shows unified diffs of UPDATE targets, writes nothing.
+DIFF_MODE=false
 # SPEC-0018: --remote modifier for --verify-checksum (pre-scan to allow flag in any order)
 REMOTE_VERIFY=false
 for arg in "$@"; do
@@ -10055,6 +10198,7 @@ for arg in "$@"; do
       ;;
     --remote) ;;  # SPEC-0018: pre-scanned above, no-op here
     --dry-run) DRY_RUN=true ;;
+    --diff) DIFF_MODE=true ;;
     --help)
       cat <<HELP_EOF
 Usage: bash install.sh [OPTIONS]
@@ -10063,6 +10207,8 @@ Usage: bash install.sh [OPTIONS]
   --update               Force update mode
   --version              Show SAGE version
   --dry-run              Preview without writing any files (SPEC-0010)
+  --diff                 Show unified diffs of files that would be updated,
+                         without writing any files (SPEC-0026)
   --verify-checksum      Verify installed files against .sage/install-state.yaml
   --verify-checksum --remote
                          Verify the local installer against the GitHub Release
@@ -10079,8 +10225,18 @@ HELP_EOF
   esac
 done
 
+# SPEC-0026 PRE-02: --diff piggybacks on the dry-run write suppression so
+# no code path can create, modify, or delete files (POST-02). Backups are
+# not taken either (nothing is written).
+if [ "$DIFF_MODE" = "true" ]; then
+  DRY_RUN=true
+  echo "========================================="
+  echo "  SAGE v${SAGE_VERSION} — DIFF PREVIEW (no writes will occur)"
+  echo "========================================="
+  echo ""
+  chmod() { return 0; }
 # Announce dry-run mode prominently
-if [ "$DRY_RUN" = "true" ]; then
+elif [ "$DRY_RUN" = "true" ]; then
   echo "========================================="
   echo "  SAGE v${SAGE_VERSION} — DRY RUN (no writes will occur)"
   echo "========================================="
@@ -10105,7 +10261,9 @@ if [ -n "$INSTALLED_VERSION" ] && [ "$MODE" = "install" ]; then
   MODE="update"
 fi
 
-if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ]; then
+# SPEC-0026 FR-03: --diff always evaluates the diff, even at the same
+# version — local drift against the templates is exactly what it must show.
+if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ] && [ "$DIFF_MODE" != "true" ]; then
   echo "Already at v${SAGE_VERSION}. No update needed."
   exit 0
 fi
@@ -10303,6 +10461,8 @@ if [ "${DRY_RUN:-false}" = "true" ]; then
   fi
 elif [ ! -f ".claude/settings.json" ] || ! grep -qF "block-dangerous-commands" ".claude/settings.json" 2>/dev/null; then
   mkdir -p .claude
+  # SPEC-0026 INV-02: an existing settings.json without hooks gets replaced — back it up.
+  backup_before_write ".claude/settings.json" "$TMPL_SETTINGS_JSON"
   echo "$TMPL_SETTINGS_JSON" > ".claude/settings.json"
   echo "  CREATE: .claude/settings.json (with hooks)"
 else
@@ -10323,6 +10483,8 @@ setup_gitignore
 if [ "${DRY_RUN:-false}" = "true" ]; then
   echo "  WOULD-WRITE: .sage/version (${SAGE_VERSION})"
 else
+  # SPEC-0026 INV-02 (no-op when the version is unchanged).
+  backup_before_write ".sage/version" "$SAGE_VERSION"
   echo "$SAGE_VERSION" > .sage/version
 fi
 
@@ -10348,6 +10510,8 @@ generate_install_state() {
     return
   fi
 
+  # SPEC-0026 INV-02: back up the previous install-state before regenerating.
+  backup_before_write "$state_file"
   cat > "$state_file" <<STATEHEADER
 version: "${SAGE_VERSION}"
 installed_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
