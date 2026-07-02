@@ -1,0 +1,99 @@
+# Required (validator-enforced)
+run_id: RUN-0011
+task_id: TASK-0171
+agent_id: operations
+started_at: "2026-07-02T05:30:00Z"
+completed_at: "2026-07-02T08:11:42Z"
+status: pass
+files_changed:
+  - README.md
+  - SHA256SUMS
+  - install.sh
+  - plans/PLAN-0025-local-overlay.md
+  - sage/failures.md
+  - scripts/generator/01-templates.sh
+  - scripts/generator/03-rules.sh
+  - scripts/generator/07-installer-main.sh
+  - specs/SPEC-0025-local-overlay.md
+  - tasks/TASK-0171-generator-overlay-exclusion.md
+  - tasks/TASK-0172-regenerate-installer.md
+  - tasks/TASK-0173-test-local-overlay.md
+  - tasks/TASK-0174-managed-rules-notice.md
+  - tasks/TASK-0175-claude-md-overlay-convention.md
+  - tasks/TASK-0176-readme-coexistence-guide.md
+  - tasks/TASK-0177-regenerate-installer-t4-t5.md
+  - tasks/done-def-SPEC-0025-round-1.md
+  - templates/claude-md-snippet.md
+  - templates/hooks/tests/test-local-overlay.sh
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+
+# Optional
+error_log: ""
+
+# Harness-specific extensions
+type: harness
+spec_id: SPEC-0025
+plan_id: PLAN-0025
+related_tasks: [TASK-0172, TASK-0173, TASK-0174, TASK-0175, TASK-0176, TASK-0177]
+iterations: 3
+abort_reason: ""
+phases:
+  specify:
+    status: pass
+    score: 100
+    eval_iterations: 4
+    duration_seconds: 1800
+  plan:
+    status: pass
+    score: 100
+    eval_iterations: 3
+    duration_seconds: 1500
+  execute_verify:
+    - iteration: 1
+      implementation_status: completed
+      test_status: completed
+      review_status: fail
+      review_score: 84
+      review_feedback:
+        findings:
+          - id: "REV-001"
+            category: scope_compliance
+            expected: "regeneration in TASK-0172/0177 commit"
+            actual: "bundled into TASK-0171 bugfix commit"
+          - id: "REV-002"
+            category: scope_compliance
+            expected: "spec drift fix attributed to Spec Agent"
+            actual: "committed under implementation lineage"
+        fix_scope:
+          implementation: []
+          test: []
+        instruction:
+          - target: "orchestrator"
+            action: "split regeneration commit; relabel spec fix; record FAIL-0002"
+    - iteration: 2
+      implementation_status: completed
+      test_status: skipped
+      review_status: fail
+      review_score: 93
+      review_feedback:
+        findings:
+          - id: "REV-003"
+            category: test
+            expected: "install.sh byte-identical to generator output"
+            actual: "stale after failures.md append (FAIL-0002)"
+        fix_scope:
+          implementation: [{ file: "install.sh", reason: "regenerate after failures.md append" }]
+          test: []
+        instruction:
+          - target: "implementation"
+            action: "TASK-0177 regeneration commit"
+    - iteration: 3
+      implementation_status: completed
+      test_status: skipped
+      review_status: pass
+      review_score: 98
