@@ -981,6 +981,17 @@ cause enum の意味 (SPECA paper §4.2 由来、SPEC-0024 で SAGE に採用):
 - **防止策**: セルフレビュー（src-rules）+ レビュー（sage-review）+ CI（sage-validate.sh Check 6）の3層で担保
 - **昇格済み**: No
 
+### FAIL-0002
+- **発生日**: 2026-07-02
+- **TASK-ID**: TASK-0171, TASK-0175
+- **該当アンチパターン**: AP-03 (Silent Scope Expansion)
+- **cause**: trust-boundary
+- **症状**: SPEC-0025 実装中、(1) TASK-0171 の bugfix コミットが File Scope 外の install.sh/SHA256SUMS 再生成を同梱、(2) spec drift 訂正コミット (specs/plans/tasks) が Implementation 系列の TASK-0175 ラベルでコミットされた (Review Agent REV-001/REV-002 で検出、Gate 4 FAIL)
+- **根本原因**: オーケストレーターが「修正→再生成→コミット」を単一エージェント実行に束ねた際、コミット分割の File Scope 境界指示が欠けていた
+- **修正**: コミット履歴を再構成 — 再生成を TASK-0177 の別コミットに分割、spec 訂正コミットを Spec Agent 帰属に relabel。テスト 22/22 + checksum PASS を再確認
+- **防止策**: 複数 TASK を1エージェントに委任する際、プロンプトに「再生成物は再生成 TASK の TASK-ID で別コミット」「specs/plans/tasks の修正は Spec/Planning Agent コミットに分離」を明記する
+- **昇格済み**: No
+
 __EOF_TMPL_FAILURES__
 
 read -r -d '' TMPL_ANTIPATTERNS <<'__EOF_TMPL_ANTIPATTERNS__' || true
