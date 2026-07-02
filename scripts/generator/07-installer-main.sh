@@ -351,6 +351,15 @@ update_file() {
     fi
     return 0
   fi
+  # SPEC-0026 FR-03: in diff mode show the unified diff for UPDATE targets
+  # (existing file whose content would change) and write nothing.
+  if [ "${DIFF_MODE:-false}" = "true" ]; then
+    if [ -f "$path" ] && [ "$(cat "$path")" != "$content" ]; then
+      echo "  DIFF: $path"
+      printf '%s\n' "$content" | diff -u -L "$path (current)" -L "$path (new)" "$path" - || true
+    fi
+    return 0
+  fi
   if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "  WOULD-UPDATE: $path"
     return 0
@@ -381,10 +390,10 @@ upsert_sage_section() {
     return 0
   fi
 
-  if [ "${DRY_RUN:-false}" = "true" ]; then
+  if [ "${DRY_RUN:-false}" = "true" ] && [ "${DIFF_MODE:-false}" != "true" ]; then
     if [ ! -f "$file" ]; then
       echo "  WOULD-CREATE: $file"
-    elif grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null; then
+    elif [ "$has_start" = "true" ]; then
       echo "  WOULD-UPDATE: $file (SAGE section)"
     else
       echo "  WOULD-APPEND: $file (SAGE section)"
@@ -393,16 +402,24 @@ upsert_sage_section() {
   fi
 
   if [ ! -f "$file" ]; then
+    if [ "${DIFF_MODE:-false}" = "true" ]; then
+      echo "  WOULD-CREATE: $file"
+      return 0
+    fi
     echo "$snippet" > "$file"
     echo "  CREATE: $file"
     return
   fi
 
-  if grep -qF "$SAGE_START_MARKER" "$file"; then
+  # Build the expected post-upsert content in a temp file. It is used for
+  # the real write (mv), the pre-write backup comparison (TASK-0178) and
+  # the --diff preview (SPEC-0026 FR-04: the diff is taken against this
+  # expected content, so any change outside the markers shows up too).
+  local tmp_result=$(mktemp)
+  if [ "$has_start" = "true" ]; then
     # SAGEセクションが既にある → マーカー間を置換
     local tmp_before=$(mktemp)
     local tmp_after=$(mktemp)
-    local tmp_result=$(mktemp)
 
     # マーカーの行番号を取得
     local start_line=$(grep -nF "$SAGE_START_MARKER" "$file" | head -1 | cut -d: -f1)
@@ -427,18 +444,33 @@ upsert_sage_section() {
     cat "$tmp_before" > "$tmp_result"
     echo "$snippet" >> "$tmp_result"
     cat "$tmp_after" >> "$tmp_result"
+    rm -f "$tmp_before" "$tmp_after"
+  else
+    # マーカーなし → 末尾 append (既存行は不変)
+    cat "$file" > "$tmp_result"
+    echo "" >> "$tmp_result"
+    echo "$snippet" >> "$tmp_result"
+  fi
 
+  if [ "${DIFF_MODE:-false}" = "true" ]; then
+    if ! cmp -s "$file" "$tmp_result"; then
+      echo "  DIFF: $file"
+      diff -u -L "$file (current)" -L "$file (new)" "$file" "$tmp_result" || true
+    fi
+    rm -f "$tmp_result"
+    return 0
+  fi
+
+  if [ "$has_start" = "true" ]; then
     # SPEC-0026 INV-02: back up before replacing the SAGE section
     # (skipped inside backup_before_write when content is unchanged).
     backup_before_write "$file" "$(cat "$tmp_result")"
     mv "$tmp_result" "$file"
-    rm -f "$tmp_before" "$tmp_after"
     echo "  UPDATE: $file (SAGE section replaced)"
   else
     # SPEC-0026 INV-02: appending changes the file — back it up first.
     backup_before_write "$file"
-    echo "" >> "$file"
-    echo "$snippet" >> "$file"
+    mv "$tmp_result" "$file"
     echo "  APPEND: $file (SAGE section added)"
   fi
 }
@@ -566,6 +598,8 @@ setup_gitignore() {
 # --- Parse arguments ---
 MODE="install"
 DRY_RUN=false
+# SPEC-0026 FR-03: --diff shows unified diffs of UPDATE targets, writes nothing.
+DIFF_MODE=false
 # SPEC-0018: --remote modifier for --verify-checksum (pre-scan to allow flag in any order)
 REMOTE_VERIFY=false
 for arg in "$@"; do
@@ -585,6 +619,7 @@ for arg in "$@"; do
       ;;
     --remote) ;;  # SPEC-0018: pre-scanned above, no-op here
     --dry-run) DRY_RUN=true ;;
+    --diff) DIFF_MODE=true ;;
     --help)
       cat <<HELP_EOF
 Usage: bash install.sh [OPTIONS]
@@ -593,6 +628,8 @@ Usage: bash install.sh [OPTIONS]
   --update               Force update mode
   --version              Show SAGE version
   --dry-run              Preview without writing any files (SPEC-0010)
+  --diff                 Show unified diffs of files that would be updated,
+                         without writing any files (SPEC-0026)
   --verify-checksum      Verify installed files against .sage/install-state.yaml
   --verify-checksum --remote
                          Verify the local installer against the GitHub Release
@@ -609,8 +646,18 @@ HELP_EOF
   esac
 done
 
+# SPEC-0026 PRE-02: --diff piggybacks on the dry-run write suppression so
+# no code path can create, modify, or delete files (POST-02). Backups are
+# not taken either (nothing is written).
+if [ "$DIFF_MODE" = "true" ]; then
+  DRY_RUN=true
+  echo "========================================="
+  echo "  SAGE v${SAGE_VERSION} — DIFF PREVIEW (no writes will occur)"
+  echo "========================================="
+  echo ""
+  chmod() { return 0; }
 # Announce dry-run mode prominently
-if [ "$DRY_RUN" = "true" ]; then
+elif [ "$DRY_RUN" = "true" ]; then
   echo "========================================="
   echo "  SAGE v${SAGE_VERSION} — DRY RUN (no writes will occur)"
   echo "========================================="
@@ -635,7 +682,9 @@ if [ -n "$INSTALLED_VERSION" ] && [ "$MODE" = "install" ]; then
   MODE="update"
 fi
 
-if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ]; then
+# SPEC-0026 FR-03: --diff always evaluates the diff, even at the same
+# version — local drift against the templates is exactly what it must show.
+if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ] && [ "$DIFF_MODE" != "true" ]; then
   echo "Already at v${SAGE_VERSION}. No update needed."
   exit 0
 fi
