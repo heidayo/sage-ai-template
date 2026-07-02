@@ -1777,7 +1777,7 @@ Auto-update rules:
 - Update check failure → warning only, never block development
 - `installer_url` not configured → skip silently
 
-Project-specific rules: add your own files to `.claude/rules/` (do not edit `specs-rules.md` etc. — they are overwritten on update).
+Project-specific rules: put your own files in `.claude/rules/local/` — the installer never creates, overwrites, or deletes this directory (SPEC-0025 local overlay). Read `.claude/rules/local/*.md` as project-specific rules with the same precedence as managed rules. Do not edit managed rules (`specs-rules.md` etc.) — they are replaced entirely on update.
 
 Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (runtime guards)
 <!-- === End SAGE === -->
@@ -2120,6 +2120,18 @@ Every change must be traceable: SPEC-ID → PLAN-ID → TASK-ID → commit
 | Test case names | Japanese |
 
 __EOF_TMPL_RULES_GOVERNANCE__
+
+# SPEC-0025: local overlay reference notice appended to all managed rules (FR-04).
+RULES_LOCAL_NOTICE='
+---
+
+<!-- SAGE managed rules file (SPEC-0025): replaced entirely on install.sh update. Put project-specific rules under .claude/rules/local/ instead. -->
+注記: このファイルは install.sh 更新で全置換されます。プロジェクト固有ルールは `.claude/rules/local/` に置いてください。'
+TMPL_RULES_SPECS="${TMPL_RULES_SPECS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_PLANS="${TMPL_RULES_PLANS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_TASKS="${TMPL_RULES_TASKS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_SRC="${TMPL_RULES_SRC}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_GOVERNANCE="${TMPL_RULES_GOVERNANCE}${RULES_LOCAL_NOTICE}"
 
 # SPEC-0025: overlay-safe rules writer (references is_unmanaged_path).
 write_rules_file() {
