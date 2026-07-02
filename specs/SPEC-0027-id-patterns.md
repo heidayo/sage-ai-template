@@ -159,6 +159,7 @@
   - `scripts/sage-validate.sh`
   - `templates/pre-commit-task-id.sh`
   - `scripts/generator/02-config.sh` (hook 埋め込み経路に変更が必要な場合のみ)
+  - `scripts/generator/07-installer-main.sh` (実装フェーズで追加: ローダー `scripts/sage-id-pattern.sh` の配布 + install-state manifest 登録、および `.sage/id-patterns.json` の preserve-if-exists 書き込みは 07 側でのみ実装可能)
   - `install.sh` (再生成のみ・手動編集禁止)
   - `SHA256SUMS`
   - `templates/hooks/tests/test-id-patterns.sh` (新規)

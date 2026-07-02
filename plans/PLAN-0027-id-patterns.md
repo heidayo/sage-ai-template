@@ -36,6 +36,7 @@ SPEC-0027 実装メモの File Scope と 1:1 対応:
 | `scripts/sage-id-gen.sh` | 連番スキャン（:47,52）を `sage_id_default_regex` 経由に | TASK-0187 |
 | `templates/pre-commit-task-id.sh` | fallback 内包 + `.sage/id-patterns.json` 優先読み込み（:56） | TASK-0188 |
 | `scripts/generator/02-config.sh` | hook 埋め込み経路（変更が必要な場合のみ） | TASK-0189 |
+| `scripts/generator/07-installer-main.sh` | ローダー `sage-id-pattern.sh` の配布（write + install-state manifest 登録）+ `.sage/id-patterns.json` の preserve-if-exists 書き込み（実装フェーズで判明した技術的必然により追加） | TASK-0189 |
 | `install.sh` | 再生成のみ（手動編集禁止）+ preserve-if-exists 対応 | TASK-0189 |
 | `SHA256SUMS` | install.sh 再生成に追随 | TASK-0189 |
 | `templates/hooks/tests/test-id-patterns.sh`（新規） | AC-01〜07/11 の integration テスト | TASK-0190 |

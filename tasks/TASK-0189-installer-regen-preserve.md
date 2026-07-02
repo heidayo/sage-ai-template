@@ -31,7 +31,8 @@ generator 経由で `install.sh` を再生成して SHA256SUMS を更新し、in
 ## File Scope（変更許可範囲）
 
 - 作成: なし
-- 変更: `scripts/generator/02-config.sh`（hook 埋め込み経路に変更が必要な場合のみ）, `install.sh`（再生成のみ）, `SHA256SUMS`
+- 変更: `scripts/generator/02-config.sh`（hook 埋め込み経路に変更が必要な場合のみ）, `scripts/generator/07-installer-main.sh`, `install.sh`（再生成のみ）, `SHA256SUMS`
+  - 注記: `07-installer-main.sh` は実装フェーズで技術的必然により追加。配布済み validate/id-gen/trace-check が source するローダー `scripts/sage-id-pattern.sh` の配布（write + install-state manifest 登録）と、`.sage/id-patterns.json` の preserve-if-exists 書き込みは 07 側でのみ実装可能なため。
 - 削除: なし
 
 ## 禁止事項
