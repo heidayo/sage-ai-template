@@ -579,18 +579,26 @@ setup_gitignore() {
   # numeric counters) is ignored. See TASK-0100 / Codex review P1 #1.
   if [ "${DRY_RUN:-false}" = "true" ]; then
     if [ ! -f .gitignore ]; then
-      echo "  WOULD-CREATE: .gitignore (with .sage/metrics/)"
+      echo "  WOULD-CREATE: .gitignore (with .sage/metrics/ and .sage/backup/)"
     else
       grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/metrics/"
+      grep -qxF '.sage/backup/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/backup/"
     fi
     return
   fi
   if [ ! -f .gitignore ]; then
-    echo '.sage/metrics/' > .gitignore
-  elif ! grep -qxF '.sage/metrics/' .gitignore 2>/dev/null; then
-    # SPEC-0026 INV-02: appending changes an existing file — back it up first.
-    backup_before_write .gitignore
-    echo '.sage/metrics/' >> .gitignore
+    printf '%s\n' '.sage/metrics/' '.sage/backup/' > .gitignore
+  else
+    if ! grep -qxF '.sage/metrics/' .gitignore 2>/dev/null; then
+      # SPEC-0026 INV-02: appending changes an existing file — back it up first.
+      backup_before_write .gitignore
+      echo '.sage/metrics/' >> .gitignore
+    fi
+    # SPEC-0026 FR-09: keep backup snapshots out of the destination repo's history.
+    if ! grep -qxF '.sage/backup/' .gitignore 2>/dev/null; then
+      backup_before_write .gitignore
+      echo '.sage/backup/' >> .gitignore
+    fi
   fi
   echo "  OK"
 }
