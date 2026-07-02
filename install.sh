@@ -2100,6 +2100,70 @@ read -r -d '' TMPL_ID_PATTERNS <<'__EOF_TMPL_ID_PATTERNS__' || true
 
 __EOF_TMPL_ID_PATTERNS__
 
+IFS= read -r -d '' TMPL_STACK_GO <<'__EOF_TMPL_STACK_GO__' || true
+  # stack preset: go (SPEC-0028 — see docs/stack-presets.md)
+  lint: "go vet ./..."
+  format: 'test -z "$(gofmt -l .)"'
+  type_check: "go build ./..."
+  test_command: "go test ./... -coverprofile=coverage.out"
+  coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
+
+__EOF_TMPL_STACK_GO__
+
+IFS= read -r -d '' TMPL_STACK_TS_PNPM <<'__EOF_TMPL_STACK_TS_PNPM__' || true
+  # stack preset: ts-pnpm (SPEC-0028 — see docs/stack-presets.md)
+  lint: "pnpm run lint"
+  format: "pnpm exec prettier --check ."
+  type_check: "pnpm exec tsc --noEmit"
+  test_command: "pnpm test"
+  coverage_command: "pnpm exec nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"
+
+__EOF_TMPL_STACK_TS_PNPM__
+
+IFS= read -r -d '' TMPL_STACK_NODE_NPM <<'__EOF_TMPL_STACK_NODE_NPM__' || true
+  # stack preset: node-npm (SPEC-0028 — see docs/stack-presets.md)
+  lint: "npm run lint"
+  format: "npx prettier --check ."
+  type_check: "npx tsc --noEmit"
+  test_command: "npm test"
+  coverage_command: "npx nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"
+
+__EOF_TMPL_STACK_NODE_NPM__
+
+IFS= read -r -d '' TMPL_STACK_PYTHON <<'__EOF_TMPL_STACK_PYTHON__' || true
+  # stack preset: python (SPEC-0028 — see docs/stack-presets.md)
+  lint: "ruff check ."
+  format: "black --check ."
+  type_check: "mypy ."
+  test_command: "pytest --cov=src --cov-report=term-missing"
+  coverage_command: "coverage report --format=total"
+
+__EOF_TMPL_STACK_PYTHON__
+
+# === SPEC-0028: project_checks stack preset section replacement ===
+replace_project_checks_section() {
+  local config_content="$1"
+  local preset_body="$2"
+  # Preset is handed over via ENVIRON: BSD awk rejects newlines in -v values.
+  printf '%s\n' "$config_content" | SAGE_STACK_PRESET_BODY="$preset_body" awk '
+    BEGIN {
+      preset = ENVIRON["SAGE_STACK_PRESET_BODY"]
+      sub(/\n+$/, "", preset); replaced = 0; in_pc = 0
+    }
+    !replaced && /^project_checks:[[:space:]]*$/ {
+      print
+      print preset
+      in_pc = 1; replaced = 1; next
+    }
+    in_pc {
+      # Section ends at the first blank or column-0 line, which is kept as-is.
+      if ($0 == "" || $0 !~ /^[[:space:]]/) { in_pc = 0; print }
+      next
+    }
+    { print }
+  '
+}
+
 read -r -d '' TMPL_RULES_SPECS <<'__EOF_TMPL_RULES_SPECS__' || true
 ---
 description: "SAGE rules for creating and editing specifications"
@@ -10398,6 +10462,23 @@ REMOTE_VERIFY=false
 for arg in "$@"; do
   if [ "$arg" = "--remote" ]; then REMOTE_VERIFY=true; fi
 done
+# SPEC-0028: --stack <name> takes a value, so it is pre-scanned (the main case
+# loop below iterates single args). The value is only ever compared against the
+# allowlist — it is never used as a path or command (SEC-01/INV-03).
+STACK_FLAG=false
+STACK_OPT=""
+_stack_expect=false
+for arg in "$@"; do
+  if [ "$_stack_expect" = "true" ]; then
+    STACK_OPT="$arg"
+    _stack_expect=false
+    continue
+  fi
+  if [ "$arg" = "--stack" ]; then
+    STACK_FLAG=true
+    _stack_expect=true
+  fi
+done
 for arg in "$@"; do
   case "$arg" in
     --update) MODE="update" ;;
@@ -10411,6 +10492,7 @@ for arg in "$@"; do
       fi
       ;;
     --remote) ;;  # SPEC-0018: pre-scanned above, no-op here
+    --stack) ;;   # SPEC-0028: pre-scanned above (value validated after this loop)
     --dry-run) DRY_RUN=true ;;
     --diff) DIFF_MODE=true ;;
     --help)
@@ -10421,6 +10503,9 @@ Usage: bash install.sh [OPTIONS]
   --update               Force update mode
   --version              Show SAGE version
   --dry-run              Preview without writing any files (SPEC-0010)
+  --stack <name>         Apply a project_checks stack preset on NEW install only
+                         (go | ts-pnpm | node-npm | python). Existing
+                         .sage/config.yaml is never modified (SPEC-0028)
   --diff                 Show unified diffs of files that would be updated,
                          without writing any files (SPEC-0026)
   --verify-checksum      Verify installed files against .sage/install-state.yaml
@@ -10438,6 +10523,24 @@ HELP_EOF
       ;;
   esac
 done
+
+# SPEC-0028 FR-03/SEC-01: --stack accepts allowlist values only, by exact
+# string comparison. Unknown values fail before any file is written (AC-07).
+if [ "$STACK_FLAG" = "true" ]; then
+  case "$STACK_OPT" in
+    go|ts-pnpm|node-npm|python) ;;
+    *)
+      {
+        echo "ERROR: unknown --stack value: '${STACK_OPT}'"
+        echo ""
+        echo "Usage: bash $0 [--stack go|ts-pnpm|node-npm|python] [--dry-run] [OPTIONS]"
+        echo "  Allowed stacks: go, ts-pnpm, node-npm, python (SPEC-0028)"
+        echo "  See 'bash $0 --help' for all options."
+      } >&2
+      exit 1
+      ;;
+  esac
+fi
 
 # SPEC-0026 PRE-02: --diff piggybacks on the dry-run write suppression so
 # no code path can create, modify, or delete files (POST-02). Backups are
@@ -10482,6 +10585,54 @@ if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ] && [ "$D
   exit 0
 fi
 
+# --- SPEC-0028: stack preset resolution ---
+# A preset is selected only while .sage/config.yaml does not exist (FR-02/FR-06
+# preserve-if-exists). Auto-detection checks marker file existence only — file
+# contents are never read or copied into config.yaml (PRE-02/SEC-02). The
+# selected body is one of the embedded static preset strings (INV-04).
+STACK_NAME=""
+STACK_PRESET_BODY=""
+if [ -f ".sage/config.yaml" ]; then
+  if [ "$STACK_FLAG" = "true" ]; then
+    echo "INFO: existing .sage/config.yaml found — --stack ${STACK_OPT} is not applied (preserve-if-exists, SPEC-0028)"
+  fi
+else
+  if [ "$STACK_FLAG" = "true" ]; then
+    STACK_NAME="$STACK_OPT"
+    echo "INFO: stack preset '${STACK_NAME}' selected via --stack (SPEC-0028)"
+  else
+    detected_markers=""
+    [ -f "go.mod" ] && detected_markers="${detected_markers} go.mod"
+    [ -f "pnpm-workspace.yaml" ] && detected_markers="${detected_markers} pnpm-workspace.yaml"
+    [ -f "pnpm-lock.yaml" ] && detected_markers="${detected_markers} pnpm-lock.yaml"
+    [ -f "package.json" ] && detected_markers="${detected_markers} package.json"
+    [ -f "pyproject.toml" ] && detected_markers="${detected_markers} pyproject.toml"
+    if [ -n "$detected_markers" ]; then
+      # Priority: go > ts-pnpm > node-npm > python (FR-04). pnpm markers are
+      # more specific than package.json, so ts-pnpm wins over node-npm.
+      if [ -f "go.mod" ]; then
+        STACK_NAME="go"
+      elif [ -f "pnpm-workspace.yaml" ] || [ -f "pnpm-lock.yaml" ]; then
+        STACK_NAME="ts-pnpm"
+      elif [ -f "package.json" ]; then
+        STACK_NAME="node-npm"
+      else
+        STACK_NAME="python"
+      fi
+      echo "INFO: detected stack markers:${detected_markers} (SPEC-0028)"
+      echo "INFO: applying stack preset '${STACK_NAME}' to project_checks (priority: go > ts-pnpm > node-npm > python; override with --stack <name>)"
+    fi
+    # No marker detected: keep the unset template — output and generated
+    # files stay byte-identical to the pre-SPEC-0028 installer (FR-05/INV-02).
+  fi
+  case "$STACK_NAME" in
+    go) STACK_PRESET_BODY="$TMPL_STACK_GO" ;;
+    ts-pnpm) STACK_PRESET_BODY="$TMPL_STACK_TS_PNPM" ;;
+    node-npm) STACK_PRESET_BODY="$TMPL_STACK_NODE_NPM" ;;
+    python) STACK_PRESET_BODY="$TMPL_STACK_PYTHON" ;;
+  esac
+fi
+
 echo "========================================="
 if [ "$MODE" = "install" ]; then
   echo "  SAGE v${SAGE_VERSION} — New Installation"
@@ -10514,6 +10665,12 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "sage/quality-gates.md" "$TMPL_QUALITY_GATES"
   write_file_if_new "sage/adoption-phases.md" "$TMPL_ADOPTION"
   write_file_if_new "sage/traceability.md" "$TMPL_TRACEABILITY"
+  # SPEC-0028 PRE-01/POST-01: apply the selected stack preset immediately
+  # before the write, and only while .sage/config.yaml is still absent.
+  # write_file_if_new keeps its preserve-if-exists behavior either way (INV-01).
+  if [ -n "$STACK_PRESET_BODY" ] && [ ! -f ".sage/config.yaml" ]; then
+    TMPL_CONFIG=$(replace_project_checks_section "$TMPL_CONFIG" "$STACK_PRESET_BODY")
+  fi
   write_file_if_new ".sage/config.yaml" "$TMPL_CONFIG"
   # SPEC-0027: id-patterns.json is preserve-if-exists (AC-12) — never overwritten
   write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
