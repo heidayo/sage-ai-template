@@ -366,6 +366,21 @@ upsert_sage_section() {
   local file="$1"
   local snippet="$2"
 
+  # SPEC-0026 FR-05 / PRE-03: check marker consistency before any edit.
+  # A file with only one of the two markers is treated as damaged: editing
+  # it (replace or append) risks destroying user content, so skip it
+  # entirely (no change, no append), WARN, and keep the installer going.
+  local has_start=false has_end=false
+  if [ -f "$file" ]; then
+    grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null && has_start=true
+    grep -qF "$SAGE_END_MARKER" "$file" 2>/dev/null && has_end=true
+  fi
+  if [ "$has_start" != "$has_end" ]; then
+    echo "  WARN: $file has only one SAGE marker (start: $has_start / end: $has_end) — skipped without changes to avoid losing customizations (SPEC-0026)." >&2
+    echo "        Repair the markers manually, then re-run: see docs/installer-preservation.md" >&2
+    return 0
+  fi
+
   if [ "${DRY_RUN:-false}" = "true" ]; then
     if [ ! -f "$file" ]; then
       echo "  WOULD-CREATE: $file"
