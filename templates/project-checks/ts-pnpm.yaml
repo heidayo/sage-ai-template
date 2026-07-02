@@ -1,0 +1,6 @@
+  # stack preset: ts-pnpm (SPEC-0028 — see docs/stack-presets.md)
+  lint: "pnpm run lint"
+  format: "pnpm exec prettier --check ."
+  type_check: "pnpm exec tsc --noEmit"
+  test_command: "pnpm test"
+  coverage_command: "pnpm exec nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"
