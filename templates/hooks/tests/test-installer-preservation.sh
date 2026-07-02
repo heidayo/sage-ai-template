@@ -413,6 +413,25 @@ else
   not_ok ".sage/backup/ missing from repo .gitignore (SPEC scope / ASM-02)"
 fi
 
+# =============================================================================
+# ケース16: gitignore_backup_entry — AC-14 (導入先 .gitignore へのエントリ、冪等)
+# =============================================================================
+# AC-14: gitignore_backup_entry — clean install 後 .gitignore に .sage/backup/ がある
+if [ -f "$SB7/.gitignore" ] && grep -qF '.sage/backup/' "$SB7/.gitignore"; then
+  ok "gitignore_backup_entry: clean install adds .sage/backup/ to target .gitignore (AC-14)"
+else
+  not_ok "gitignore_backup_entry: .sage/backup/ missing from target .gitignore after clean install (AC-14)"
+fi
+# AC-14: 再 install で .sage/backup/ 行が重複しない (count=1 のまま)
+force_update "$SB7"
+run_install "$SB7"
+entry_count="$(grep -cF '.sage/backup/' "$SB7/.gitignore" 2>/dev/null || echo 0)"
+if [ "$RUN_RC" = "0" ] && [ "$entry_count" = "1" ]; then
+  ok "gitignore_backup_entry: re-install keeps a single .sage/backup/ entry (AC-14)"
+else
+  not_ok "gitignore_backup_entry: expected 1 entry after re-install, got ${entry_count} rc=${RUN_RC} (AC-14)"
+fi
+
 # Cleanup: only mktemp-created sandboxes (rm -r without -f on unique tmpdirs).
 for d in "$SB1" "$SB2" "$SB3" "$SB4" "$SB5" "$SB6" "$SB7"; do
   case "$d" in
