@@ -118,3 +118,4 @@ project_checks:
 - SPEC: `specs/SPEC-0028-stack-presets.md`
 - プリセット実体: `templates/project-checks/`
 - Gate 設定全般: `.sage/config.yaml` の `project_checks` / `quality_gates`
+- TypeScript の型品質を段階的に強制する場合（tsc エラー数ラチェット + 型抑制の lint 禁止, SPEC-0030）: [docs/ts-enforcement.md](ts-enforcement.md)

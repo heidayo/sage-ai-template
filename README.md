@@ -467,6 +467,10 @@ Codex 向けの managed ルール層 `.codex/rules/`（SPEC-0029）も同じ方�
 
 新規導入時に `bash install.sh --stack go|ts-pnpm|node-npm|python` で `.sage/config.yaml` の `project_checks` を標準コマンドで初期化できます。`--stack` 未指定時はマーカーファイル（`go.mod` / `pnpm-lock.yaml` 等）から自動検出します（優先順位: go > ts-pnpm > node-npm > python）。既存の `.sage/config.yaml` は変更しません（preserve-if-exists）。プリセットの実体は `templates/project-checks/` 配下です。詳細は [docs/stack-presets.md](docs/stack-presets.md) を参照してください。
 
+### TypeScript enforcement（SPEC-0030）
+
+TypeScript プロジェクト向けに、tsc エラー数ラチェット（`scripts/sage-tsc-ratchet.sh`）と型抑制コメント・`any` を error 化する ESLint 断片（`templates/ts-enforcement/`）を opt-in で提供します。installer 非配布（ファイルコピー導入）です。導入手順・運用規約は [docs/ts-enforcement.md](docs/ts-enforcement.md) を参照してください。
+
 ### 更新前バックアップと復元（SPEC-0026）
 
 installer は更新時、内容が変わる既存ファイルを書き込み前に `.sage/backup/<timestamp>/`（直近3世代）へ自動バックアップします。更新前の差分確認は `bash install.sh --diff`、復元は `cp .sage/backup/<最新timestamp>/<ファイル> <ファイル>` です。マーカー方式で防御される / 防御されないケースの対比表を含む詳細は [docs/installer-preservation.md](docs/installer-preservation.md) を参照してください。
