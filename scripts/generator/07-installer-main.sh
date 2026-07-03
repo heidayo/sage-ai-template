@@ -225,6 +225,84 @@ do_verify_checksum_remote() {
   fi
 }
 
+# --- SPEC-0026: pre-write backup (backup_before_write) ---
+# INV-04: backup judgment + execution live in this single function; every
+# write path that can change an existing file must call it before writing.
+BACKUP_ROOT=".sage/backup"
+BACKUP_GEN_DIR=""
+
+# FR-02 / SEC-01: keep the newest 3 generations. Only directories whose
+# name matches ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ are rotation candidates;
+# anything else under .sage/backup/ is preserved (AC-11).
+_backup_rotate_generations() {
+  local dirs count oldest
+  dirs=$(ls -1 "$BACKUP_ROOT" 2>/dev/null | grep -E '^[0-9]{8}-[0-9]{6}(-[0-9]+)?$' | sort || true)
+  count=$(printf '%s' "$dirs" | grep -c . || true)
+  while [ "$count" -gt 3 ]; do
+    oldest=$(printf '%s\n' "$dirs" | head -1)
+    [ -n "$oldest" ] || break
+    rm -rf "${BACKUP_ROOT:?}/${oldest:?}"
+    echo "  BACKUP-ROTATE: removed oldest generation $BACKUP_ROOT/$oldest"
+    dirs=$(printf '%s\n' "$dirs" | tail -n +2)
+    count=$((count - 1))
+  done
+}
+
+# FR-01: create the generation directory lazily — only when the first
+# actual UPDATE backup happens (no empty generations). On timestamp
+# collision, append -N instead of reusing an existing generation (AC-12).
+_backup_ensure_gen_dir() {
+  if [ -n "$BACKUP_GEN_DIR" ]; then
+    return 0
+  fi
+  local ts candidate n
+  ts=$(date -u +%Y%m%d-%H%M%S)
+  candidate="$ts"
+  n=0
+  while [ -e "$BACKUP_ROOT/$candidate" ]; do
+    n=$((n + 1))
+    candidate="$ts-$n"
+  done
+  if ! mkdir -p "$BACKUP_ROOT/$candidate" 2>/dev/null; then
+    return 1
+  fi
+  BACKUP_GEN_DIR="$BACKUP_ROOT/$candidate"
+  _backup_rotate_generations
+  return 0
+}
+
+# backup_before_write <path> [<new_content>]
+# PRE-01: back up only when the file exists AND the content will change
+# (when <new_content> is given; without it, the caller has already
+# determined the file will change). SEC-03: print paths only, never
+# file contents. AC-09 fail-safe: if the backup cannot be written,
+# abort the installer (non-zero exit) without touching the target file.
+backup_before_write() {
+  local path="$1"
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    return 0
+  fi
+  if [ ! -f "$path" ]; then
+    return 0  # CREATE, not UPDATE — nothing to back up
+  fi
+  if is_unmanaged_path "$path"; then
+    return 0  # SPEC-0025: overlay paths are never written, never backed up
+  fi
+  if [ "$#" -ge 2 ] && [ "$(cat "$path")" = "$2" ]; then
+    return 0  # content unchanged — not an UPDATE
+  fi
+  if ! _backup_ensure_gen_dir; then
+    echo "ERROR: cannot create backup directory under $BACKUP_ROOT — aborting without overwriting $path (fail-safe, SPEC-0026)" >&2
+    exit 1
+  fi
+  local dest="$BACKUP_GEN_DIR/$path"
+  if ! mkdir -p "$(dirname "$dest")" 2>/dev/null || ! cp "$path" "$dest" 2>/dev/null; then
+    echo "ERROR: backup of $path to $dest failed — aborting without overwriting (fail-safe, SPEC-0026)" >&2
+    exit 1
+  fi
+  echo "  BACKUP: $dest"
+}
+
 write_file_if_new() {
   local path="$1"
   local content="$2"
@@ -273,11 +351,22 @@ update_file() {
     fi
     return 0
   fi
+  # SPEC-0026 FR-03: in diff mode show the unified diff for UPDATE targets
+  # (existing file whose content would change) and write nothing.
+  if [ "${DIFF_MODE:-false}" = "true" ]; then
+    if [ -f "$path" ] && [ "$(cat "$path")" != "$content" ]; then
+      echo "  DIFF: $path"
+      printf '%s\n' "$content" | diff -u -L "$path (current)" -L "$path (new)" "$path" - || true
+    fi
+    return 0
+  fi
   if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "  WOULD-UPDATE: $path"
     return 0
   fi
   mkdir -p "$dir"
+  # SPEC-0026 INV-02: never overwrite an existing file without a backup.
+  backup_before_write "$path" "$content"
   echo "$content" > "$path"
   echo "  UPDATE: $path"
 }
@@ -286,10 +375,25 @@ upsert_sage_section() {
   local file="$1"
   local snippet="$2"
 
-  if [ "${DRY_RUN:-false}" = "true" ]; then
+  # SPEC-0026 FR-05 / PRE-03: check marker consistency before any edit.
+  # A file with only one of the two markers is treated as damaged: editing
+  # it (replace or append) risks destroying user content, so skip it
+  # entirely (no change, no append), WARN, and keep the installer going.
+  local has_start=false has_end=false
+  if [ -f "$file" ]; then
+    grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null && has_start=true
+    grep -qF "$SAGE_END_MARKER" "$file" 2>/dev/null && has_end=true
+  fi
+  if [ "$has_start" != "$has_end" ]; then
+    echo "  WARN: $file has only one SAGE marker (start: $has_start / end: $has_end) — skipped without changes to avoid losing customizations (SPEC-0026)." >&2
+    echo "        Repair the markers manually, then re-run: see docs/installer-preservation.md" >&2
+    return 0
+  fi
+
+  if [ "${DRY_RUN:-false}" = "true" ] && [ "${DIFF_MODE:-false}" != "true" ]; then
     if [ ! -f "$file" ]; then
       echo "  WOULD-CREATE: $file"
-    elif grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null; then
+    elif [ "$has_start" = "true" ]; then
       echo "  WOULD-UPDATE: $file (SAGE section)"
     else
       echo "  WOULD-APPEND: $file (SAGE section)"
@@ -298,16 +402,24 @@ upsert_sage_section() {
   fi
 
   if [ ! -f "$file" ]; then
+    if [ "${DIFF_MODE:-false}" = "true" ]; then
+      echo "  WOULD-CREATE: $file"
+      return 0
+    fi
     echo "$snippet" > "$file"
     echo "  CREATE: $file"
     return
   fi
 
-  if grep -qF "$SAGE_START_MARKER" "$file"; then
+  # Build the expected post-upsert content in a temp file. It is used for
+  # the real write (mv), the pre-write backup comparison (TASK-0178) and
+  # the --diff preview (SPEC-0026 FR-04: the diff is taken against this
+  # expected content, so any change outside the markers shows up too).
+  local tmp_result=$(mktemp)
+  if [ "$has_start" = "true" ]; then
     # SAGEセクションが既にある → マーカー間を置換
     local tmp_before=$(mktemp)
     local tmp_after=$(mktemp)
-    local tmp_result=$(mktemp)
 
     # マーカーの行番号を取得
     local start_line=$(grep -nF "$SAGE_START_MARKER" "$file" | head -1 | cut -d: -f1)
@@ -332,13 +444,33 @@ upsert_sage_section() {
     cat "$tmp_before" > "$tmp_result"
     echo "$snippet" >> "$tmp_result"
     cat "$tmp_after" >> "$tmp_result"
-
-    mv "$tmp_result" "$file"
     rm -f "$tmp_before" "$tmp_after"
+  else
+    # マーカーなし → 末尾 append (既存行は不変)
+    cat "$file" > "$tmp_result"
+    echo "" >> "$tmp_result"
+    echo "$snippet" >> "$tmp_result"
+  fi
+
+  if [ "${DIFF_MODE:-false}" = "true" ]; then
+    if ! cmp -s "$file" "$tmp_result"; then
+      echo "  DIFF: $file"
+      diff -u -L "$file (current)" -L "$file (new)" "$file" "$tmp_result" || true
+    fi
+    rm -f "$tmp_result"
+    return 0
+  fi
+
+  if [ "$has_start" = "true" ]; then
+    # SPEC-0026 INV-02: back up before replacing the SAGE section
+    # (skipped inside backup_before_write when content is unchanged).
+    backup_before_write "$file" "$(cat "$tmp_result")"
+    mv "$tmp_result" "$file"
     echo "  UPDATE: $file (SAGE section replaced)"
   else
-    echo "" >> "$file"
-    echo "$snippet" >> "$file"
+    # SPEC-0026 INV-02: appending changes the file — back it up first.
+    backup_before_write "$file"
+    mv "$tmp_result" "$file"
     echo "  APPEND: $file (SAGE section added)"
   fi
 }
@@ -370,6 +502,8 @@ setup_commit_hook() {
   if [ -f "$hook_file" ] && grep -qF "SAGE" "$hook_file"; then
     echo "  SKIP: $hook_file (SAGE hook already present)"
   elif [ -f "$hook_file" ]; then
+    # SPEC-0026 INV-02: appending changes the file — back it up first.
+    backup_before_write "$hook_file"
     echo "" >> "$hook_file"
     echo "# --- SAGE: TASK-ID check ---" >> "$hook_file"
     echo "$TMPL_COMMIT_HOOK" >> "$hook_file"
@@ -391,6 +525,8 @@ audit_existing_claude_md() {
     return
   fi
 
+  # SPEC-0026 INV-02: back up a previous audit report before regenerating.
+  backup_before_write "$report"
   echo "# SAGE Adoption Audit" > "$report"
   echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$report"
   echo "" >> "$report"
@@ -443,26 +579,56 @@ setup_gitignore() {
   # numeric counters) is ignored. See TASK-0100 / Codex review P1 #1.
   if [ "${DRY_RUN:-false}" = "true" ]; then
     if [ ! -f .gitignore ]; then
-      echo "  WOULD-CREATE: .gitignore (with .sage/metrics/)"
+      echo "  WOULD-CREATE: .gitignore (with .sage/metrics/ and .sage/backup/)"
     else
       grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/metrics/"
+      grep -qxF '.sage/backup/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/backup/"
     fi
     return
   fi
   if [ ! -f .gitignore ]; then
-    touch .gitignore
+    printf '%s\n' '.sage/metrics/' '.sage/backup/' > .gitignore
+  else
+    if ! grep -qxF '.sage/metrics/' .gitignore 2>/dev/null; then
+      # SPEC-0026 INV-02: appending changes an existing file — back it up first.
+      backup_before_write .gitignore
+      echo '.sage/metrics/' >> .gitignore
+    fi
+    # SPEC-0026 FR-09: keep backup snapshots out of the destination repo's history.
+    if ! grep -qxF '.sage/backup/' .gitignore 2>/dev/null; then
+      backup_before_write .gitignore
+      echo '.sage/backup/' >> .gitignore
+    fi
   fi
-  grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo '.sage/metrics/' >> .gitignore
   echo "  OK"
 }
 
 # --- Parse arguments ---
 MODE="install"
 DRY_RUN=false
+# SPEC-0026 FR-03: --diff shows unified diffs of UPDATE targets, writes nothing.
+DIFF_MODE=false
 # SPEC-0018: --remote modifier for --verify-checksum (pre-scan to allow flag in any order)
 REMOTE_VERIFY=false
 for arg in "$@"; do
   if [ "$arg" = "--remote" ]; then REMOTE_VERIFY=true; fi
+done
+# SPEC-0028: --stack <name> takes a value, so it is pre-scanned (the main case
+# loop below iterates single args). The value is only ever compared against the
+# allowlist — it is never used as a path or command (SEC-01/INV-03).
+STACK_FLAG=false
+STACK_OPT=""
+_stack_expect=false
+for arg in "$@"; do
+  if [ "$_stack_expect" = "true" ]; then
+    STACK_OPT="$arg"
+    _stack_expect=false
+    continue
+  fi
+  if [ "$arg" = "--stack" ]; then
+    STACK_FLAG=true
+    _stack_expect=true
+  fi
 done
 for arg in "$@"; do
   case "$arg" in
@@ -477,7 +643,9 @@ for arg in "$@"; do
       fi
       ;;
     --remote) ;;  # SPEC-0018: pre-scanned above, no-op here
+    --stack) ;;   # SPEC-0028: pre-scanned above (value validated after this loop)
     --dry-run) DRY_RUN=true ;;
+    --diff) DIFF_MODE=true ;;
     --help)
       cat <<HELP_EOF
 Usage: bash install.sh [OPTIONS]
@@ -486,6 +654,11 @@ Usage: bash install.sh [OPTIONS]
   --update               Force update mode
   --version              Show SAGE version
   --dry-run              Preview without writing any files (SPEC-0010)
+  --stack <name>         Apply a project_checks stack preset on NEW install only
+                         (go | ts-pnpm | node-npm | python). Existing
+                         .sage/config.yaml is never modified (SPEC-0028)
+  --diff                 Show unified diffs of files that would be updated,
+                         without writing any files (SPEC-0026)
   --verify-checksum      Verify installed files against .sage/install-state.yaml
   --verify-checksum --remote
                          Verify the local installer against the GitHub Release
@@ -502,8 +675,36 @@ HELP_EOF
   esac
 done
 
+# SPEC-0028 FR-03/SEC-01: --stack accepts allowlist values only, by exact
+# string comparison. Unknown values fail before any file is written (AC-07).
+if [ "$STACK_FLAG" = "true" ]; then
+  case "$STACK_OPT" in
+    go|ts-pnpm|node-npm|python) ;;
+    *)
+      {
+        echo "ERROR: unknown --stack value: '${STACK_OPT}'"
+        echo ""
+        echo "Usage: bash $0 [--stack go|ts-pnpm|node-npm|python] [--dry-run] [OPTIONS]"
+        echo "  Allowed stacks: go, ts-pnpm, node-npm, python (SPEC-0028)"
+        echo "  See 'bash $0 --help' for all options."
+      } >&2
+      exit 1
+      ;;
+  esac
+fi
+
+# SPEC-0026 PRE-02: --diff piggybacks on the dry-run write suppression so
+# no code path can create, modify, or delete files (POST-02). Backups are
+# not taken either (nothing is written).
+if [ "$DIFF_MODE" = "true" ]; then
+  DRY_RUN=true
+  echo "========================================="
+  echo "  SAGE v${SAGE_VERSION} — DIFF PREVIEW (no writes will occur)"
+  echo "========================================="
+  echo ""
+  chmod() { return 0; }
 # Announce dry-run mode prominently
-if [ "$DRY_RUN" = "true" ]; then
+elif [ "$DRY_RUN" = "true" ]; then
   echo "========================================="
   echo "  SAGE v${SAGE_VERSION} — DRY RUN (no writes will occur)"
   echo "========================================="
@@ -528,9 +729,59 @@ if [ -n "$INSTALLED_VERSION" ] && [ "$MODE" = "install" ]; then
   MODE="update"
 fi
 
-if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ]; then
+# SPEC-0026 FR-03: --diff always evaluates the diff, even at the same
+# version — local drift against the templates is exactly what it must show.
+if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ] && [ "$DIFF_MODE" != "true" ]; then
   echo "Already at v${SAGE_VERSION}. No update needed."
   exit 0
+fi
+
+# --- SPEC-0028: stack preset resolution ---
+# A preset is selected only while .sage/config.yaml does not exist (FR-02/FR-06
+# preserve-if-exists). Auto-detection checks marker file existence only — file
+# contents are never read or copied into config.yaml (PRE-02/SEC-02). The
+# selected body is one of the embedded static preset strings (INV-04).
+STACK_NAME=""
+STACK_PRESET_BODY=""
+if [ -f ".sage/config.yaml" ]; then
+  if [ "$STACK_FLAG" = "true" ]; then
+    echo "INFO: existing .sage/config.yaml found — --stack ${STACK_OPT} is not applied (preserve-if-exists, SPEC-0028)"
+  fi
+else
+  if [ "$STACK_FLAG" = "true" ]; then
+    STACK_NAME="$STACK_OPT"
+    echo "INFO: stack preset '${STACK_NAME}' selected via --stack (SPEC-0028)"
+  else
+    detected_markers=""
+    [ -f "go.mod" ] && detected_markers="${detected_markers} go.mod"
+    [ -f "pnpm-workspace.yaml" ] && detected_markers="${detected_markers} pnpm-workspace.yaml"
+    [ -f "pnpm-lock.yaml" ] && detected_markers="${detected_markers} pnpm-lock.yaml"
+    [ -f "package.json" ] && detected_markers="${detected_markers} package.json"
+    [ -f "pyproject.toml" ] && detected_markers="${detected_markers} pyproject.toml"
+    if [ -n "$detected_markers" ]; then
+      # Priority: go > ts-pnpm > node-npm > python (FR-04). pnpm markers are
+      # more specific than package.json, so ts-pnpm wins over node-npm.
+      if [ -f "go.mod" ]; then
+        STACK_NAME="go"
+      elif [ -f "pnpm-workspace.yaml" ] || [ -f "pnpm-lock.yaml" ]; then
+        STACK_NAME="ts-pnpm"
+      elif [ -f "package.json" ]; then
+        STACK_NAME="node-npm"
+      else
+        STACK_NAME="python"
+      fi
+      echo "INFO: detected stack markers:${detected_markers} (SPEC-0028)"
+      echo "INFO: applying stack preset '${STACK_NAME}' to project_checks (priority: go > ts-pnpm > node-npm > python; override with --stack <name>)"
+    fi
+    # No marker detected: keep the unset template — output and generated
+    # files stay byte-identical to the pre-SPEC-0028 installer (FR-05/INV-02).
+  fi
+  case "$STACK_NAME" in
+    go) STACK_PRESET_BODY="$TMPL_STACK_GO" ;;
+    ts-pnpm) STACK_PRESET_BODY="$TMPL_STACK_TS_PNPM" ;;
+    node-npm) STACK_PRESET_BODY="$TMPL_STACK_NODE_NPM" ;;
+    python) STACK_PRESET_BODY="$TMPL_STACK_PYTHON" ;;
+  esac
 fi
 
 echo "========================================="
@@ -545,9 +796,9 @@ echo ""
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
 if [ "${DRY_RUN:-false}" = "true" ]; then
-  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
+  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .codex/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
 else
-  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
+  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .codex/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
 fi
 echo "  OK"
 
@@ -565,7 +816,16 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "sage/quality-gates.md" "$TMPL_QUALITY_GATES"
   write_file_if_new "sage/adoption-phases.md" "$TMPL_ADOPTION"
   write_file_if_new "sage/traceability.md" "$TMPL_TRACEABILITY"
+  # SPEC-0028 PRE-01/POST-01: apply the selected stack preset immediately
+  # before the write, and only while .sage/config.yaml is still absent.
+  # write_file_if_new keeps its preserve-if-exists behavior either way (INV-01).
+  if [ -n "$STACK_PRESET_BODY" ] && [ ! -f ".sage/config.yaml" ]; then
+    TMPL_CONFIG=$(replace_project_checks_section "$TMPL_CONFIG" "$STACK_PRESET_BODY")
+  fi
   write_file_if_new ".sage/config.yaml" "$TMPL_CONFIG"
+  # SPEC-0027: id-patterns.json is preserve-if-exists (AC-12) — never overwritten
+  write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
+  write_file_if_new "scripts/sage-id-pattern.sh" "$TMPL_ID_PATTERN_LOADER"
   write_file_if_new "scripts/sage-validate.sh" "$TMPL_VALIDATE" && chmod +x "scripts/sage-validate.sh"
   write_file_if_new "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   write_file_if_new "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
@@ -574,6 +834,8 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   write_file_if_new "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   write_file_if_new "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
+  # SPEC-0029 FR-07: codex-rules doc ships via the same path as the packet
+  write_file_if_new "docs/codex-rules.md" "$TMPL_CODEX_RULES_DOC"
 else
   # Update mode: テンプレートとガバナンスはSAGE管理なので上書き
   update_file "specs/_template.md" "$TMPL_SPEC"
@@ -585,6 +847,10 @@ else
   update_file "sage/quality-gates.md" "$TMPL_QUALITY_GATES"
   update_file "sage/adoption-phases.md" "$TMPL_ADOPTION"
   update_file "sage/traceability.md" "$TMPL_TRACEABILITY"
+  # SPEC-0027: loader is SAGE-managed (updated); id-patterns.json is
+  # project-customizable — installed only when missing (preserve-if-exists)
+  update_file "scripts/sage-id-pattern.sh" "$TMPL_ID_PATTERN_LOADER"
+  write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
   update_file "scripts/sage-validate.sh" "$TMPL_VALIDATE" && chmod +x "scripts/sage-validate.sh"
   update_file "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   update_file "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
@@ -593,6 +859,8 @@ else
   update_file "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   update_file "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   update_file "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
+  # SPEC-0029 FR-07: codex-rules doc ships via the same path as the packet
+  update_file "docs/codex-rules.md" "$TMPL_CODEX_RULES_DOC"
   # failures.md, config.yaml はプロジェクト固有データが入るので更新しない
   echo "  KEEP: sage/failures.md (project data)"
   echo "  KEEP: .sage/config.yaml (project settings)"
@@ -608,6 +876,17 @@ write_rules_file ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
 write_rules_file ".claude/rules/tasks-rules.md" "$TMPL_RULES_TASKS"
 write_rules_file ".claude/rules/src-rules.md" "$TMPL_RULES_SRC"
 write_rules_file ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
+
+# SPEC-0029: .codex/rules/ managed distribution — same overlay-safe writer
+# (write_rules_file goes through is_unmanaged_path, so .codex/rules/local/**
+# is unreachable — FR-03 / SEC-03).
+echo ""
+echo "[3b/9] .codex/rules/ (SPEC-0029)..."
+write_rules_file ".codex/rules/specs-rules.md" "$TMPL_CODEX_RULES_SPECS"
+write_rules_file ".codex/rules/plans-rules.md" "$TMPL_CODEX_RULES_PLANS"
+write_rules_file ".codex/rules/tasks-rules.md" "$TMPL_CODEX_RULES_TASKS"
+write_rules_file ".codex/rules/src-rules.md" "$TMPL_CODEX_RULES_SRC"
+write_rules_file ".codex/rules/sage-governance-rules.md" "$TMPL_CODEX_RULES_GOVERNANCE"
 
 # --- [4/9] .claude/skills/ ---
 echo ""
@@ -726,6 +1005,8 @@ if [ "${DRY_RUN:-false}" = "true" ]; then
   fi
 elif [ ! -f ".claude/settings.json" ] || ! grep -qF "block-dangerous-commands" ".claude/settings.json" 2>/dev/null; then
   mkdir -p .claude
+  # SPEC-0026 INV-02: an existing settings.json without hooks gets replaced — back it up.
+  backup_before_write ".claude/settings.json" "$TMPL_SETTINGS_JSON"
   echo "$TMPL_SETTINGS_JSON" > ".claude/settings.json"
   echo "  CREATE: .claude/settings.json (with hooks)"
 else
@@ -746,6 +1027,8 @@ setup_gitignore
 if [ "${DRY_RUN:-false}" = "true" ]; then
   echo "  WOULD-WRITE: .sage/version (${SAGE_VERSION})"
 else
+  # SPEC-0026 INV-02 (no-op when the version is unchanged).
+  backup_before_write ".sage/version" "$SAGE_VERSION"
   echo "$SAGE_VERSION" > .sage/version
 fi
 
@@ -771,6 +1054,8 @@ generate_install_state() {
     return
   fi
 
+  # SPEC-0026 INV-02: back up the previous install-state before regenerating.
+  backup_before_write "$state_file"
   cat > "$state_file" <<STATEHEADER
 version: "${SAGE_VERSION}"
 installed_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -791,6 +1076,7 @@ STATEHEADER
     "sage/adoption-phases.md"
     "sage/traceability.md"
     # Scripts
+    "scripts/sage-id-pattern.sh"
     "scripts/sage-validate.sh"
     "scripts/sage-id-gen.sh"
     "scripts/sage-trace-check.sh"
@@ -800,12 +1086,19 @@ STATEHEADER
     # Docs
     "docs/codex-delegation-packet.md"
     "docs/claude-collaboration-brief.md"
+    "docs/codex-rules.md"
     # Claude Code rules and skills
     ".claude/rules/specs-rules.md"
     ".claude/rules/plans-rules.md"
     ".claude/rules/tasks-rules.md"
     ".claude/rules/src-rules.md"
     ".claude/rules/sage-governance-rules.md"
+    # Codex rules (SPEC-0029)
+    ".codex/rules/specs-rules.md"
+    ".codex/rules/plans-rules.md"
+    ".codex/rules/tasks-rules.md"
+    ".codex/rules/src-rules.md"
+    ".codex/rules/sage-governance-rules.md"
     ".claude/skills/sage-spec/SKILL.md"
     ".claude/skills/sage-plan/SKILL.md"
     ".claude/skills/sage-review/SKILL.md"
@@ -827,6 +1120,7 @@ STATEHEADER
     "CLAUDE.md"
     "AGENTS.md"
     ".sage/config.yaml"
+    ".sage/id-patterns.json"
     "sage/failures.md"
     ".claude/settings.json"
   )

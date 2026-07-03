@@ -75,6 +75,9 @@ run_log_schema:
     network_mode: "off | allowlist | unrestricted | unknown"
 
 # --- ID Schema ---
+# Values below are the default (generation) formats. Acceptance patterns can be
+# extended per-project via .sage/id-patterns.json (SPEC-0027) — acceptance only;
+# generation always uses the default format. See docs/id-patterns.md.
 id_schema:
   spec: "SPEC-{4-digit sequential}"
   plan: "PLAN-{4-digit sequential}"

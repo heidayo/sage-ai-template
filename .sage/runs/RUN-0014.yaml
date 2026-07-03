@@ -1,0 +1,35 @@
+run_id: RUN-0014
+task_id: TASK-0195
+agent_id: implementation
+started_at: "2026-07-02T00:00:00Z"
+completed_at: "2026-07-02T00:00:00Z"
+status: pass
+files_changed:
+  - templates/project-checks/go.yaml
+  - templates/project-checks/ts-pnpm.yaml
+  - templates/project-checks/node-npm.yaml
+  - templates/project-checks/python.yaml
+  - scripts/generator/02-config.sh
+  - scripts/generator/07-installer-main.sh
+  - install.sh
+  - SHA256SUMS
+  - docs/stack-presets.md
+  - README.md
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: ""
+runtime: claude-code
+approval_policy: on-request
+network_mode: allowlist
+
+# SPEC-0028 implementation run: TASK-0192 (presets), TASK-0193 (generator
+# embed + section replacer), TASK-0194 (--stack + autodetect), TASK-0195
+# (regen install.sh + SHA256SUMS, solo commit), TASK-0197 (docs).
+# Verification: AC-01..08 manual equivalents PASS, AC-09 shasum -c PASS,
+# AC-10 run-tests.sh 289/289 PASS, AC-12 grep PASS. AC-11: no commit in this
+# run touches .sage/config.yaml (a pre-existing branch diff vs main from
+# SPEC-0027 work exists at branch baseline cb62786).

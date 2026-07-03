@@ -453,9 +453,27 @@ echo "# My project rules" > .claude/rules/local/my-rules.md
 bash install.sh   # 何度更新しても local/ は不変
 ```
 
+Codex 向けの managed ルール層 `.codex/rules/`（SPEC-0029）も同じ方式で配布されます。優先順位（`.codex/rules/` > ルート `AGENTS.md`）・読み込み手順・`.claude/rules/` との対応表は [docs/codex-rules.md](docs/codex-rules.md) を参照してください。
+
 **レビュー責任について（セキュリティ境界）**: overlay は `.sage/install-state.yaml` の checksum 管理外です。つまりテンプレート供給元から改変されない領域である一方、`install.sh --verify-checksum` の検証対象にもなりません。`local/` 配下の内容は**導入プロジェクト自身のレビュー責任**です。
 
 **テンプレート更新時の checksum 変化について**: テンプレート更新（例: managed rules への注記追加）で managed ファイルの checksum が変わると、更新前の install-state に対して `--verify-checksum` が一時的に FAIL に見えることがあります。これは通常のテンプレート更新と同じ扱いで、`bash install.sh` 実行による install-state 再生成で解消されます。
+
+### ID 受理パターンのカスタマイズ（SPEC-0027）
+
+`TASK-hei-a7f3` のような作業者プレフィックス形式の ID を併用したい場合、`.sage/id-patterns.json` で受理パターンを拡張できます（受理のみ。生成はデフォルト形式のまま）。installer は既存の `.sage/id-patterns.json` を上書きしません（preserve-if-exists）。書式・設定例・注意点は [docs/id-patterns.md](docs/id-patterns.md) を参照してください。
+
+### project_checks スタックプリセット（SPEC-0028）
+
+新規導入時に `bash install.sh --stack go|ts-pnpm|node-npm|python` で `.sage/config.yaml` の `project_checks` を標準コマンドで初期化できます。`--stack` 未指定時はマーカーファイル（`go.mod` / `pnpm-lock.yaml` 等）から自動検出します（優先順位: go > ts-pnpm > node-npm > python）。既存の `.sage/config.yaml` は変更しません（preserve-if-exists）。プリセットの実体は `templates/project-checks/` 配下です。詳細は [docs/stack-presets.md](docs/stack-presets.md) を参照してください。
+
+### TypeScript enforcement（SPEC-0030）
+
+TypeScript プロジェクト向けに、tsc エラー数ラチェット（`scripts/sage-tsc-ratchet.sh`）と型抑制コメント・`any` を error 化する ESLint 断片（`templates/ts-enforcement/`）を opt-in で提供します。installer 非配布（ファイルコピー導入）です。導入手順・運用規約は [docs/ts-enforcement.md](docs/ts-enforcement.md) を参照してください。
+
+### 更新前バックアップと復元（SPEC-0026）
+
+installer は更新時、内容が変わる既存ファイルを書き込み前に `.sage/backup/<timestamp>/`（直近3世代）へ自動バックアップします。更新前の差分確認は `bash install.sh --diff`、復元は `cp .sage/backup/<最新timestamp>/<ファイル> <ファイル>` です。マーカー方式で防御される / 防御されないケースの対比表を含む詳細は [docs/installer-preservation.md](docs/installer-preservation.md) を参照してください。
 
 ---
 

@@ -3,6 +3,12 @@
 # 直近のコミットにTASK-IDが含まれているか確認
 set -euo pipefail
 
+# SPEC-0027: ID acceptance patterns come from the shared loader (config-aware).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+TASK_ACCEPT_RE="$(sage_id_accept_regex task)"
+
 echo "=== SAGE Traceability Check ==="
 echo ""
 
@@ -16,7 +22,7 @@ while IFS= read -r line; do
   HASH=$(echo "$line" | cut -d' ' -f1)
   MSG=$(echo "$line" | cut -d' ' -f2-)
 
-  if echo "$MSG" | grep -qE 'TASK-[0-9]{4}'; then
+  if echo "$MSG" | grep -qE "$TASK_ACCEPT_RE"; then
     echo "  OK: $HASH — $MSG"
   elif echo "$MSG" | grep -qE '^(initial commit|merge|Merge)'; then
     echo "  SKIP: $HASH — $MSG (merge/initial)"

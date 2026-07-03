@@ -52,8 +52,56 @@ fi
 # --- Lane: promotion (promote/*) — TASK-ID required ---
 # --- Lane: standard (feature/*, others) — TASK-ID required ---
 
+# --- SPEC-0027: TASK-ID acceptance pattern (config-first, embedded fallback) ---
+# This hook is a standalone distribution artifact: it must work without
+# scripts/sage-id-pattern.sh. The embedded fallback below must stay identical
+# to the loader's fallback definition (INV-03). If .sage/id-patterns.json is
+# readable, its task.accept patterns take precedence (FR-06). Config values
+# are only ever used as grep -E pattern arguments — never evaluated (SEC-01).
+TASK_ID_PATTERN="TASK-[0-9]{4}"
+ID_PATTERNS_FILE=".sage/id-patterns.json"
+if [ -f "$ID_PATTERNS_FILE" ]; then
+  CFG_JOINED=""
+  CFG_COUNT=0
+  while IFS= read -r CFG_PAT; do
+    [ -n "$CFG_PAT" ] || continue
+    # Skip invalid EREs so a broken pattern cannot disable validation (SEC-03)
+    printf '' | grep -E -- "$CFG_PAT" > /dev/null 2>&1
+    if [ $? -ge 2 ]; then
+      echo "WARN: pre-commit-task-id: invalid ERE in $ID_PATTERNS_FILE ignored: $CFG_PAT" >&2
+      continue
+    fi
+    if [ -z "$CFG_JOINED" ]; then
+      CFG_JOINED="$CFG_PAT"
+    else
+      CFG_JOINED="$CFG_JOINED|$CFG_PAT"
+    fi
+    CFG_COUNT=$((CFG_COUNT + 1))
+  done <<EOF_ID_PATTERNS
+$(awk -v type="task" '
+    intype == 0 && $0 ~ ("\"" type "\"[[:space:]]*:") { intype = 1 }
+    intype == 1 && $0 ~ /"accept"[[:space:]]*:/ { inaccept = 1 }
+    inaccept == 1 {
+      line = $0
+      sub(/.*"accept"[[:space:]]*:/, "", line)
+      while (match(line, /"[^"]*"/)) {
+        printf "%s\n", substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+      if (line ~ /\]/) { intype = 0; inaccept = 0 }
+    }
+  ' "$ID_PATTERNS_FILE" 2>/dev/null)
+EOF_ID_PATTERNS
+  if [ "$CFG_COUNT" -eq 1 ]; then
+    TASK_ID_PATTERN="$CFG_JOINED"
+  elif [ "$CFG_COUNT" -gt 1 ]; then
+    TASK_ID_PATTERN="($CFG_JOINED)"
+  fi
+  # CFG_COUNT=0 (unparsable/missing/empty accept) => keep embedded fallback
+fi
+
 # All non-explore lanes require TASK-ID
-if ! echo "$COMMIT_MSG" | grep -qE "TASK-[0-9]{4}"; then
+if ! echo "$COMMIT_MSG" | grep -qE "$TASK_ID_PATTERN"; then
   # Determine lane for helpful error message
   LANE="standard"
   if echo "$BRANCH" | grep -qE "^(fix|chore|docs)/"; then

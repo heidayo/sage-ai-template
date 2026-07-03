@@ -3,6 +3,12 @@
 # Reads session and doctor metrics to determine system health
 set -euo pipefail
 
+# SPEC-0027: ID acceptance patterns come from the shared loader (config-aware).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+TASK_ACCEPT_RE="$(sage_id_accept_regex task)"
+
 SESSIONS_FILE=".sage/metrics/sessions.jsonl"
 DOCTOR_FILE=".sage/metrics/doctor-history.jsonl"
 
@@ -120,9 +126,13 @@ echo "  rework_rate:"
 REWORK_TOTAL=0
 REWORK_UNIQUE=0
 if git rev-parse --git-dir > /dev/null 2>&1; then
-  REWORK_TOTAL=$(git log --oneline --grep='TASK-[0-9]\{4\}' 2>/dev/null | wc -l | tr -d ' ')
-  REWORK_UNIQUE=$(git log --format='%s' --grep='TASK-[0-9]\{4\}' 2>/dev/null \
-    | grep -oE 'TASK-[0-9]{4}' 2>/dev/null \
+  # SPEC-0027: git log --grep is BRE-only and cannot take the combined ERE from
+  # the loader, so filter --format output with grep -E instead. TASK-IDs are
+  # extracted from commit subjects (the SAGE commit convention).
+  REWORK_TOTAL=$(git log --format='%s' 2>/dev/null | grep -cE "$TASK_ACCEPT_RE" || true)
+  REWORK_TOTAL=$(echo "$REWORK_TOTAL" | tr -d ' ')
+  REWORK_UNIQUE=$(git log --format='%s' 2>/dev/null \
+    | { grep -oE "$TASK_ACCEPT_RE" 2>/dev/null || true; } \
     | sort -u | wc -l | tr -d ' ')
 fi
 if [ "$REWORK_TOTAL" -gt 0 ]; then

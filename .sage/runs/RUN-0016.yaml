@@ -1,0 +1,57 @@
+run_id: RUN-0016
+task_id: TASK-0204
+agent_id: operations
+started_at: "2026-07-03T05:00:00Z"
+completed_at: "2026-07-03T01:39:08Z"
+status: pass
+files_changed:
+  - README.md
+  - docs/stack-presets.md
+  - docs/ts-enforcement.md
+  - plans/PLAN-0030-ts-enforcement.md
+  - scripts/sage-tsc-ratchet.sh
+  - specs/SPEC-0030-ts-enforcement.md
+  - tasks/TASK-0204-tsc-ratchet-script.md
+  - tasks/TASK-0205-ts-enforcement-eslint-fragments.md
+  - tasks/TASK-0206-ts-enforcement-docs.md
+  - tasks/TASK-0207-ts-enforcement-tests.md
+  - tasks/done-def-SPEC-0030-round-1.md
+  - templates/hooks/tests/fixtures/mock-tsc-0.sh
+  - templates/hooks/tests/fixtures/mock-tsc-1.sh
+  - templates/hooks/tests/fixtures/mock-tsc-3.sh
+  - templates/hooks/tests/fixtures/mock-tsc-5.sh
+  - templates/hooks/tests/fixtures/mock-tsc-fail.sh
+  - templates/hooks/tests/test-ts-enforcement.sh
+  - templates/ts-enforcement/eslint-flat-transitional.mjs
+  - templates/ts-enforcement/eslint-flat.mjs
+  - templates/ts-enforcement/eslintrc-fragment.json
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: ""
+type: harness
+spec_id: SPEC-0030
+plan_id: PLAN-0030
+related_tasks: [TASK-0205, TASK-0206, TASK-0207]
+iterations: 1
+abort_reason: ""
+phases:
+  specify:
+    status: pass
+    score: 100
+    eval_iterations: 2
+    duration_seconds: 1200
+  plan:
+    status: pass
+    score: 100
+    eval_iterations: 1
+    duration_seconds: 900
+  execute_verify:
+    - iteration: 1
+      implementation_status: completed
+      test_status: completed
+      review_status: pass
+      review_score: 97
