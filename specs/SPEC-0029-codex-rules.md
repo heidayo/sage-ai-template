@@ -109,7 +109,7 @@ SPEC-0025 は `.codex/rules/local/` を overlay として installer 不可侵に
 - [ ] AC-02: 配布 — 空の一時ディレクトリで `bash install.sh` 実行後、`for f in specs plans tasks src sage-governance; do test -f ".codex/rules/${f}-rules.md" && grep -q 'SAGE managed' ".codex/rules/${f}-rules.md" || exit 1; done` が exit 0、かつ注記が `.codex/rules/local/` を案内している (`grep -q '.codex/rules/local'`) (case: `codex_rules_installed`)
 - [ ] AC-03: overlay 不可侵 — `.codex/rules/local/my-rules.md` を配置した一時環境で install → 再 install 後、当該ファイルが `diff` でバイト不変かつ削除されていない (case: `overlay_untouched`)
 - [ ] AC-04: 再 install 冪等 — install を 2 回実行し、`.codex/rules/` 全 5 ファイルが 1 回目と 2 回目で `diff -r` バイト同一 (case: `reinstall_idempotent`)
-- [ ] AC-05: managed 全置換 — `.codex/rules/specs-rules.md` に行を追記後 `bash install.sh --update` を実行すると、テンプレート内容へ復元される (追記行が消える) (case: `managed_replace`)
+- [ ] AC-05: managed 全置換 — `.codex/rules/specs-rules.md` に行を追記後、`.sage/version` を旧値に下げて `bash install.sh --update` を実行するとテンプレート内容へ復元される (追記行が消える)。同一バージョンでの `--update` は no-op (既存仕様、`.claude/rules/` と同一挙動) (case: `managed_replace`)
 - [ ] AC-06: managed_files 登録 — install 後 `grep -c '.codex/rules/' .sage/install-state.yaml` が 5 以上 (unmanaged の local/ 宣言と別に managed 5 件)、かつ `bash install.sh --verify-checksum` が PASS (case: `verify_checksum_covers`)
 - [ ] AC-07: 異常系 (dry-run 非介入) — 空の一時ディレクトリで `bash install.sh --dry-run` 実行後、`test ! -e .codex` が真、stdout に `.codex/rules` の WOULD-* 表示が含まれる (case: `dry_run_no_write`)
 - [ ] AC-08: 異常系 (local が通常ファイル) — `.codex/rules/local` を通常ファイルとして配置した一時環境で install を実行しても、当該ファイルがバイト不変で、`.codex/rules/` の managed 5 ファイルは正常配布される (case: `local_as_file`)
@@ -130,7 +130,7 @@ SPEC-0025 は `.codex/rules/local/` を overlay として installer 不可侵に
 - 想定エラー1: `--dry-run` で `.codex/` 配下に書き込みが発生する — FR-05 違反として AC-07 で FAIL 検出
 - 想定エラー2: `.codex/rules/local` が通常ファイルとして存在する (ディレクトリ前提の破れ) — installer は当該パスを不可侵として扱い、managed 5 ファイルの配布は継続する (FR-03, AC-08)
 - 想定エラー3: generator 再生成漏れで install.sh 内の Codex rules embed が欠落 — AC-10 の byte-identical + SHA256SUMS 検証で FAIL (FAIL-0002 再演防止)
-- 境界ケース1: 既存導入先が `.codex/rules/specs-rules.md` を自作済み — managed 方式のため `--update` で SAGE テンプレートに全置換される (AC-05 と同挙動)。docs に「プロジェクト固有ルールは `.codex/rules/local/` へ」の移行案内を記載し、初回配布時の上書きリスクを明示
+- 境界ケース1: 既存導入先が `.codex/rules/specs-rules.md` を自作済み — managed 方式のため、バージョン差分のある `--update` で SAGE テンプレートに全置換される (AC-05 と同挙動)。なお同一バージョンでの `--update` は managed rules を再配布しない (既存のバージョンゲート仕様)。docs に「プロジェクト固有ルールは `.codex/rules/local/` へ」の移行案内を記載し、初回配布時の上書きリスクを明示
 - 境界ケース2: `templates/rules/` に配布対象の rules ファイルが追加され `templates/codex-rules/` が未追随 — AC-01 の配布対象 5 rules (harness-rules.md 除外) 1:1 対応検証が FAIL し paired-update 漏れを検出 (OPS-04)
 - 境界ケース3: `.codex/` ディレクトリ自体が存在しない新規導入先 — installer が `mkdir -p .codex/rules` で作成し 5 ファイル配布 (AC-02)。`.codex/rules/local/` は作成しない (SPEC-0025 AC-02 継承)
 
