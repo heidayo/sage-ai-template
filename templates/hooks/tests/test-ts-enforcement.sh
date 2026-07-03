@@ -21,9 +21,12 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${TEST_DIR}/../../.." && pwd)"
 RATCHET="${REPO_ROOT}/scripts/sage-tsc-ratchet.sh"
 FIXTURES="${TEST_DIR}/fixtures"
-# SPEC-0030 branch base: AC-09/AC-12 diff checks are scoped to the SPEC-0030
-# commit range (d509a2a..HEAD) so unrelated branch history does not pollute.
+# SPEC-0030 branch base/end: AC-09/AC-12 diff checks are scoped to the closed
+# SPEC-0030 commit range so neither unrelated branch history nor later SPECs'
+# legitimate changes (e.g. install.sh regeneration under SPEC-0031) pollute
+# the check. END_COMMIT is the last SPEC-0030 commit (TASK-0204 RUN log).
 BASE_COMMIT="d509a2a"
+END_COMMIT="88a33fe"
 
 MOCK0="bash ${FIXTURES}/mock-tsc-0.sh"
 MOCK1="bash ${FIXTURES}/mock-tsc-1.sh"
@@ -239,12 +242,12 @@ fi
 
 # =============================================================================
 # ケース9: installer_untouched — AC-09 (CHECK-009)
-# SPEC-0030 コミット群 (d509a2a..HEAD) の diff に install.sh / SHA256SUMS /
+# SPEC-0030 コミット群 (closed SPEC-0030 range) の diff に install.sh / SHA256SUMS /
 # scripts/generator/ が含まれない (INV-05, SEC-04)。
 # =============================================================================
-if git -C "$REPO_ROOT" diff --name-only "${BASE_COMMIT}..HEAD" 2>/dev/null \
+if git -C "$REPO_ROOT" diff --name-only "${BASE_COMMIT}..${END_COMMIT}" 2>/dev/null \
     | grep -qE '^(install\.sh|SHA256SUMS|scripts/generator/)'; then
-  not_ok "installer_untouched: installer files changed in ${BASE_COMMIT}..HEAD (AC-09)"
+  not_ok "installer_untouched: installer files changed in ${BASE_COMMIT}..${END_COMMIT} (AC-09)"
 else
   ok "installer_untouched: no installer/generator diff in SPEC-0030 commits (AC-09)"
 fi
@@ -254,7 +257,7 @@ fi
 # run-tests.sh は自動 discovery のため SPEC-0030 で変更されない (非破壊)。
 # 全テスト PASS 自体は run-tests.sh 実行 (Done Definition 自動検証) で確認。
 # =============================================================================
-if git -C "$REPO_ROOT" diff --name-only "${BASE_COMMIT}..HEAD" 2>/dev/null \
+if git -C "$REPO_ROOT" diff --name-only "${BASE_COMMIT}..${END_COMMIT}" 2>/dev/null \
     | grep -qF 'templates/hooks/tests/run-tests.sh'; then
   not_ok "runner_untouched: run-tests.sh modified — auto-discovery should suffice (AC-10)"
 else
@@ -289,7 +292,7 @@ fi
 # templates/project-checks/ts-pnpm.yaml が SPEC-0030 コミット群で不変
 # (INV-06, リスク5 判断済み)。
 # =============================================================================
-if [ -z "$(git -C "$REPO_ROOT" diff "${BASE_COMMIT}..HEAD" -- templates/project-checks/ts-pnpm.yaml 2>/dev/null)" ]; then
+if [ -z "$(git -C "$REPO_ROOT" diff "${BASE_COMMIT}..${END_COMMIT}" -- templates/project-checks/ts-pnpm.yaml 2>/dev/null)" ]; then
   ok "preset_values_unchanged: ts-pnpm.yaml has no diff in SPEC-0030 commits (AC-12)"
 else
   not_ok "preset_values_unchanged: ts-pnpm.yaml modified (AC-12)"
