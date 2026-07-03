@@ -25,7 +25,7 @@ Auto-update rules:
 - Update check failure → warning only, never block development
 - `installer_url` not configured → skip silently
 
-Project-specific rules: add your own files to `.claude/rules/` (do not edit `specs-rules.md` etc. — they are overwritten on update).
+Project-specific rules: put your own files in `.claude/rules/local/` — the installer never creates, overwrites, or deletes this directory (SPEC-0025 local overlay). Read `.claude/rules/local/*.md` as project-specific rules with the same precedence as managed rules. Do not edit managed rules (`specs-rules.md` etc.) — they are replaced entirely on update.
 
 Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (runtime guards)
 <!-- === End SAGE === -->

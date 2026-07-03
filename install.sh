@@ -981,6 +981,17 @@ cause enum の意味 (SPECA paper §4.2 由来、SPEC-0024 で SAGE に採用):
 - **防止策**: セルフレビュー（src-rules）+ レビュー（sage-review）+ CI（sage-validate.sh Check 6）の3層で担保
 - **昇格済み**: No
 
+### FAIL-0002
+- **発生日**: 2026-07-02
+- **TASK-ID**: TASK-0171, TASK-0175
+- **該当アンチパターン**: AP-03 (Silent Scope Expansion)
+- **cause**: trust-boundary
+- **症状**: SPEC-0025 実装中、(1) TASK-0171 の bugfix コミットが File Scope 外の install.sh/SHA256SUMS 再生成を同梱、(2) spec drift 訂正コミット (specs/plans/tasks) が Implementation 系列の TASK-0175 ラベルでコミットされた (Review Agent REV-001/REV-002 で検出、Gate 4 FAIL)
+- **根本原因**: オーケストレーターが「修正→再生成→コミット」を単一エージェント実行に束ねた際、コミット分割の File Scope 境界指示が欠けていた
+- **修正**: コミット履歴を再構成 — 再生成を TASK-0177 の別コミットに分割、spec 訂正コミットを Spec Agent 帰属に relabel。テスト 22/22 + checksum PASS を再確認
+- **防止策**: 複数 TASK を1エージェントに委任する際、プロンプトに「再生成物は再生成 TASK の TASK-ID で別コミット」「specs/plans/tasks の修正は Spec/Planning Agent コミットに分離」を明記する
+- **昇格済み**: No
+
 __EOF_TMPL_FAILURES__
 
 read -r -d '' TMPL_ANTIPATTERNS <<'__EOF_TMPL_ANTIPATTERNS__' || true
@@ -1777,7 +1788,7 @@ Auto-update rules:
 - Update check failure → warning only, never block development
 - `installer_url` not configured → skip silently
 
-Project-specific rules: add your own files to `.claude/rules/` (do not edit `specs-rules.md` etc. — they are overwritten on update).
+Project-specific rules: put your own files in `.claude/rules/local/` — the installer never creates, overwrites, or deletes this directory (SPEC-0025 local overlay). Read `.claude/rules/local/*.md` as project-specific rules with the same precedence as managed rules. Do not edit managed rules (`specs-rules.md` etc.) — they are replaced entirely on update.
 
 Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (runtime guards)
 <!-- === End SAGE === -->
@@ -2120,6 +2131,37 @@ Every change must be traceable: SPEC-ID → PLAN-ID → TASK-ID → commit
 | Test case names | Japanese |
 
 __EOF_TMPL_RULES_GOVERNANCE__
+
+# SPEC-0025: local overlay reference notice appended to all managed rules (FR-04).
+RULES_LOCAL_NOTICE='
+---
+
+<!-- SAGE managed rules file (SPEC-0025): replaced entirely on install.sh update. Put project-specific rules under .claude/rules/local/ instead. -->
+注記: このファイルは install.sh 更新で全置換されます。プロジェクト固有ルールは `.claude/rules/local/` に置いてください。'
+TMPL_RULES_SPECS="${TMPL_RULES_SPECS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_PLANS="${TMPL_RULES_PLANS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_TASKS="${TMPL_RULES_TASKS}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_SRC="${TMPL_RULES_SRC}${RULES_LOCAL_NOTICE}"
+TMPL_RULES_GOVERNANCE="${TMPL_RULES_GOVERNANCE}${RULES_LOCAL_NOTICE}"
+
+# SPEC-0025: overlay-safe rules writer (references is_unmanaged_path).
+write_rules_file() {
+  local path="$1"
+  local content="$2"
+  if is_unmanaged_path "$path"; then
+    if [ "${DRY_RUN:-false}" = "true" ]; then
+      echo "  WOULD-SKIP:   $path (unmanaged overlay path, SPEC-0025)"
+    else
+      echo "  SKIP: $path (unmanaged overlay path, SPEC-0025)"
+    fi
+    return 0
+  fi
+  if [ "$MODE" = "install" ]; then
+    write_file_if_new "$path" "$content"
+  else
+    update_file "$path" "$content"
+  fi
+}
 
 read -r -d '' TMPL_SKILL_SPEC <<'__EOF_TMPL_SKILL_SPEC__' || true
 ---
@@ -9553,6 +9595,39 @@ check_installed_version() {
   fi
 }
 
+# --- SPEC-0025: local overlay exclusion ---
+# Directories the installer never creates, overwrites, deletes, or
+# checksum-verifies. Declared in .sage/install-state.yaml as
+# unmanaged_paths — the declaration is informational only and is NOT
+# interpreted as a write allowlist (SEC-02).
+UNMANAGED_PATHS=".claude/rules/local .codex/rules/local"
+
+# Single source of truth for overlay exclusion (INV-03). All installer
+# code paths reference this function instead of duplicating the check.
+is_unmanaged_path() {
+  local target="${1#./}"
+  local p
+  for p in $UNMANAGED_PATHS; do
+    case "$target" in
+      "$p"|"$p"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# PRE-02: if an overlay path exists as a non-directory or symlink,
+# warn and leave it untouched (never an error — AC-08).
+warn_unmanaged_anomalies() {
+  local p
+  for p in $UNMANAGED_PATHS; do
+    if [ -L "$p" ]; then
+      echo "  WARN: $p is a symlink; installer will not follow or touch it (SPEC-0025)"
+    elif [ -e "$p" ] && [ ! -d "$p" ]; then
+      echo "  WARN: $p exists but is not a directory; installer will not touch it (SPEC-0025)"
+    fi
+  done
+}
+
 # --- SPEC-0010 / TASK-0097: provenance and integrity verification ---
 _sha256_cmd() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -9633,6 +9708,11 @@ do_verify_checksum() {
           continue
           ;;
       esac
+      # SPEC-0025 FR-03: overlay paths are outside checksum verification scope.
+      if is_unmanaged_path "$current_path"; then
+        current_path=""
+        continue
+      fi
     elif [[ "$line" =~ ^[[:space:]]*sha256:[[:space:]]*\"(.*)\"[[:space:]]*$ ]]; then
       current_sha="${BASH_REMATCH[1]}"
       if [ -n "$current_path" ] && [ -f "$current_path" ]; then
@@ -9727,6 +9807,15 @@ write_file_if_new() {
   local content="$2"
   local dir
   dir=$(dirname "$path")
+  # SPEC-0025 FR-01 / PRE-01: never write under overlay paths.
+  if is_unmanaged_path "$path"; then
+    if [ "${DRY_RUN:-false}" = "true" ]; then
+      echo "  WOULD-SKIP:   $path (unmanaged overlay path, SPEC-0025)"
+    else
+      echo "  SKIP: $path (unmanaged overlay path, SPEC-0025)"
+    fi
+    return 0
+  fi
   if [ "${DRY_RUN:-false}" = "true" ]; then
     if [ -f "$path" ]; then
       echo "  WOULD-SKIP:   $path (already exists)"
@@ -9752,6 +9841,15 @@ update_file() {
   local content="$2"
   local dir
   dir=$(dirname "$path")
+  # SPEC-0025 FR-01 / PRE-01: never write under overlay paths.
+  if is_unmanaged_path "$path"; then
+    if [ "${DRY_RUN:-false}" = "true" ]; then
+      echo "  WOULD-SKIP:   $path (unmanaged overlay path, SPEC-0025)"
+    else
+      echo "  SKIP: $path (unmanaged overlay path, SPEC-0025)"
+    fi
+    return 0
+  fi
   if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "  WOULD-UPDATE: $path"
     return 0
@@ -9994,6 +10092,11 @@ fi
 
 INSTALLED_VERSION=$(check_installed_version)
 
+# SPEC-0025 PRE-02 / AC-08: report anomalous overlay paths before any write
+# and before the "already at version" early exit, so the WARN is emitted on
+# every invocation regardless of install/update/no-op mode.
+warn_unmanaged_anomalies
+
 # Auto-detect: if already installed, switch to update mode
 if [ -n "$INSTALLED_VERSION" ] && [ "$MODE" = "install" ]; then
   echo "SAGE v${INSTALLED_VERSION} is already installed."
@@ -10075,19 +10178,13 @@ fi
 # --- [3/9] .claude/rules/ ---
 echo ""
 echo "[3/9] .claude/rules/..."
-if [ "$MODE" = "install" ]; then
-  write_file_if_new ".claude/rules/specs-rules.md" "$TMPL_RULES_SPECS"
-  write_file_if_new ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
-  write_file_if_new ".claude/rules/tasks-rules.md" "$TMPL_RULES_TASKS"
-  write_file_if_new ".claude/rules/src-rules.md" "$TMPL_RULES_SRC"
-  write_file_if_new ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
-else
-  update_file ".claude/rules/specs-rules.md" "$TMPL_RULES_SPECS"
-  update_file ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
-  update_file ".claude/rules/tasks-rules.md" "$TMPL_RULES_TASKS"
-  update_file ".claude/rules/src-rules.md" "$TMPL_RULES_SRC"
-  update_file ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
-fi
+# SPEC-0025: write_rules_file (module 03) references is_unmanaged_path so
+# rules generation can never reach into */rules/local/**.
+write_rules_file ".claude/rules/specs-rules.md" "$TMPL_RULES_SPECS"
+write_rules_file ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
+write_rules_file ".claude/rules/tasks-rules.md" "$TMPL_RULES_TASKS"
+write_rules_file ".claude/rules/src-rules.md" "$TMPL_RULES_SRC"
+write_rules_file ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
 
 # --- [4/9] .claude/skills/ ---
 echo ""
@@ -10330,6 +10427,14 @@ STATEHEADER
       echo "    managed: false" >> "$state_file"
     fi
   done
+
+  # SPEC-0025 FR-02: declare overlay directories the installer never touches
+  # or verifies. Informational only — not a write allowlist (SEC-02).
+  cat >> "$state_file" <<'STATEUNMANAGED'
+unmanaged_paths:
+  - ".claude/rules/local/"
+  - ".codex/rules/local/"
+STATEUNMANAGED
 
   echo "  OK: .sage/install-state.yaml"
 }

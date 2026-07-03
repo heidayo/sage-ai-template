@@ -414,7 +414,7 @@ AIはこの情報を読み取り、レーンに応じた行動を自動で切り
 graph TD
     subgraph SAFE["✅ 安全（更新で消えない）"]
         A["CLAUDE.md<br/>SAGEマーカーの上"]
-        B[".claude/rules/<br/>別名ファイル"]
+        B[".claude/rules/local/<br/>local overlay（installer 不可侵）"]
         C[".claude/skills/<br/>別名ディレクトリ"]
         D[".sage/config.yaml"]
         E["sage/failures.md"]
@@ -433,10 +433,29 @@ graph TD
 
 | やりたいこと | やり方 | 更新時 |
 |:------------|:-------|:------:|
-| プロジェクト固有ルールを追加 | CLAUDE.md のSAGEマーカーより**上**に書く | ✅ 安全 |
-| パス別ルールを追加 | `.claude/rules/` に**別名で**ファイル作成 | ✅ 安全 |
+| プロジェクト固有ルールを追加 | `.claude/rules/local/` に配置（下記 local overlay 参照） | ✅ 安全 |
+| プロジェクト全体の指示を追加 | CLAUDE.md のSAGEマーカーより**上**に書く | ✅ 安全 |
 | スキルを追加 | `.claude/skills/` に**別名で**ディレクトリ作成 | ✅ 安全 |
 | SAGE管理ファイルを直接編集 | **やらない** | ❌ 消える |
+
+### local overlay（`.claude/rules/local/` / `.codex/rules/local/`）
+
+SPEC-0025 で定義された installer **絶対不可侵**のカスタマイズ層です。installer は `.claude/rules/local/` と `.codex/rules/local/` 配下のファイル・ディレクトリを**作成・上書き・削除しません**（installer 自身がディレクトリを作ることもありません — 必要になったら自分で作成してください）。
+
+| プロジェクト固有ルールの置き方 | `bash install.sh` 更新時 |
+|:------------------------------|:------------------------|
+| managed ファイル（`.claude/rules/specs-rules.md` 等）に直接追記 | ❌ 全置換され**消える** |
+| `.claude/rules/local/` にファイルを配置 | ✅ **保持される** |
+
+```bash
+mkdir -p .claude/rules/local
+echo "# My project rules" > .claude/rules/local/my-rules.md
+bash install.sh   # 何度更新しても local/ は不変
+```
+
+**レビュー責任について（セキュリティ境界）**: overlay は `.sage/install-state.yaml` の checksum 管理外です。つまりテンプレート供給元から改変されない領域である一方、`install.sh --verify-checksum` の検証対象にもなりません。`local/` 配下の内容は**導入プロジェクト自身のレビュー責任**です。
+
+**テンプレート更新時の checksum 変化について**: テンプレート更新（例: managed rules への注記追加）で managed ファイルの checksum が変わると、更新前の install-state に対して `--verify-checksum` が一時的に FAIL に見えることがあります。これは通常のテンプレート更新と同じ扱いで、`bash install.sh` 実行による install-state 再生成で解消されます。
 
 ---
 
