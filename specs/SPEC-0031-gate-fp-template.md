@@ -59,6 +59,7 @@ GATE-FP-XXXX は `sage/failures.md` 内の記録専用 ID であり、コミッ�
   - スクリプト内コメントに「GATE-FP は記録専用 ID であり、SPEC-0027 ローダー・コミット規約 (commit-msg hook / trace check) の受理対象外」を明記
 - install.sh 再生成 + SHA256SUMS 更新 (**専用 TASK に分離** — FAIL-0002 教訓。上記「設計判断1」参照)
 - テスト `templates/hooks/tests/test-gate-fp-idgen.sh` の追加 (`_helpers.sh` / `run-tests.sh` の既存流儀。テスト実装は Test Agent 責務): `sage-id-gen.sh gate-fp` の採番動作を一時ディレクトリの fixture failures.md で検証
+- 実装中に検出された gate FP (test-ts-enforcement.sh 開放レンジ誤検知) の恒久対応と GATE-FP-0001 記録 (dogfooding — TASK-0212 遡及承認)
 
 ## スコープ外（明示的に除外）
 
@@ -228,4 +229,5 @@ GATE-FP-XXXX は `sage/failures.md` 内の記録専用 ID であり、コミッ�
   - T2: [TASK-0209](../tasks/TASK-0209-idgen-gate-fp-type.md) — sage-id-gen.sh gate-fp 種別追加
   - T3: [TASK-0210](../tasks/TASK-0210-test-gate-fp-idgen.md) — テスト + fixtures（Test Agent）
   - T4: [TASK-0211](../tasks/TASK-0211-regen-install-sha256sums.md) — install.sh 再生成 + SHA256SUMS 更新
+  - T5: [TASK-0212](../tasks/TASK-0212-gate-fp-remediation.md) — gate FP (test-ts-enforcement.sh) 恒久対応 + GATE-FP-0001 記録（遡及 TASK）
 - Done Definition: [tasks/done-def-SPEC-0031-round-1.md](../tasks/done-def-SPEC-0031-round-1.md)

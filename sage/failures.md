@@ -80,3 +80,14 @@ Quality Gate (Gate 1-5) の誤検知（CI flake・正しいコードへの誤 FA
 - **一時対応**: なし (再実行では解消しない構造的誤検知)
 - **恒久対応**: コミットレンジを SPEC-0030 の最終コミットで閉区間に固定 (`d509a2a..88a33fe`、コミット 9e15422)。以後の非変更検証テストは開放レンジ `..HEAD` を使わないこと
 - **再発回数**: 1
+
+### FAIL-0003
+- **発生日**: 2026-07-03
+- **TASK-ID**: TASK-0210, TASK-0212
+- **該当アンチパターン**: AP-03 (Silent Scope Expansion)
+- **cause**: trust-boundary
+- **症状**: SPEC-0031 実装中、Test Agent セッションが TASK-0210 の File Scope 外 (test-ts-enforcement.sh 修正・failures.md 記録) を同 TASK-ID でコミット (Review REV-001/002/003 で検出)
+- **根本原因**: オーケストレーターが gate FP 恒久対応とテスト作成を単一 TASK プロンプトに束ね、スコープ拡張の事前承認 (TASK 分割) を省略した — FAIL-0002 と同型の再発 (2 回目)
+- **修正**: TASK-0212 (遡及 TASK) を起票して該当 2 コミットを形式承認、SPEC/PLAN の File Scope を実態と整合
+- **防止策**: 実装中に scope 外の正当な修正が必要になった場合、コミット前に Planning Agent で TASK を追加起票する。同型 3 回目で anti-patterns.md 昇格対象
+- **昇格済み**: No

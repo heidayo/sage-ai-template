@@ -22,7 +22,7 @@
 
 ## 影響範囲
 
-SPEC-0031 実装メモの File Scope と 1:1 対応。以下 6 点以外の変更は禁止（AP-03 Silent Scope Expansion）。
+SPEC-0031 実装メモの File Scope と 1:1 対応（TASK-0212 行は実装中に検出された gate FP 対応の遡及追記）。以下以外の変更は禁止（AP-03 Silent Scope Expansion）。
 
 | ファイル | 変更種別 | TASK | 備考 |
 |---------|---------|------|------|
@@ -32,6 +32,8 @@ SPEC-0031 実装メモの File Scope と 1:1 対応。以下 6 点以外の変�
 | `templates/hooks/tests/fixtures/`（fixture failures.md 2 種） | 新規 | TASK-0210 | GATE-FP 0 件版 / 複数件（欠番あり）版 |
 | `templates/hooks/tests/run-tests.sh` | 変更（登録行のみ、自動 discovery なら変更不要） | TASK-0210 | |
 | `install.sh` / `SHA256SUMS` | 再生成のみ | TASK-0211 | **専用 TASK・単独コミット**（FAIL-0002 教訓、リスク3） |
+| `templates/hooks/tests/test-ts-enforcement.sh` | 変更（開放レンジ誤検知修正のみ） | TASK-0212 | 実装中に検出された gate FP の恒久対応（遡及 TASK、コミット 9e15422） |
+| `sage/failures.md` | 変更（GATE-FP-0001 エントリ追記のみ） | TASK-0212 | dogfood 記録（遡及 TASK、コミット 3db71e5）。human-only — PR merge = human 承認 |
 
 非変更保証（Gate 4 / AC-10 相当）: `scripts/sage-id-pattern.sh`、`templates/pre-commit-task-id.sh`（SPEC-0027 INV-03 非波及）、`sage/anti-patterns.md`、`.sage/id-patterns.json`、`scripts/generator/`（embed_file が実行時読み込みのため変更不要 — 必要と判明したら Spec Agent へ差し戻し）、`AGENTS.md` / `docs/codex-*.md` / `CLAUDE.md`。
 
@@ -52,6 +54,7 @@ SPEC-0031 実装メモの File Scope と 1:1 対応。以下 6 点以外の変�
 | TASK-0209 | scripts/sage-id-gen.sh に gate-fp 種別追加（ローカル ERE・専用 sort キー・usage 追記） | Implementation | 45m | - | Yes（TASK-0208 と並列可） |
 | TASK-0210 | test-gate-fp-idgen.sh + fixtures + run-tests.sh 登録（Test Agent・別セッション） | Test | 1h | TASK-0209 | No |
 | TASK-0211 | install.sh 再生成 + SHA256SUMS 更新（単独コミット、FAIL-0002） | Implementation | 20m | TASK-0208, TASK-0209 | No |
+| TASK-0212 | 実装中に検出された gate FP (test-ts-enforcement.sh 開放レンジ) の恒久対応 + GATE-FP-0001 記録（**遡及 TASK** — コミット 9e15422 / 3db71e5 の形式承認、REV-001/002/003 対応） | Implementation | 30m | TASK-0210 | No |
 
 実行順: TASK-0208 / TASK-0209 並列 → TASK-0210 / TASK-0211。AC-08（human 承認明記）/ AC-10（ローダー非変更）は PR レビューで全 TASK 横断確認。
 
