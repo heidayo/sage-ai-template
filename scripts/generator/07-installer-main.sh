@@ -796,9 +796,9 @@ echo ""
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
 if [ "${DRY_RUN:-false}" = "true" ]; then
-  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
+  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .codex/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
 else
-  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
+  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .codex/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
 fi
 echo "  OK"
 
@@ -834,6 +834,8 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   write_file_if_new "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   write_file_if_new "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
+  # SPEC-0029 FR-07: codex-rules doc ships via the same path as the packet
+  write_file_if_new "docs/codex-rules.md" "$TMPL_CODEX_RULES_DOC"
 else
   # Update mode: テンプレートとガバナンスはSAGE管理なので上書き
   update_file "specs/_template.md" "$TMPL_SPEC"
@@ -857,6 +859,8 @@ else
   update_file "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   update_file "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   update_file "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
+  # SPEC-0029 FR-07: codex-rules doc ships via the same path as the packet
+  update_file "docs/codex-rules.md" "$TMPL_CODEX_RULES_DOC"
   # failures.md, config.yaml はプロジェクト固有データが入るので更新しない
   echo "  KEEP: sage/failures.md (project data)"
   echo "  KEEP: .sage/config.yaml (project settings)"
@@ -872,6 +876,17 @@ write_rules_file ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
 write_rules_file ".claude/rules/tasks-rules.md" "$TMPL_RULES_TASKS"
 write_rules_file ".claude/rules/src-rules.md" "$TMPL_RULES_SRC"
 write_rules_file ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
+
+# SPEC-0029: .codex/rules/ managed distribution — same overlay-safe writer
+# (write_rules_file goes through is_unmanaged_path, so .codex/rules/local/**
+# is unreachable — FR-03 / SEC-03).
+echo ""
+echo "[3b/9] .codex/rules/ (SPEC-0029)..."
+write_rules_file ".codex/rules/specs-rules.md" "$TMPL_CODEX_RULES_SPECS"
+write_rules_file ".codex/rules/plans-rules.md" "$TMPL_CODEX_RULES_PLANS"
+write_rules_file ".codex/rules/tasks-rules.md" "$TMPL_CODEX_RULES_TASKS"
+write_rules_file ".codex/rules/src-rules.md" "$TMPL_CODEX_RULES_SRC"
+write_rules_file ".codex/rules/sage-governance-rules.md" "$TMPL_CODEX_RULES_GOVERNANCE"
 
 # --- [4/9] .claude/skills/ ---
 echo ""
@@ -1071,12 +1086,19 @@ STATEHEADER
     # Docs
     "docs/codex-delegation-packet.md"
     "docs/claude-collaboration-brief.md"
+    "docs/codex-rules.md"
     # Claude Code rules and skills
     ".claude/rules/specs-rules.md"
     ".claude/rules/plans-rules.md"
     ".claude/rules/tasks-rules.md"
     ".claude/rules/src-rules.md"
     ".claude/rules/sage-governance-rules.md"
+    # Codex rules (SPEC-0029)
+    ".codex/rules/specs-rules.md"
+    ".codex/rules/plans-rules.md"
+    ".codex/rules/tasks-rules.md"
+    ".codex/rules/src-rules.md"
+    ".codex/rules/sage-governance-rules.md"
     ".claude/skills/sage-spec/SKILL.md"
     ".claude/skills/sage-plan/SKILL.md"
     ".claude/skills/sage-review/SKILL.md"

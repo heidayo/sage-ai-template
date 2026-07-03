@@ -59,6 +59,37 @@ write_rules_file() {
 RULES_LOGIC
 echo ""
 
+# SPEC-0029: Codex rules layer — mirrors the five managed Claude rules
+# (harness-rules.md excluded; it is Claude Code specific).
+embed_file "TMPL_CODEX_RULES_SPECS" "$ROOT/templates/codex-rules/specs-rules.md"
+echo ""
+embed_file "TMPL_CODEX_RULES_PLANS" "$ROOT/templates/codex-rules/plans-rules.md"
+echo ""
+embed_file "TMPL_CODEX_RULES_TASKS" "$ROOT/templates/codex-rules/tasks-rules.md"
+echo ""
+embed_file "TMPL_CODEX_RULES_SRC" "$ROOT/templates/codex-rules/src-rules.md"
+echo ""
+embed_file "TMPL_CODEX_RULES_GOVERNANCE" "$ROOT/templates/codex-rules/sage-governance-rules.md"
+echo ""
+
+# SPEC-0029 (FR-02): Codex counterpart of RULES_LOCAL_NOTICE — same wording,
+# symmetric with the .claude/rules/ notice, pointing the overlay to
+# .codex/rules/local/ instead.
+cat <<'CODEX_RULES_NOTICE'
+# SPEC-0029: local overlay reference notice appended to all managed Codex rules (FR-02).
+CODEX_RULES_LOCAL_NOTICE='
+---
+
+<!-- SAGE managed rules file (SPEC-0029): replaced entirely on install.sh update. Put project-specific rules under .codex/rules/local/ instead. -->
+注記: このファイルは install.sh 更新で全置換されます。プロジェクト固有ルールは `.codex/rules/local/` に置いてください。'
+TMPL_CODEX_RULES_SPECS="${TMPL_CODEX_RULES_SPECS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_PLANS="${TMPL_CODEX_RULES_PLANS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_TASKS="${TMPL_CODEX_RULES_TASKS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_SRC="${TMPL_CODEX_RULES_SRC}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_GOVERNANCE="${TMPL_CODEX_RULES_GOVERNANCE}${CODEX_RULES_LOCAL_NOTICE}"
+CODEX_RULES_NOTICE
+echo ""
+
 # Skills
 embed_file "TMPL_SKILL_SPEC" "$ROOT/templates/skills/sage-spec/SKILL.md"
 echo ""
@@ -99,4 +130,7 @@ embed_file "TMPL_CODEX_DELEGATION_PACKET" "$ROOT/docs/codex-delegation-packet.md
 echo ""
 # SPEC-0023: Claude collaboration brief (paired with SPEC-0022 Codex delegation packet)
 embed_file "TMPL_CLAUDE_COLLABORATION_BRIEF" "$ROOT/docs/claude-collaboration-brief.md"
+echo ""
+# SPEC-0029: Codex rules doc (same distribution path as the delegation packet, FR-07)
+embed_file "TMPL_CODEX_RULES_DOC" "$ROOT/docs/codex-rules.md"
 echo ""
