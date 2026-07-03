@@ -1,0 +1,40 @@
+project_checks:
+  # SPEC-0008 TASK-0091: real Go commands for the SPEC-0009 dogfooding sample.
+  # Standard toolchain only (no golangci-lint / nyc / ruff).
+  lint: "go vet ./..."
+  format: 'test -z "$(gofmt -l .)"'
+  type_check: "go build ./..."
+  # TASK-0091 follow-up: tests are in the external package `calculator_test`
+  # (black-box testing per SAGE File Scope). Without -coverpkg, Go measures
+  # coverage only on the test package and reports 0.0%. Covering ./src/...
+  # makes the coverage_command reflect production code.
+  test_command: "go test ./... -coverpkg=./src/... -coverprofile=coverage.out"
+  coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
+  # --- prior examples kept below as reference ---
+  # lint: "npm run lint"                    # Gate 1: Lint check
+  # format: "npx prettier --check ."       # Gate 1: Format check
+  # type_check: "npx tsc --noEmit"         # Gate 1: Type check
+  # test_command: "npm test"               # Gate 2: Test runner
+  # Go example:
+  #   lint: "golangci-lint run"
+  #   format: "gofmt -l . | grep -c . && exit 1 || true"
+  #   type_check: "go vet ./..."
+  #   test_command: "go test ./... -coverprofile=coverage.out"
+  #   coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
+  # Python example:
+  #   lint: "ruff check ."
+  #   format: "black --check ."
+  #   type_check: "mypy ."
+  #   test_command: "pytest --cov=src --cov-report=term-missing"
+  #   coverage_command: "coverage report --format=total"
+  # Node example:
+  #   coverage_command: "npx nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"
+  # SPEC-0008 TASK-0070: coverage_command output must contain a parseable
+  # float (0-1 or 0-100). scripts/sage-coverage-parse.sh extracts the first
+  # number it sees. Threshold compared against functional.unit_test_coverage.
+  # --- AI生成コード品質チェック（オプション） ---
+  # 有効化条件: Gate 1 が2週間安定運用後 / パッケージマネージャ使用プロジェクト
+  # ロールバック: 誤検知率 > 5% or CI時間増加 > 30秒 → コメントアウトに戻す
+  # hallucination_check: "bash scripts/check-package-existence.sh"
+  # duplication_check: "npx jscpd --threshold 5 src/"
+  # complexity_check: "npx escomplex-cli --maxcc 15 src/"
