@@ -944,6 +944,8 @@ read -r -d '' TMPL_FAILURES <<'__EOF_TMPL_FAILURES__' || true
 - 失敗が発生したら即座に記録する
 - 同じ失敗が3回発生したら `anti-patterns.md` に昇格する
 - 昇格後もこのログは削除しない（履歴として残す）
+- **FAIL と GATE-FP の使い分け**: FAIL-XXXX = 実装・プロセス側の失敗（agent が誤った）、GATE-FP-XXXX = gate 側の誤検知（コードは正しいのに gate が誤った）。判断に迷う場合（両方に誤りがある等）は FAIL を優先し、GATE-FP エントリから相互参照する
+- **エスカレーション（gate 誤検知）**: 同一チェックの誤検知が累計 3 回に達したら「gate 設定の見直し」（project_checks / 閾値 / flaky テスト修正等）を必須とする。見直し結果は該当 GATE-FP エントリの恒久対応欄に追記する
 
 ---
 
@@ -966,6 +968,21 @@ cause enum の意味 (SPECA paper §4.2 由来、SPEC-0024 で SAGE に採用):
 - `spec-misinterpretation`: SPEC 文言の誤解 (例: MUST と SHOULD の混同、scope 不明確な記述)
 - `not-applicable`: 上記分類が当てはまらない構造的問題 (例: infrastructure 障害、CI 環境固有の flaky)
 - `other`: 上記いずれにも分類できない (詳細は症状欄に記述)
+
+---
+
+## Gate False Positive エントリフォーマット (GATE-FP-XXXX)
+
+Quality Gate (Gate 1-5) の誤検知（CI flake・正しいコードへの誤 FAIL・環境起因の失敗）を記録する書式。採番は `bash scripts/sage-id-gen.sh gate-fp`。
+
+### GATE-FP-XXXX
+- **発生日**: YYYY-MM-DD
+- **誤検知した Gate**: Gate 1-5 のいずれか + チェック名（例: Gate 2 / unit test `test_foo`, Gate 3 / secret scan）
+- **TASK-ID**: 誤検知に遭遇した作業の TASK-ID
+- **誤検知の根拠**: 「正しいのに FAIL した」ことの証跡（再実行で PASS したログ、環境差異の特定、誤検出パターンの説明等）
+- **一時対応**: 再実行 / SKIP / 手動オーバーライド等、その場の回避策
+- **恒久対応**: gate 設定修正・閾値調整・flaky テスト修正等（未実施なら「未対応」と明記 — TBD は不可）
+- **再発回数**: 同一チェックでの累計発生回数（初回 = 1）
 
 ---
 
@@ -4903,7 +4920,7 @@ TYPE="${1:-}"
 
 if [ -z "$TYPE" ]; then
   echo "Usage: bash scripts/sage-id-gen.sh <type>"
-  echo "  type: spec | plan | task | run | fail"
+  echo "  type: spec | plan | task | run | fail | gate-fp"
   exit 1
 fi
 
@@ -4928,19 +4945,37 @@ case "$TYPE" in
     DIR="sage"
     PREFIX="FAIL"
     ;;
+  gate-fp)
+    DIR="sage"
+    PREFIX="GATE-FP"
+    ;;
   *)
     echo "Unknown type: $TYPE"
-    echo "  Valid types: spec | plan | task | run | fail"
+    echo "  Valid types: spec | plan | task | run | fail | gate-fp"
     exit 1
     ;;
 esac
 
 # Default-format ERE for the sequential scan (PREFIX + 4-digit number)
-DEFAULT_RE="$(sage_id_default_regex "$TYPE")"
+if [ "$TYPE" = "gate-fp" ]; then
+  # SPEC-0031 design decision 2: GATE-FP is a record-only ID (numbered in
+  # sage/failures.md) and is NOT accepted by the SPEC-0027 loader, the
+  # commit-msg hook, or the trace check. Use a local constant ERE instead of
+  # sage_id_default_regex so custom accept patterns can never affect it.
+  DEFAULT_RE='GATE-FP-[0-9]{4}'
+else
+  DEFAULT_RE="$(sage_id_default_regex "$TYPE")"
+fi
 
 # Find the highest existing ID
 LAST_NUM=0
-if [ "$TYPE" = "fail" ]; then
+if [ "$TYPE" = "gate-fp" ]; then
+  # Same failures.md scan as "fail", but GATE-FP-0001 splits into 3 fields on
+  # '-', so the numeric sort key is field 3 (not field 2 as for FAIL-XXXX)
+  if [ -f "sage/failures.md" ]; then
+    LAST_NUM=$(grep -oE "$DEFAULT_RE" sage/failures.md 2>/dev/null | sort -t'-' -k3 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+  fi
+elif [ "$TYPE" = "fail" ]; then
   # Search in failures.md
   if [ -f "sage/failures.md" ]; then
     LAST_NUM=$(grep -oE "$DEFAULT_RE" sage/failures.md 2>/dev/null | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
