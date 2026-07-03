@@ -110,19 +110,34 @@ else
 fi
 
 # =============================================================================
-# ケース5: managed_replace — 改変後 --update でテンプレートへ復元 (AC-05 / CHECK-005)
+# ケース5: managed_replace — バージョン差分前提の --update 復元 (AC-05 / CHECK-005)
+# 段階1: 同一バージョンでの --update は no-op (既存のバージョンゲート仕様確認)
+# 段階2: .sage/version を旧値に下げた --update でテンプレート内容へ全置換
 # =============================================================================
 echo "LOCAL EDIT MUST BE REPLACED" >> "$SB3/.codex/rules/specs-rules.md"
 run_install "$SB3" --update
 if [ "$RUN_RC" = "0" ]; then
-  ok "managed_replace: --update exits 0 (AC-05)"
+  ok "managed_replace: same-version --update exits 0 (AC-05)"
 else
-  not_ok "managed_replace: --update failed rc=${RUN_RC} (AC-05)"
+  not_ok "managed_replace: same-version --update failed rc=${RUN_RC} (AC-05)"
+fi
+if grep -qF 'LOCAL EDIT MUST BE REPLACED' "$SB3/.codex/rules/specs-rules.md"; then
+  ok "managed_replace: same-version --update is no-op, appended line survives (AC-05)"
+else
+  not_ok "managed_replace: same-version --update replaced managed rule unexpectedly (AC-05)"
+fi
+# Downgrade installed version so --update sees a version diff and redistributes.
+echo "0.0.0" > "$SB3/.sage/version"
+run_install "$SB3" --update
+if [ "$RUN_RC" = "0" ]; then
+  ok "managed_replace: version-diff --update exits 0 (AC-05)"
+else
+  not_ok "managed_replace: version-diff --update failed rc=${RUN_RC} (AC-05)"
 fi
 if ! grep -qF 'LOCAL EDIT MUST BE REPLACED' "$SB3/.codex/rules/specs-rules.md"; then
   ok "managed_replace: appended line removed, template content restored (AC-05)"
 else
-  not_ok "managed_replace: appended line survived --update (AC-05)"
+  not_ok "managed_replace: appended line survived version-diff --update (AC-05)"
 fi
 
 # =============================================================================
