@@ -71,3 +71,12 @@ Quality Gate (Gate 1-5) の誤検知（CI flake・正しいコードへの誤 FA
 - **修正**: コミット履歴を再構成 — 再生成を TASK-0177 の別コミットに分割、spec 訂正コミットを Spec Agent 帰属に relabel。テスト 22/22 + checksum PASS を再確認
 - **防止策**: 複数 TASK を1エージェントに委任する際、プロンプトに「再生成物は再生成 TASK の TASK-ID で別コミット」「specs/plans/tasks の修正は Spec/Planning Agent コミットに分離」を明記する
 - **昇格済み**: No
+
+### GATE-FP-0001
+- **発生日**: 2026-07-03
+- **誤検知した Gate / チェック名**: Gate 2 (Functional) / test-ts-enforcement.sh `installer_untouched` (AC-09/AC-12)
+- **TASK-ID**: TASK-0211
+- **誤検知の根拠**: SPEC-0030 の非変更検証が開放レンジ `d509a2a..HEAD` で diff を取っていたため、後続 SPEC-0031 の正当な install.sh 再生成コミット (f808485) を SPEC-0030 の違反として誤検知した。SPEC-0030 のコミット群自体は installer を変更していない (d509a2a..88a33fe の diff で確認)
+- **一時対応**: なし (再実行では解消しない構造的誤検知)
+- **恒久対応**: コミットレンジを SPEC-0030 の最終コミットで閉区間に固定 (`d509a2a..88a33fe`、コミット 9e15422)。以後の非変更検証テストは開放レンジ `..HEAD` を使わないこと
+- **再発回数**: 1
