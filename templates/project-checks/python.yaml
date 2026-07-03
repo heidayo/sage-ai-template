@@ -1,0 +1,6 @@
+  # stack preset: python (SPEC-0028 — see docs/stack-presets.md)
+  lint: "ruff check ."
+  format: "black --check ."
+  type_check: "mypy ."
+  test_command: "pytest --cov=src --cov-report=term-missing"
+  coverage_command: "coverage report --format=total"

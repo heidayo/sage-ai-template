@@ -1,0 +1,62 @@
+run_id: RUN-0013
+task_id: TASK-0185
+agent_id: operations
+started_at: "2026-07-02T10:00:00Z"
+completed_at: "2026-07-02T10:12:43Z"
+status: pass
+files_changed:
+  - .sage/config.yaml
+  - .sage/id-patterns.json
+  - README.md
+  - SHA256SUMS
+  - docs/id-patterns.md
+  - install.sh
+  - plans/PLAN-0027-id-patterns.md
+  - scripts/generator/02-config.sh
+  - scripts/generator/07-installer-main.sh
+  - scripts/sage-id-gen.sh
+  - scripts/sage-id-pattern.sh
+  - scripts/sage-report.sh
+  - scripts/sage-trace-check.sh
+  - scripts/sage-validate.sh
+  - specs/SPEC-0027-id-patterns.md
+  - tasks/TASK-0185-id-pattern-loader.md
+  - tasks/TASK-0186-scripts-loader-adoption.md
+  - tasks/TASK-0187-idgen-default-scan.md
+  - tasks/TASK-0188-precommit-config-fallback.md
+  - tasks/TASK-0189-installer-regen-preserve.md
+  - tasks/TASK-0190-test-id-patterns.md
+  - tasks/TASK-0191-docs-id-patterns.md
+  - tasks/done-def-SPEC-0027-round-1.md
+  - templates/hooks/tests/test-id-patterns.sh
+  - templates/pre-commit-task-id.sh
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: ""
+type: harness
+spec_id: SPEC-0027
+plan_id: PLAN-0027
+related_tasks: [TASK-0186, TASK-0187, TASK-0188, TASK-0189, TASK-0190, TASK-0191]
+iterations: 1
+abort_reason: ""
+phases:
+  specify:
+    status: pass
+    score: 100
+    eval_iterations: 2
+    duration_seconds: 1200
+  plan:
+    status: pass
+    score: 100
+    eval_iterations: 1
+    duration_seconds: 900
+  execute_verify:
+    - iteration: 1
+      implementation_status: completed
+      test_status: completed
+      review_status: pass
+      review_score: 96

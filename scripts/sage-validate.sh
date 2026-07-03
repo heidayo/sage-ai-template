@@ -3,6 +3,12 @@
 # CLAUDE.mdの必須セクション存在確認 + テンプレートフィールド検証
 set -euo pipefail
 
+# SPEC-0027: ID acceptance patterns come from the shared loader (config-aware).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+TASK_ACCEPT_RE="$(sage_id_accept_regex task)"
+
 ERRORS=0
 
 echo "=== SAGE Validation ==="
@@ -192,7 +198,7 @@ if [[ "$CURRENT_BRANCH" == promote/* ]]; then
     if [ -z "$PROMOTION_COMMITS" ]; then
       echo "  OK: 昇格後コミットなし（TASK-ID チェック対象なし）"
     else
-      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "TASK-[0-9]{4}" || echo "0")
+      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "$TASK_ACCEPT_RE" || echo "0")
       if [ "$COMMITS_WITHOUT_TASKID" -gt 0 ]; then
         echo "  ERROR: promote/* ブランチの昇格後コミットに TASK-ID なしが ${COMMITS_WITHOUT_TASKID} 件あります"
         ERRORS=$((ERRORS + 1))

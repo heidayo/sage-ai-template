@@ -1,0 +1,7 @@
+{
+  "spec": { "accept": ["SPEC-[0-9]{4}"] },
+  "plan": { "accept": ["PLAN-[0-9]{4}"] },
+  "task": { "accept": ["TASK-[0-9]{4}"] },
+  "run": { "accept": ["RUN-[0-9]{4}"] },
+  "fail": { "accept": ["FAIL-[0-9]{4}"] }
+}

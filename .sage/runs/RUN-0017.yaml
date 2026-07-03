@@ -1,0 +1,73 @@
+run_id: RUN-0017
+task_id: TASK-0208
+agent_id: operations
+started_at: "2026-07-03T07:00:00Z"
+completed_at: "2026-07-03T02:23:19Z"
+status: pass
+files_changed:
+  - SHA256SUMS
+  - install.sh
+  - plans/PLAN-0031-gate-fp-template.md
+  - sage/failures.md
+  - scripts/sage-id-gen.sh
+  - specs/SPEC-0031-gate-fp-template.md
+  - tasks/TASK-0208-failures-gate-fp-template.md
+  - tasks/TASK-0209-idgen-gate-fp-type.md
+  - tasks/TASK-0210-test-gate-fp-idgen.md
+  - tasks/TASK-0211-regen-install-sha256sums.md
+  - tasks/TASK-0212-gate-fp-remediation.md
+  - tasks/done-def-SPEC-0031-round-1.md
+  - templates/hooks/tests/fixtures/failures-gate-fp-multi.md
+  - templates/hooks/tests/fixtures/failures-gate-fp-none.md
+  - templates/hooks/tests/test-gate-fp-idgen.sh
+  - templates/hooks/tests/test-ts-enforcement.sh
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: ""
+type: harness
+spec_id: SPEC-0031
+plan_id: PLAN-0031
+related_tasks: [TASK-0209, TASK-0210, TASK-0211, TASK-0212]
+iterations: 2
+abort_reason: ""
+phases:
+  specify:
+    status: pass
+    score: 100
+    eval_iterations: 1
+    duration_seconds: 900
+  plan:
+    status: pass
+    score: 100
+    eval_iterations: 1
+    duration_seconds: 900
+  execute_verify:
+    - iteration: 1
+      implementation_status: completed
+      test_status: completed
+      review_status: fail
+      review_score: 84
+      review_feedback:
+        findings:
+          - id: "REV-001"
+            category: scope_compliance
+            expected: "range fix within an approved task scope"
+            actual: "committed under TASK-0210 without scope approval"
+        fix_scope:
+          implementation: []
+          test: []
+        instruction:
+          - target: "orchestrator"
+            action: "retroactive TASK-0212 + FAIL-0003 record"
+    - iteration: 2
+      implementation_status: completed
+      test_status: skipped
+      review_status: pass
+      review_score: 95
+# Note (REV-004): regeneration in commit 1db9e54 is attributed to TASK-0212
+# (bundled with the failures.md append); content-wise identical to a TASK-0211
+# regeneration. History not rewritten per review instruction.

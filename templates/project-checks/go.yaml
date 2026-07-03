@@ -1,0 +1,6 @@
+  # stack preset: go (SPEC-0028 — see docs/stack-presets.md)
+  lint: "go vet ./..."
+  format: 'test -z "$(gofmt -l .)"'
+  type_check: "go build ./..."
+  test_command: "go test ./... -coverprofile=coverage.out"
+  coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"

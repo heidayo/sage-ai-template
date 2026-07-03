@@ -1,0 +1,54 @@
+run_id: RUN-0012
+task_id: TASK-0178
+agent_id: operations
+started_at: "2026-07-02T08:30:00Z"
+completed_at: "2026-07-02T09:19:11Z"
+status: pass
+files_changed:
+  - README.md
+  - SHA256SUMS
+  - docs/installer-preservation.md
+  - install.sh
+  - plans/PLAN-0026-installer-preservation.md
+  - scripts/generator/07-installer-main.sh
+  - specs/SPEC-0026-installer-preservation.md
+  - tasks/TASK-0178-backup-before-write.md
+  - tasks/TASK-0179-upsert-marker-safe-skip.md
+  - tasks/TASK-0180-diff-option.md
+  - tasks/TASK-0181-snippet-and-regenerate.md
+  - tasks/TASK-0182-test-installer-preservation.md
+  - tasks/TASK-0183-docs-restore-and-matrix.md
+  - tasks/TASK-0184-gitignore-backup-entry.md
+  - tasks/done-def-SPEC-0026-round-1.md
+  - templates/claude-md-snippet.md
+  - templates/hooks/tests/test-installer-preservation.sh
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: ""
+type: harness
+spec_id: SPEC-0026
+plan_id: PLAN-0026
+related_tasks: [TASK-0179, TASK-0180, TASK-0181, TASK-0182, TASK-0183, TASK-0184]
+iterations: 1
+abort_reason: ""
+phases:
+  specify:
+    status: pass
+    score: 100
+    eval_iterations: 3
+    duration_seconds: 1500
+  plan:
+    status: pass
+    score: 100
+    eval_iterations: 1
+    duration_seconds: 900
+  execute_verify:
+    - iteration: 1
+      implementation_status: completed
+      test_status: completed
+      review_status: pass
+      review_score: 95

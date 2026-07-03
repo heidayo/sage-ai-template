@@ -1,0 +1,6 @@
+  # stack preset: node-npm (SPEC-0028 — see docs/stack-presets.md)
+  lint: "npm run lint"
+  format: "npx prettier --check ."
+  type_check: "npx tsc --noEmit"
+  test_command: "npm test"
+  coverage_command: "npx nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"

@@ -1,0 +1,58 @@
+run_id: RUN-0015
+task_id: TASK-0198
+agent_id: operations
+started_at: "2026-07-03T02:00:00Z"
+completed_at: "2026-07-03T01:07:19Z"
+status: pass
+files_changed:
+  - README.md
+  - SHA256SUMS
+  - docs/codex-rules.md
+  - install.sh
+  - plans/PLAN-0029-codex-rules.md
+  - scripts/generator/03-rules.sh
+  - scripts/generator/07-installer-main.sh
+  - specs/SPEC-0029-codex-rules.md
+  - tasks/TASK-0198-codex-rules-templates.md
+  - tasks/TASK-0199-generator-codex-rules.md
+  - tasks/TASK-0200-docs-codex-rules.md
+  - tasks/TASK-0201-regen-install-sha256sums.md
+  - tasks/TASK-0202-test-codex-rules.md
+  - tasks/TASK-0203-pr-followup-drafts.md
+  - tasks/done-def-SPEC-0029-round-1.md
+  - templates/codex-rules/plans-rules.md
+  - templates/codex-rules/sage-governance-rules.md
+  - templates/codex-rules/specs-rules.md
+  - templates/codex-rules/src-rules.md
+  - templates/codex-rules/tasks-rules.md
+  - templates/hooks/tests/test-codex-rules.sh
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: pass
+  release: skipped
+error_log: ""
+type: harness
+spec_id: SPEC-0029
+plan_id: PLAN-0029
+related_tasks: [TASK-0199, TASK-0200, TASK-0201, TASK-0202, TASK-0203]
+iterations: 1
+abort_reason: ""
+phases:
+  specify:
+    status: pass
+    score: 100
+    eval_iterations: 2
+    duration_seconds: 1200
+  plan:
+    status: pass
+    score: 100
+    eval_iterations: 1
+    duration_seconds: 900
+  execute_verify:
+    - iteration: 1
+      implementation_status: completed
+      test_status: completed
+      review_status: pass
+      review_score: 98

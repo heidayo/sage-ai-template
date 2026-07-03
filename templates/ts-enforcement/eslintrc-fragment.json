@@ -1,0 +1,19 @@
+{
+  "//-1": "SAGE TS enforcement — legacy .eslintrc rules fragment (error variant). SPEC-0030.",
+  "//-2": "Prerequisites: @typescript-eslint/eslint-plugin v6+ registered in your .eslintrc 'plugins'.",
+  "//-3": "How to apply: merge the 'rules' object below into the 'rules' section of your .eslintrc(.json).",
+  "//-4": "ban-ts-comment=error forbids @ts-ignore / @ts-nocheck; @ts-expect-error requires a description.",
+  "//-5": "Transitional variant for legacy codebases: change '@typescript-eslint/no-explicit-any' to 'warn'.",
+  "//-6": "Keep ban-ts-comment at error in all variants. Graduate warn back to error once warnings hit zero (docs/ts-enforcement.md).",
+  "rules": {
+    "@typescript-eslint/ban-ts-comment": [
+      "error",
+      {
+        "ts-ignore": true,
+        "ts-nocheck": true,
+        "ts-expect-error": "allow-with-description"
+      }
+    ],
+    "@typescript-eslint/no-explicit-any": "error"
+  }
+}

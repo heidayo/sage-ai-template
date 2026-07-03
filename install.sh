@@ -944,6 +944,8 @@ read -r -d '' TMPL_FAILURES <<'__EOF_TMPL_FAILURES__' || true
 - 失敗が発生したら即座に記録する
 - 同じ失敗が3回発生したら `anti-patterns.md` に昇格する
 - 昇格後もこのログは削除しない（履歴として残す）
+- **FAIL と GATE-FP の使い分け**: FAIL-XXXX = 実装・プロセス側の失敗（agent が誤った）、GATE-FP-XXXX = gate 側の誤検知（コードは正しいのに gate が誤った）。判断に迷う場合（両方に誤りがある等）は FAIL を優先し、GATE-FP エントリから相互参照する
+- **エスカレーション（gate 誤検知）**: 同一チェックの誤検知が累計 3 回に達したら「gate 設定の見直し」（project_checks / 閾値 / flaky テスト修正等）を必須とする。見直し結果は該当 GATE-FP エントリの恒久対応欄に追記する
 
 ---
 
@@ -969,6 +971,21 @@ cause enum の意味 (SPECA paper §4.2 由来、SPEC-0024 で SAGE に採用):
 
 ---
 
+## Gate False Positive エントリフォーマット (GATE-FP-XXXX)
+
+Quality Gate (Gate 1-5) の誤検知（CI flake・正しいコードへの誤 FAIL・環境起因の失敗）を記録する書式。採番は `bash scripts/sage-id-gen.sh gate-fp`。
+
+### GATE-FP-XXXX
+- **発生日**: YYYY-MM-DD
+- **誤検知した Gate**: Gate 1-5 のいずれか + チェック名（例: Gate 2 / unit test `test_foo`, Gate 3 / secret scan）
+- **TASK-ID**: 誤検知に遭遇した作業の TASK-ID
+- **誤検知の根拠**: 「正しいのに FAIL した」ことの証跡（再実行で PASS したログ、環境差異の特定、誤検出パターンの説明等）
+- **一時対応**: 再実行 / SKIP / 手動オーバーライド等、その場の回避策
+- **恒久対応**: gate 設定修正・閾値調整・flaky テスト修正等（未実施なら「未対応」と明記 — TBD は不可）
+- **再発回数**: 同一チェックでの累計発生回数（初回 = 1）
+
+---
+
 ## 記録
 
 ### FAIL-0001
@@ -990,6 +1007,26 @@ cause enum の意味 (SPECA paper §4.2 由来、SPEC-0024 で SAGE に採用):
 - **根本原因**: オーケストレーターが「修正→再生成→コミット」を単一エージェント実行に束ねた際、コミット分割の File Scope 境界指示が欠けていた
 - **修正**: コミット履歴を再構成 — 再生成を TASK-0177 の別コミットに分割、spec 訂正コミットを Spec Agent 帰属に relabel。テスト 22/22 + checksum PASS を再確認
 - **防止策**: 複数 TASK を1エージェントに委任する際、プロンプトに「再生成物は再生成 TASK の TASK-ID で別コミット」「specs/plans/tasks の修正は Spec/Planning Agent コミットに分離」を明記する
+- **昇格済み**: No
+
+### GATE-FP-0001
+- **発生日**: 2026-07-03
+- **誤検知した Gate / チェック名**: Gate 2 (Functional) / test-ts-enforcement.sh `installer_untouched` (AC-09/AC-12)
+- **TASK-ID**: TASK-0211
+- **誤検知の根拠**: SPEC-0030 の非変更検証が開放レンジ `d509a2a..HEAD` で diff を取っていたため、後続 SPEC-0031 の正当な install.sh 再生成コミット (f808485) を SPEC-0030 の違反として誤検知した。SPEC-0030 のコミット群自体は installer を変更していない (d509a2a..88a33fe の diff で確認)
+- **一時対応**: なし (再実行では解消しない構造的誤検知)
+- **恒久対応**: コミットレンジを SPEC-0030 の最終コミットで閉区間に固定 (`d509a2a..88a33fe`、コミット 9e15422)。以後の非変更検証テストは開放レンジ `..HEAD` を使わないこと
+- **再発回数**: 1
+
+### FAIL-0003
+- **発生日**: 2026-07-03
+- **TASK-ID**: TASK-0210, TASK-0212
+- **該当アンチパターン**: AP-03 (Silent Scope Expansion)
+- **cause**: trust-boundary
+- **症状**: SPEC-0031 実装中、Test Agent セッションが TASK-0210 の File Scope 外 (test-ts-enforcement.sh 修正・failures.md 記録) を同 TASK-ID でコミット (Review REV-001/002/003 で検出)
+- **根本原因**: オーケストレーターが gate FP 恒久対応とテスト作成を単一 TASK プロンプトに束ね、スコープ拡張の事前承認 (TASK 分割) を省略した — FAIL-0002 と同型の再発 (2 回目)
+- **修正**: TASK-0212 (遡及 TASK) を起票して該当 2 コミットを形式承認、SPEC/PLAN の File Scope を実態と整合
+- **防止策**: 実装中に scope 外の正当な修正が必要になった場合、コミット前に Planning Agent で TASK を追加起票する。同型 3 回目で anti-patterns.md 昇格対象
 - **昇格済み**: No
 
 __EOF_TMPL_FAILURES__
@@ -1608,6 +1645,9 @@ run_log_schema:
     network_mode: "off | allowlist | unrestricted | unknown"
 
 # --- ID Schema ---
+# Values below are the default (generation) formats. Acceptance patterns can be
+# extended per-project via .sage/id-patterns.json (SPEC-0027) — acceptance only;
+# generation always uses the default format. See docs/id-patterns.md.
 id_schema:
   spec: "SPEC-{4-digit sequential}"
   plan: "PLAN-{4-digit sequential}"
@@ -1790,6 +1830,8 @@ Auto-update rules:
 
 Project-specific rules: put your own files in `.claude/rules/local/` — the installer never creates, overwrites, or deletes this directory (SPEC-0025 local overlay). Read `.claude/rules/local/*.md` as project-specific rules with the same precedence as managed rules. Do not edit managed rules (`specs-rules.md` etc.) — they are replaced entirely on update.
 
+Template update backs up modified files to `.sage/backup/<timestamp>/` (3 generations). Restore: `cp .sage/backup/<ts>/<file> <file>`. Preview changes first with `bash install.sh --diff` (SPEC-0026).
+
 Directory: `specs/` (what) | `plans/` (how) | `tasks/` (work units) | `sage/` (governance) | `templates/hooks/` (runtime guards)
 <!-- === End SAGE === -->
 
@@ -1885,8 +1927,56 @@ fi
 # --- Lane: promotion (promote/*) — TASK-ID required ---
 # --- Lane: standard (feature/*, others) — TASK-ID required ---
 
+# --- SPEC-0027: TASK-ID acceptance pattern (config-first, embedded fallback) ---
+# This hook is a standalone distribution artifact: it must work without
+# scripts/sage-id-pattern.sh. The embedded fallback below must stay identical
+# to the loader's fallback definition (INV-03). If .sage/id-patterns.json is
+# readable, its task.accept patterns take precedence (FR-06). Config values
+# are only ever used as grep -E pattern arguments — never evaluated (SEC-01).
+TASK_ID_PATTERN="TASK-[0-9]{4}"
+ID_PATTERNS_FILE=".sage/id-patterns.json"
+if [ -f "$ID_PATTERNS_FILE" ]; then
+  CFG_JOINED=""
+  CFG_COUNT=0
+  while IFS= read -r CFG_PAT; do
+    [ -n "$CFG_PAT" ] || continue
+    # Skip invalid EREs so a broken pattern cannot disable validation (SEC-03)
+    printf '' | grep -E -- "$CFG_PAT" > /dev/null 2>&1
+    if [ $? -ge 2 ]; then
+      echo "WARN: pre-commit-task-id: invalid ERE in $ID_PATTERNS_FILE ignored: $CFG_PAT" >&2
+      continue
+    fi
+    if [ -z "$CFG_JOINED" ]; then
+      CFG_JOINED="$CFG_PAT"
+    else
+      CFG_JOINED="$CFG_JOINED|$CFG_PAT"
+    fi
+    CFG_COUNT=$((CFG_COUNT + 1))
+  done <<EOF_ID_PATTERNS
+$(awk -v type="task" '
+    intype == 0 && $0 ~ ("\"" type "\"[[:space:]]*:") { intype = 1 }
+    intype == 1 && $0 ~ /"accept"[[:space:]]*:/ { inaccept = 1 }
+    inaccept == 1 {
+      line = $0
+      sub(/.*"accept"[[:space:]]*:/, "", line)
+      while (match(line, /"[^"]*"/)) {
+        printf "%s\n", substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+      if (line ~ /\]/) { intype = 0; inaccept = 0 }
+    }
+  ' "$ID_PATTERNS_FILE" 2>/dev/null)
+EOF_ID_PATTERNS
+  if [ "$CFG_COUNT" -eq 1 ]; then
+    TASK_ID_PATTERN="$CFG_JOINED"
+  elif [ "$CFG_COUNT" -gt 1 ]; then
+    TASK_ID_PATTERN="($CFG_JOINED)"
+  fi
+  # CFG_COUNT=0 (unparsable/missing/empty accept) => keep embedded fallback
+fi
+
 # All non-explore lanes require TASK-ID
-if ! echo "$COMMIT_MSG" | grep -qE "TASK-[0-9]{4}"; then
+if ! echo "$COMMIT_MSG" | grep -qE "$TASK_ID_PATTERN"; then
   # Determine lane for helpful error message
   LANE="standard"
   if echo "$BRANCH" | grep -qE "^(fix|chore|docs)/"; then
@@ -1914,6 +2004,202 @@ if ! echo "$COMMIT_MSG" | grep -qE "TASK-[0-9]{4}"; then
 fi
 
 __EOF_TMPL_COMMIT_HOOK__
+
+read -r -d '' TMPL_ID_PATTERN_LOADER <<'__EOF_TMPL_ID_PATTERN_LOADER__' || true
+#!/bin/bash
+# sage-id-pattern.sh — shared ID acceptance pattern loader (SPEC-0027)
+#
+# Usage (source only — direct execution is unsupported):
+#   . scripts/sage-id-pattern.sh
+#   sage_id_accept_regex task    # -> acceptance ERE (config-aware, e.g. "(TASK-[0-9]{4}|TASK-[a-z]+-[0-9a-f]{4})")
+#   sage_id_default_regex task   # -> default-format ERE for ID generation scans (never config-extended)
+#
+# Config: .sage/id-patterns.json — {"<type>": {"accept": ["<ERE>", ...]}}
+#   type ∈ spec/plan/task/run/fail. Parsed with POSIX tools only (no jq).
+#   Missing file / unparsable JSON / missing type / empty accept => fallback
+#   to the built-in default regex (WARN to stderr on anomaly, always exit 0).
+# Security: config values are used only as grep -E pattern arguments,
+#   never evaluated as shell code (SEC-01/INV-02).
+
+SAGE_ID_PATTERNS_FILE="${SAGE_ID_PATTERNS_FILE:-.sage/id-patterns.json}"
+
+# Built-in fallback definitions — must stay identical to the embedded
+# fallback in templates/pre-commit-task-id.sh (INV-03).
+_sage_id_fallback_regex() {
+  case "$1" in
+    spec) printf 'SPEC-[0-9]{4}\n' ;;
+    plan) printf 'PLAN-[0-9]{4}\n' ;;
+    task) printf 'TASK-[0-9]{4}\n' ;;
+    run)  printf 'RUN-[0-9]{4}\n' ;;
+    fail) printf 'FAIL-[0-9]{4}\n' ;;
+    *)    return 1 ;;
+  esac
+}
+
+# Extract the "accept" array entries for a type from the config file.
+# Supported format is the documented subset (one pattern per line or a
+# single-line array). Anything unparsable simply yields no output, which
+# resolves to the safe fallback in the caller (PRE-01).
+_sage_id_extract_accept() {
+  awk -v type="$1" '
+    intype == 0 && $0 ~ ("\"" type "\"[[:space:]]*:") { intype = 1 }
+    intype == 1 && $0 ~ /"accept"[[:space:]]*:/ { inaccept = 1 }
+    inaccept == 1 {
+      line = $0
+      # Strip up to the accept key on its own line so the key itself is not
+      # captured as a pattern.
+      sub(/.*"accept"[[:space:]]*:/, "", line)
+      while (match(line, /"[^"]*"/)) {
+        printf "%s\n", substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+      # Close only on a "]" outside quoted strings ("]" may appear inside
+      # an ERE pattern such as TASK-[0-9]{4}).
+      if (line ~ /\]/) { intype = 0; inaccept = 0 }
+    }
+  ' "$2" 2>/dev/null
+}
+
+# sage_id_accept_regex <type> — acceptance ERE. Multiple accept patterns are
+# combined into (p1|p2|...). Always prints a non-empty valid ERE and returns 0
+# for known types (POST-01).
+sage_id_accept_regex() {
+  local _type="$1" _fallback _file _joined _count _pat
+  if ! _fallback="$(_sage_id_fallback_regex "$_type")"; then
+    echo "WARN: sage-id-pattern: unknown id type '$_type'" >&2
+    return 1
+  fi
+  _file="$SAGE_ID_PATTERNS_FILE"
+  if [ ! -f "$_file" ]; then
+    # Absent config is the documented default state — silent fallback (AC-01).
+    printf '%s\n' "$_fallback"
+    return 0
+  fi
+  _joined=""
+  _count=0
+  local _grep_status
+  while IFS= read -r _pat; do
+    [ -n "$_pat" ] || continue
+    # Reject invalid EREs so a broken pattern cannot disable validation.
+    # grep exits 2 on a bad pattern; 0/1 both mean the pattern is valid.
+    _grep_status=0
+    printf '' | grep -E -- "$_pat" > /dev/null 2>&1 || _grep_status=$?
+    if [ "$_grep_status" -ge 2 ]; then
+      echo "WARN: sage-id-pattern: invalid ERE for type '$_type' ignored: $_pat" >&2
+      continue
+    fi
+    if [ -z "$_joined" ]; then
+      _joined="$_pat"
+    else
+      _joined="$_joined|$_pat"
+    fi
+    _count=$((_count + 1))
+  done <<EOF_PATTERNS
+$(_sage_id_extract_accept "$_type" "$_file")
+EOF_PATTERNS
+  if [ "$_count" -eq 0 ]; then
+    # Unparsable JSON / missing type / empty accept — safe fallback (FR-04, SEC-03).
+    echo "WARN: sage-id-pattern: no usable accept patterns for type '$_type' in $_file — using default '$_fallback'" >&2
+    printf '%s\n' "$_fallback"
+    return 0
+  fi
+  if [ "$_count" -eq 1 ]; then
+    printf '%s\n' "$_joined"
+  else
+    printf '(%s)\n' "$_joined"
+  fi
+  return 0
+}
+
+# sage_id_default_regex <type> — default-format ERE for sequential-number
+# scans in sage-id-gen.sh. Custom accept patterns never extend generation
+# (FR-07/PRE-02), so this is always the built-in default.
+sage_id_default_regex() {
+  local _fallback
+  if ! _fallback="$(_sage_id_fallback_regex "$1")"; then
+    echo "WARN: sage-id-pattern: unknown id type '$1'" >&2
+    return 1
+  fi
+  printf '%s\n' "$_fallback"
+  return 0
+}
+
+__EOF_TMPL_ID_PATTERN_LOADER__
+
+read -r -d '' TMPL_ID_PATTERNS <<'__EOF_TMPL_ID_PATTERNS__' || true
+{
+  "spec": { "accept": ["SPEC-[0-9]{4}"] },
+  "plan": { "accept": ["PLAN-[0-9]{4}"] },
+  "task": { "accept": ["TASK-[0-9]{4}"] },
+  "run": { "accept": ["RUN-[0-9]{4}"] },
+  "fail": { "accept": ["FAIL-[0-9]{4}"] }
+}
+
+__EOF_TMPL_ID_PATTERNS__
+
+IFS= read -r -d '' TMPL_STACK_GO <<'__EOF_TMPL_STACK_GO__' || true
+  # stack preset: go (SPEC-0028 — see docs/stack-presets.md)
+  lint: "go vet ./..."
+  format: 'test -z "$(gofmt -l .)"'
+  type_check: "go build ./..."
+  test_command: "go test ./... -coverprofile=coverage.out"
+  coverage_command: "go tool cover -func=coverage.out | tail -1 | awk '{print $NF}'"
+
+__EOF_TMPL_STACK_GO__
+
+IFS= read -r -d '' TMPL_STACK_TS_PNPM <<'__EOF_TMPL_STACK_TS_PNPM__' || true
+  # stack preset: ts-pnpm (SPEC-0028 — see docs/stack-presets.md)
+  lint: "pnpm run lint"
+  format: "pnpm exec prettier --check ."
+  type_check: "pnpm exec tsc --noEmit"
+  test_command: "pnpm test"
+  coverage_command: "pnpm exec nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"
+
+__EOF_TMPL_STACK_TS_PNPM__
+
+IFS= read -r -d '' TMPL_STACK_NODE_NPM <<'__EOF_TMPL_STACK_NODE_NPM__' || true
+  # stack preset: node-npm (SPEC-0028 — see docs/stack-presets.md)
+  lint: "npm run lint"
+  format: "npx prettier --check ."
+  type_check: "npx tsc --noEmit"
+  test_command: "npm test"
+  coverage_command: "npx nyc report --reporter=text-summary | grep Lines | awk '{print $3}'"
+
+__EOF_TMPL_STACK_NODE_NPM__
+
+IFS= read -r -d '' TMPL_STACK_PYTHON <<'__EOF_TMPL_STACK_PYTHON__' || true
+  # stack preset: python (SPEC-0028 — see docs/stack-presets.md)
+  lint: "ruff check ."
+  format: "black --check ."
+  type_check: "mypy ."
+  test_command: "pytest --cov=src --cov-report=term-missing"
+  coverage_command: "coverage report --format=total"
+
+__EOF_TMPL_STACK_PYTHON__
+
+# === SPEC-0028: project_checks stack preset section replacement ===
+replace_project_checks_section() {
+  local config_content="$1"
+  local preset_body="$2"
+  # Preset is handed over via ENVIRON: BSD awk rejects newlines in -v values.
+  printf '%s\n' "$config_content" | SAGE_STACK_PRESET_BODY="$preset_body" awk '
+    BEGIN {
+      preset = ENVIRON["SAGE_STACK_PRESET_BODY"]
+      sub(/\n+$/, "", preset); replaced = 0; in_pc = 0
+    }
+    !replaced && /^project_checks:[[:space:]]*$/ {
+      print
+      print preset
+      in_pc = 1; replaced = 1; next
+    }
+    in_pc {
+      # Section ends at the first blank or column-0 line, which is kept as-is.
+      if ($0 == "" || $0 !~ /^[[:space:]]/) { in_pc = 0; print }
+      next
+    }
+    { print }
+  '
+}
 
 read -r -d '' TMPL_RULES_SPECS <<'__EOF_TMPL_RULES_SPECS__' || true
 ---
@@ -2162,6 +2448,245 @@ write_rules_file() {
     update_file "$path" "$content"
   fi
 }
+
+read -r -d '' TMPL_CODEX_RULES_SPECS <<'__EOF_TMPL_CODEX_RULES_SPECS__' || true
+---
+description: "SAGE rules for creating and editing specifications (Codex guidance)"
+globs: ["specs/**"]
+---
+# Spec Rules
+
+Guidance for Codex sessions — follow as written; SAGE does not enforce these at runtime in Codex.
+
+When creating or editing files in specs/:
+
+## Required fields (all mandatory)
+- SPEC-ID: assigned via `bash scripts/sage-id-gen.sh spec`
+- Background/purpose: at least one sentence explaining why
+- Scope (included): bullet list of what changes
+- Scope (excluded): explicit exclusions. "None" is never acceptable
+- Acceptance criteria: minimum 3, each verifiable by command or test
+- Error cases: minimum 1 defined
+- Security requirements: stated, or reason why N/A
+
+## Exit criteria checklist
+- [ ] SPEC-ID assigned
+- [ ] Background described
+- [ ] Scope listed as bullets
+- [ ] Out-of-scope explicitly stated
+- [ ] 3+ acceptance criteria, each command-verifiable
+- [ ] 1+ error case
+- [ ] Security requirements stated
+
+## Prohibited
+- Approving a spec with "TBD" or "TODO" in required fields
+- Skipping the out-of-scope section
+- Acceptance criteria that cannot be verified by command or test
+
+## Template
+Use `specs/_template.md` as the base for all new specs.
+
+__EOF_TMPL_CODEX_RULES_SPECS__
+
+read -r -d '' TMPL_CODEX_RULES_PLANS <<'__EOF_TMPL_CODEX_RULES_PLANS__' || true
+---
+description: "SAGE rules for creating implementation plans (Codex guidance)"
+globs: ["plans/**"]
+---
+# Plan Rules
+
+Guidance for Codex sessions — follow as written; SAGE does not enforce these at runtime in Codex.
+
+When creating or editing files in plans/:
+
+## Required fields
+- PLAN-ID: linked to a SPEC-ID
+- Affected layers: list all (controller/usecase/domain/infrastructure etc.)
+- Impact scope: identified by feature/module
+- Risks: at least 1 raised
+- Verification: specify required methods (unit/integration/e2e/security)
+
+## Exit criteria checklist
+- [ ] PLAN-ID linked to SPEC-ID
+- [ ] Affected layers listed
+- [ ] Impact scope identified
+- [ ] 1+ risk raised
+- [ ] Verification methods specified
+
+## Prohibited
+- Creating a plan without an approved SPEC
+- Starting implementation without an approved plan
+
+## Template
+Use `plans/_template.md` as the base.
+
+__EOF_TMPL_CODEX_RULES_PLANS__
+
+read -r -d '' TMPL_CODEX_RULES_TASKS <<'__EOF_TMPL_CODEX_RULES_TASKS__' || true
+---
+description: "SAGE rules for task definitions (Codex guidance)"
+globs: ["tasks/**"]
+---
+# Task Rules
+
+Guidance for Codex sessions — follow as written; SAGE does not enforce these at runtime in Codex.
+
+When creating or editing files in tasks/:
+
+## Required fields
+- TASK-ID: assigned via `bash scripts/sage-id-gen.sh task`
+- Single responsibility: one task does one thing (no spanning layers or purposes)
+- File Scope: explicit list of files allowed to modify
+- Dependencies: list dependent TASK-IDs or state "none"
+- Completion criteria: defined by test pass/fail
+
+## Exit criteria checklist
+- [ ] TASK-ID assigned
+- [ ] Single responsibility maintained
+- [ ] File Scope explicitly listed
+- [ ] Dependencies stated
+- [ ] Parallel feasibility evaluated
+- [ ] Completion criteria defined
+
+## Prohibited
+- Combining multiple responsibilities in one task
+- Omitting File Scope (every task must state which files it may touch)
+
+## Template
+Use `tasks/_template.md` as the base.
+
+__EOF_TMPL_CODEX_RULES_TASKS__
+
+read -r -d '' TMPL_CODEX_RULES_SRC <<'__EOF_TMPL_CODEX_RULES_SRC__' || true
+---
+description: "SAGE rules for source code implementation (Codex guidance)"
+globs: ["src/**", "app/**", "lib/**", "components/**", "packages/**"]
+---
+# Implementation Rules
+
+These rules are guidance for Codex sessions, not runtime enforcement: SAGE has no hook mechanism in Codex, so runtime blocking (if any) is configured in Codex itself (SPEC-0022 SEC-03). Follow them as written. For well-scoped delegated work, also follow `docs/codex-delegation-packet.md`.
+
+When writing or modifying source code:
+
+## Before coding
+- Confirm a SPEC and TASK exist for this change
+- Check the TASK's File Scope — only modify listed files
+- Include TASK-ID in every commit message (e.g., `TASK-0001: add endpoint`)
+
+## Forbidden shortcuts
+- TODO/FIXME in committed code
+- Type assertions (`as unknown as T`) without explicit approval
+- Bypassing quality gates (including force push)
+- Changes outside assigned File Scope
+- Silent scope expansion (adding unspecified changes)
+
+## Before starting
+実装開始前に `sage/failures.md` を確認し、過去に同様のパターンで失敗していないか確認すること。
+
+## AI Output Verification
+
+AI生成コードは非決定的であり、幻覚（存在しないパッケージ・APIの生成）を含む可能性がある。コミット前に以下を確認すること:
+
+### 必須（全てのAI生成コード）
+- 全ての import/require が実際に解決できること（プロジェクトをビルド・実行して確認）
+- 「正しそうに見える」を信用しない — テストを実行して確認する
+
+### 条件付き必須
+- 外部SDK/HTTPクライアントを新規追加・変更した場合: 外部APIコールがライブラリの実ドキュメントと一致すること
+- 再現可能なgenerator/promptテンプレートが存在する場合: 同一要件から再生成し、diffを取って不安定な箇所を特定する
+
+## Code readability and maintainability
+
+コードは正しく動くだけでなく、他の開発者（人間・AI問わず）が読んで理解・保守できることを重視する。コミット前に以下を確認すること:
+
+### Intentional changes only
+- 変更ブロックごとにTASK目的との対応を説明できるか。説明できない追加・変更は削除する
+- 変更対象外の行に差分が出ていないか（trailing whitespace、行末改行の変更等）
+
+### Consistency with existing code
+- 同ファイル・同モジュール内に同等の処理パターンがある場合、既存のパターン・命名・記法に合わせる
+- 既存パターンと異なる書き方をする場合は、改善の理由を説明できること（既存が悪い場合は改善してよい）
+
+### Readable intent
+- 非自明な制御フロー（early return、条件分岐、例外処理）の意図がコードだけで伝わらない場合、コメントで補足する
+- 関数のインターフェース設計に一貫性を持たせる（条件分岐に使う値の一部だけを引数にして残りを外部依存にしない）
+
+### No speculative code
+- 「念のため」や「将来使うかもしれない」コードを追加しない
+- 追加するコードは全て、現在のTASKの完了に必要な理由を説明できること
+
+## Error resolution protocol
+When an error occurs:
+1. Record the error with TASK-ID in the run log
+2. Check `sage/anti-patterns.md` for known patterns
+3. If new pattern, add to `sage/failures.md` before fixing
+4. If same error occurs 3 times, escalate to `sage/anti-patterns.md`
+
+Error context (always include these 6 elements):
+1. Error log: complete stack trace
+2. Failing file: path and line number
+3. Related spec: SPEC-ID and relevant acceptance criteria
+4. Recent changes: git diff output
+5. Fix scope: files allowed to modify
+6. Completion criteria: test pass/fail
+
+## Error resolution prohibitions
+| Prohibited | Required |
+|-----------|----------|
+| Suppress types with `any` | Fix the type mismatch properly |
+| Modify tests to make them pass | Fix implementation to pass existing tests |
+| Adjust code to absorb spec drift | Update spec first, then fix implementation |
+| Swallow errors with try/catch | Log the error, then re-throw |
+
+__EOF_TMPL_CODEX_RULES_SRC__
+
+read -r -d '' TMPL_CODEX_RULES_GOVERNANCE <<'__EOF_TMPL_CODEX_RULES_GOVERNANCE__' || true
+---
+description: "SAGE governance protection rules (Codex guidance)"
+globs: ["sage/**", "CLAUDE.md", "AGENTS.md"]
+---
+# Governance Rules
+
+Guidance for Codex sessions — follow as written; SAGE does not enforce these at runtime in Codex.
+
+## Protected files
+- `sage/` directory: human approval required for any modification
+- `AGENTS.md`: human-only (AI must not modify without explicit instruction)
+- `CLAUDE.md`: same as AGENTS.md
+
+## Agent separation
+- The same agent MUST NOT hold both implementation and final approval
+- The same agent MUST NOT hold both implementation and security approval
+- Implementation and review must be in separate sessions
+
+## Traceability
+Every change must be traceable: SPEC-ID → PLAN-ID → TASK-ID → commit
+- All PRs must include SPEC-ID, PLAN-ID, TASK-ID in the body
+- All commit messages must include TASK-ID
+- PRs without SPEC-ID should be rejected
+
+## Language rules
+| Context | Language |
+|---------|----------|
+| User-facing documentation | Japanese |
+| Code, comments, variable names | English |
+| Commit messages | English |
+| PR descriptions | Japanese |
+| Test case names | Japanese |
+
+__EOF_TMPL_CODEX_RULES_GOVERNANCE__
+
+# SPEC-0029: local overlay reference notice appended to all managed Codex rules (FR-02).
+CODEX_RULES_LOCAL_NOTICE='
+---
+
+<!-- SAGE managed rules file (SPEC-0029): replaced entirely on install.sh update. Put project-specific rules under .codex/rules/local/ instead. -->
+注記: このファイルは install.sh 更新で全置換されます。プロジェクト固有ルールは `.codex/rules/local/` に置いてください。'
+TMPL_CODEX_RULES_SPECS="${TMPL_CODEX_RULES_SPECS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_PLANS="${TMPL_CODEX_RULES_PLANS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_TASKS="${TMPL_CODEX_RULES_TASKS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_SRC="${TMPL_CODEX_RULES_SRC}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_GOVERNANCE="${TMPL_CODEX_RULES_GOVERNANCE}${CODEX_RULES_LOCAL_NOTICE}"
 
 read -r -d '' TMPL_SKILL_SPEC <<'__EOF_TMPL_SKILL_SPEC__' || true
 ---
@@ -4038,6 +4563,12 @@ read -r -d '' TMPL_VALIDATE <<'__EOF_TMPL_VALIDATE__' || true
 # CLAUDE.mdの必須セクション存在確認 + テンプレートフィールド検証
 set -euo pipefail
 
+# SPEC-0027: ID acceptance patterns come from the shared loader (config-aware).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+TASK_ACCEPT_RE="$(sage_id_accept_regex task)"
+
 ERRORS=0
 
 echo "=== SAGE Validation ==="
@@ -4227,7 +4758,7 @@ if [[ "$CURRENT_BRANCH" == promote/* ]]; then
     if [ -z "$PROMOTION_COMMITS" ]; then
       echo "  OK: 昇格後コミットなし（TASK-ID チェック対象なし）"
     else
-      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "TASK-[0-9]{4}" || echo "0")
+      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "$TASK_ACCEPT_RE" || echo "0")
       if [ "$COMMITS_WITHOUT_TASKID" -gt 0 ]; then
         echo "  ERROR: promote/* ブランチの昇格後コミットに TASK-ID なしが ${COMMITS_WITHOUT_TASKID} 件あります"
         ERRORS=$((ERRORS + 1))
@@ -4398,11 +4929,18 @@ read -r -d '' TMPL_ID_GEN <<'__EOF_TMPL_ID_GEN__' || true
 # Usage: bash scripts/sage-id-gen.sh spec|plan|task
 set -euo pipefail
 
+# SPEC-0027: default-format regex comes from the shared loader. Generation and
+# sequential scans use the default format only — custom accept patterns never
+# affect numbering (FR-07/PRE-02).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+
 TYPE="${1:-}"
 
 if [ -z "$TYPE" ]; then
   echo "Usage: bash scripts/sage-id-gen.sh <type>"
-  echo "  type: spec | plan | task | run | fail"
+  echo "  type: spec | plan | task | run | fail | gate-fp"
   exit 1
 fi
 
@@ -4427,24 +4965,46 @@ case "$TYPE" in
     DIR="sage"
     PREFIX="FAIL"
     ;;
+  gate-fp)
+    DIR="sage"
+    PREFIX="GATE-FP"
+    ;;
   *)
     echo "Unknown type: $TYPE"
-    echo "  Valid types: spec | plan | task | run | fail"
+    echo "  Valid types: spec | plan | task | run | fail | gate-fp"
     exit 1
     ;;
 esac
 
+# Default-format ERE for the sequential scan (PREFIX + 4-digit number)
+if [ "$TYPE" = "gate-fp" ]; then
+  # SPEC-0031 design decision 2: GATE-FP is a record-only ID (numbered in
+  # sage/failures.md) and is NOT accepted by the SPEC-0027 loader, the
+  # commit-msg hook, or the trace check. Use a local constant ERE instead of
+  # sage_id_default_regex so custom accept patterns can never affect it.
+  DEFAULT_RE='GATE-FP-[0-9]{4}'
+else
+  DEFAULT_RE="$(sage_id_default_regex "$TYPE")"
+fi
+
 # Find the highest existing ID
 LAST_NUM=0
-if [ "$TYPE" = "fail" ]; then
+if [ "$TYPE" = "gate-fp" ]; then
+  # Same failures.md scan as "fail", but GATE-FP-0001 splits into 3 fields on
+  # '-', so the numeric sort key is field 3 (not field 2 as for FAIL-XXXX)
+  if [ -f "sage/failures.md" ]; then
+    LAST_NUM=$(grep -oE "$DEFAULT_RE" sage/failures.md 2>/dev/null | sort -t'-' -k3 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+  fi
+elif [ "$TYPE" = "fail" ]; then
   # Search in failures.md
   if [ -f "sage/failures.md" ]; then
-    LAST_NUM=$(grep -oE "${PREFIX}-[0-9]{4}" sage/failures.md 2>/dev/null | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+    LAST_NUM=$(grep -oE "$DEFAULT_RE" sage/failures.md 2>/dev/null | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
   fi
 else
-  # Search in directory for files matching PREFIX-XXXX
+  # Search in directory for files matching the default format (PREFIX-XXXX);
+  # custom-format IDs are ignored by design (SPEC-0027 FR-07)
   if [ -d "$DIR" ]; then
-    LAST_NUM=$(ls "$DIR" 2>/dev/null | grep -oE "${PREFIX}-[0-9]{4}" | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+    LAST_NUM=$(ls "$DIR" 2>/dev/null | grep -oE "$DEFAULT_RE" | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
   fi
 fi
 
@@ -4465,6 +5025,12 @@ read -r -d '' TMPL_TRACE_CHECK <<'__EOF_TMPL_TRACE_CHECK__' || true
 # 直近のコミットにTASK-IDが含まれているか確認
 set -euo pipefail
 
+# SPEC-0027: ID acceptance patterns come from the shared loader (config-aware).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sage-id-pattern.sh
+. "$SCRIPT_DIR/sage-id-pattern.sh"
+TASK_ACCEPT_RE="$(sage_id_accept_regex task)"
+
 echo "=== SAGE Traceability Check ==="
 echo ""
 
@@ -4478,7 +5044,7 @@ while IFS= read -r line; do
   HASH=$(echo "$line" | cut -d' ' -f1)
   MSG=$(echo "$line" | cut -d' ' -f2-)
 
-  if echo "$MSG" | grep -qE 'TASK-[0-9]{4}'; then
+  if echo "$MSG" | grep -qE "$TASK_ACCEPT_RE"; then
     echo "  OK: $HASH — $MSG"
   elif echo "$MSG" | grep -qE '^(initial commit|merge|Merge)'; then
     echo "  SKIP: $HASH — $MSG (merge/initial)"
@@ -5318,6 +5884,77 @@ Claude 作業中に Codex 側変更が必要になった場合、Claude は直�
 - SPEC-0023 (本 brief の起票根拠): [specs/SPEC-0023-claude-collaboration-pairing.md](../specs/SPEC-0023-claude-collaboration-pairing.md)
 
 __EOF_TMPL_CLAUDE_COLLABORATION_BRIEF__
+
+read -r -d '' TMPL_CODEX_RULES_DOC <<'__EOF_TMPL_CODEX_RULES_DOC__' || true
+# Codex Rules Layer（`.codex/rules/`）— 優先順位・読み込み手順・対応表
+
+> [!NOTE]
+> 本文書は **SPEC-0029 で新設**された SAGE 管理文書です。新設のみ本 SPEC（Claude 側 task）で行い、**以後の本文修正は Codex 側 task** とします（SPEC-0023 boundary — Codex-specific ファイル群に帰属）。
+
+SAGE installer は `.claude/rules/`（Claude Code 向け）と対称の Codex 向けルール層として、`.codex/rules/` に 5 つの managed ルールファイルを配布します（実体: `templates/codex-rules/`）。本文書はその優先順位規約・読み込み手順・`.claude/rules/` との対応・local overlay の使い方を定めます。
+
+これらのルールは **runtime enforcement ではなく guidance** です。Claude Code の hooks に相当する強制機構は Codex 側には配布されません。runtime での強制が必要な場合は Codex 本体の設定で行ってください（SPEC-0022 SEC-03 と同方針）。
+
+## 1. 優先順位規約
+
+```
+.codex/rules/（層別・具体則） > ルート AGENTS.md（一般則）
+```
+
+- 具体則が一般則に優先します。`.codex/rules/` の記述とルート `AGENTS.md` の記述が矛盾する場合、Codex セッションは **`.codex/rules/` 側に従って**ください。
+- ただし矛盾は放置せず、**矛盾自体を paired-update で解消**します（SPEC-0023 §10 doctrine）。矛盾を発見したら follow-up task として起票してください。
+- `.codex/rules/local/`（プロジェクト固有 overlay）は managed ルールをさらに具体化する層であり、プロジェクト内ではこれが最優先です。
+
+## 2. 読み込み手順（Codex config / AGENTS.md 参照機構前提）
+
+Codex は `.codex/rules/` を**自動ロードしません**。Codex の AGENTS.md 参照機構を前提に、ルート `AGENTS.md`（または `.codex/AGENTS.md`）から明示的に参照させます:
+
+1. ルート `AGENTS.md`（または `.codex/AGENTS.md`）に「セッション開始時に `.codex/rules/` 配下の各ルールを読み、該当ディレクトリの作業時に従う」旨の参照を記載する
+2. Codex セッションは、編集対象に応じて該当ルール（例: `specs/` を編集するなら `.codex/rules/specs-rules.md`）を参照する
+3. プロジェクト固有ルールがある場合は `.codex/rules/local/` も併せて参照する
+
+> [!IMPORTANT]
+> `AGENTS.md` への参照追記の実施自体は **Codex follow-up task** です（SPEC-0029 FR-09 — 本 SPEC では AGENTS.md を編集せず、PR 本文に追記案のみ提示）。追記が行われるまで、Codex が `.codex/rules/` を読む保証はありません（SPEC-0029 ASM-02）。
+
+## 3. `.claude/rules/` との対応表
+
+配布対象 5 ファイルは 1:1 対応です（`harness-rules.md` は Claude Code 専用機構のため Codex ミラー対象外）。
+
+| `.claude/rules/`（Claude Code） | `.codex/rules/`（Codex） | 区分 |
+|---|---|---|
+| `specs-rules.md` | `specs-rules.md` | SHARED（意味的同一） |
+| `plans-rules.md` | `plans-rules.md` | SHARED（意味的同一） |
+| `tasks-rules.md` | `tasks-rules.md` | SHARED（意味的同一） |
+| `src-rules.md` | `src-rules.md` | SHARED（Codex 版は guidance であることを明記） |
+| `sage-governance-rules.md` | `sage-governance-rules.md` | SHARED（意味的同一） |
+| `harness-rules.md`（配布対象外） | —（ミラーなし） | CLI-specific（Claude Code 専用） |
+
+両側の実体はそれぞれ `templates/rules/` / `templates/codex-rules/` にあり、semantic alignment は SPEC-0023 §10 の paired-update doctrine とテスト（ファイル集合の 1:1 対応検証）で維持します。バイト同一は要求されません（CLI-specific 文言調整を許容 — SPEC-0029 NFR-03）。
+
+## 4. `.codex/rules/local/` overlay の使い方
+
+`.codex/rules/` の managed 5 ファイルは `install.sh` 更新時に**全置換**されます。プロジェクト固有ルールは managed ファイルに直接書かず、installer 絶対不可侵の overlay に置いてください（SPEC-0025）:
+
+```bash
+mkdir -p .codex/rules/local
+echo "# My project Codex rules" > .codex/rules/local/my-rules.md
+bash install.sh   # 何度更新しても local/ は不変
+```
+
+| プロジェクト固有ルールの置き方 | `bash install.sh` 更新時 |
+|:---|:---|
+| managed ファイル（`.codex/rules/specs-rules.md` 等）に直接追記 | ❌ 全置換され**消える** |
+| `.codex/rules/local/` にファイルを配置 | ✅ **保持される** |
+
+**既存導入先向けの移行案内**: SPEC-0029 以前に `.codex/rules/` 直下へ自作ルールを置いていた場合、SAGE 管理名 5 件（`specs/plans/tasks/src/sage-governance-rules.md`）と同名のファイルは初回 `--update` で SAGE テンプレートに上書きされます。適用前に自作ルールを `.codex/rules/local/` へ退避してください。別名ファイルは installer が触りません（書き込み対象は固定 5 パスのみ）。
+
+## 関連
+
+- SPEC-0029（本レイヤの新設）/ SPEC-0025（local overlay 不可侵）/ SPEC-0023（AGENTS/CLAUDE pairing doctrine）/ SPEC-0022（Codex delegation packet / boundary）
+- `docs/codex-security.md` — Codex 利用時のセキュリティ設定
+- `docs/codex-delegation-packet.md` — Codex への委任 packet
+
+__EOF_TMPL_CODEX_RULES_DOC__
 
 read -r -d '' TMPL_HOOK_BLOCK_DANGEROUS <<'__EOF_TMPL_HOOK_BLOCK_DANGEROUS__' || true
 #!/usr/bin/env bash
@@ -9802,6 +10439,84 @@ do_verify_checksum_remote() {
   fi
 }
 
+# --- SPEC-0026: pre-write backup (backup_before_write) ---
+# INV-04: backup judgment + execution live in this single function; every
+# write path that can change an existing file must call it before writing.
+BACKUP_ROOT=".sage/backup"
+BACKUP_GEN_DIR=""
+
+# FR-02 / SEC-01: keep the newest 3 generations. Only directories whose
+# name matches ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ are rotation candidates;
+# anything else under .sage/backup/ is preserved (AC-11).
+_backup_rotate_generations() {
+  local dirs count oldest
+  dirs=$(ls -1 "$BACKUP_ROOT" 2>/dev/null | grep -E '^[0-9]{8}-[0-9]{6}(-[0-9]+)?$' | sort || true)
+  count=$(printf '%s' "$dirs" | grep -c . || true)
+  while [ "$count" -gt 3 ]; do
+    oldest=$(printf '%s\n' "$dirs" | head -1)
+    [ -n "$oldest" ] || break
+    rm -rf "${BACKUP_ROOT:?}/${oldest:?}"
+    echo "  BACKUP-ROTATE: removed oldest generation $BACKUP_ROOT/$oldest"
+    dirs=$(printf '%s\n' "$dirs" | tail -n +2)
+    count=$((count - 1))
+  done
+}
+
+# FR-01: create the generation directory lazily — only when the first
+# actual UPDATE backup happens (no empty generations). On timestamp
+# collision, append -N instead of reusing an existing generation (AC-12).
+_backup_ensure_gen_dir() {
+  if [ -n "$BACKUP_GEN_DIR" ]; then
+    return 0
+  fi
+  local ts candidate n
+  ts=$(date -u +%Y%m%d-%H%M%S)
+  candidate="$ts"
+  n=0
+  while [ -e "$BACKUP_ROOT/$candidate" ]; do
+    n=$((n + 1))
+    candidate="$ts-$n"
+  done
+  if ! mkdir -p "$BACKUP_ROOT/$candidate" 2>/dev/null; then
+    return 1
+  fi
+  BACKUP_GEN_DIR="$BACKUP_ROOT/$candidate"
+  _backup_rotate_generations
+  return 0
+}
+
+# backup_before_write <path> [<new_content>]
+# PRE-01: back up only when the file exists AND the content will change
+# (when <new_content> is given; without it, the caller has already
+# determined the file will change). SEC-03: print paths only, never
+# file contents. AC-09 fail-safe: if the backup cannot be written,
+# abort the installer (non-zero exit) without touching the target file.
+backup_before_write() {
+  local path="$1"
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    return 0
+  fi
+  if [ ! -f "$path" ]; then
+    return 0  # CREATE, not UPDATE — nothing to back up
+  fi
+  if is_unmanaged_path "$path"; then
+    return 0  # SPEC-0025: overlay paths are never written, never backed up
+  fi
+  if [ "$#" -ge 2 ] && [ "$(cat "$path")" = "$2" ]; then
+    return 0  # content unchanged — not an UPDATE
+  fi
+  if ! _backup_ensure_gen_dir; then
+    echo "ERROR: cannot create backup directory under $BACKUP_ROOT — aborting without overwriting $path (fail-safe, SPEC-0026)" >&2
+    exit 1
+  fi
+  local dest="$BACKUP_GEN_DIR/$path"
+  if ! mkdir -p "$(dirname "$dest")" 2>/dev/null || ! cp "$path" "$dest" 2>/dev/null; then
+    echo "ERROR: backup of $path to $dest failed — aborting without overwriting (fail-safe, SPEC-0026)" >&2
+    exit 1
+  fi
+  echo "  BACKUP: $dest"
+}
+
 write_file_if_new() {
   local path="$1"
   local content="$2"
@@ -9850,11 +10565,22 @@ update_file() {
     fi
     return 0
   fi
+  # SPEC-0026 FR-03: in diff mode show the unified diff for UPDATE targets
+  # (existing file whose content would change) and write nothing.
+  if [ "${DIFF_MODE:-false}" = "true" ]; then
+    if [ -f "$path" ] && [ "$(cat "$path")" != "$content" ]; then
+      echo "  DIFF: $path"
+      printf '%s\n' "$content" | diff -u -L "$path (current)" -L "$path (new)" "$path" - || true
+    fi
+    return 0
+  fi
   if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "  WOULD-UPDATE: $path"
     return 0
   fi
   mkdir -p "$dir"
+  # SPEC-0026 INV-02: never overwrite an existing file without a backup.
+  backup_before_write "$path" "$content"
   echo "$content" > "$path"
   echo "  UPDATE: $path"
 }
@@ -9863,10 +10589,25 @@ upsert_sage_section() {
   local file="$1"
   local snippet="$2"
 
-  if [ "${DRY_RUN:-false}" = "true" ]; then
+  # SPEC-0026 FR-05 / PRE-03: check marker consistency before any edit.
+  # A file with only one of the two markers is treated as damaged: editing
+  # it (replace or append) risks destroying user content, so skip it
+  # entirely (no change, no append), WARN, and keep the installer going.
+  local has_start=false has_end=false
+  if [ -f "$file" ]; then
+    grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null && has_start=true
+    grep -qF "$SAGE_END_MARKER" "$file" 2>/dev/null && has_end=true
+  fi
+  if [ "$has_start" != "$has_end" ]; then
+    echo "  WARN: $file has only one SAGE marker (start: $has_start / end: $has_end) — skipped without changes to avoid losing customizations (SPEC-0026)." >&2
+    echo "        Repair the markers manually, then re-run: see docs/installer-preservation.md" >&2
+    return 0
+  fi
+
+  if [ "${DRY_RUN:-false}" = "true" ] && [ "${DIFF_MODE:-false}" != "true" ]; then
     if [ ! -f "$file" ]; then
       echo "  WOULD-CREATE: $file"
-    elif grep -qF "$SAGE_START_MARKER" "$file" 2>/dev/null; then
+    elif [ "$has_start" = "true" ]; then
       echo "  WOULD-UPDATE: $file (SAGE section)"
     else
       echo "  WOULD-APPEND: $file (SAGE section)"
@@ -9875,16 +10616,24 @@ upsert_sage_section() {
   fi
 
   if [ ! -f "$file" ]; then
+    if [ "${DIFF_MODE:-false}" = "true" ]; then
+      echo "  WOULD-CREATE: $file"
+      return 0
+    fi
     echo "$snippet" > "$file"
     echo "  CREATE: $file"
     return
   fi
 
-  if grep -qF "$SAGE_START_MARKER" "$file"; then
+  # Build the expected post-upsert content in a temp file. It is used for
+  # the real write (mv), the pre-write backup comparison (TASK-0178) and
+  # the --diff preview (SPEC-0026 FR-04: the diff is taken against this
+  # expected content, so any change outside the markers shows up too).
+  local tmp_result=$(mktemp)
+  if [ "$has_start" = "true" ]; then
     # SAGEセクションが既にある → マーカー間を置換
     local tmp_before=$(mktemp)
     local tmp_after=$(mktemp)
-    local tmp_result=$(mktemp)
 
     # マーカーの行番号を取得
     local start_line=$(grep -nF "$SAGE_START_MARKER" "$file" | head -1 | cut -d: -f1)
@@ -9909,13 +10658,33 @@ upsert_sage_section() {
     cat "$tmp_before" > "$tmp_result"
     echo "$snippet" >> "$tmp_result"
     cat "$tmp_after" >> "$tmp_result"
-
-    mv "$tmp_result" "$file"
     rm -f "$tmp_before" "$tmp_after"
+  else
+    # マーカーなし → 末尾 append (既存行は不変)
+    cat "$file" > "$tmp_result"
+    echo "" >> "$tmp_result"
+    echo "$snippet" >> "$tmp_result"
+  fi
+
+  if [ "${DIFF_MODE:-false}" = "true" ]; then
+    if ! cmp -s "$file" "$tmp_result"; then
+      echo "  DIFF: $file"
+      diff -u -L "$file (current)" -L "$file (new)" "$file" "$tmp_result" || true
+    fi
+    rm -f "$tmp_result"
+    return 0
+  fi
+
+  if [ "$has_start" = "true" ]; then
+    # SPEC-0026 INV-02: back up before replacing the SAGE section
+    # (skipped inside backup_before_write when content is unchanged).
+    backup_before_write "$file" "$(cat "$tmp_result")"
+    mv "$tmp_result" "$file"
     echo "  UPDATE: $file (SAGE section replaced)"
   else
-    echo "" >> "$file"
-    echo "$snippet" >> "$file"
+    # SPEC-0026 INV-02: appending changes the file — back it up first.
+    backup_before_write "$file"
+    mv "$tmp_result" "$file"
     echo "  APPEND: $file (SAGE section added)"
   fi
 }
@@ -9947,6 +10716,8 @@ setup_commit_hook() {
   if [ -f "$hook_file" ] && grep -qF "SAGE" "$hook_file"; then
     echo "  SKIP: $hook_file (SAGE hook already present)"
   elif [ -f "$hook_file" ]; then
+    # SPEC-0026 INV-02: appending changes the file — back it up first.
+    backup_before_write "$hook_file"
     echo "" >> "$hook_file"
     echo "# --- SAGE: TASK-ID check ---" >> "$hook_file"
     echo "$TMPL_COMMIT_HOOK" >> "$hook_file"
@@ -9968,6 +10739,8 @@ audit_existing_claude_md() {
     return
   fi
 
+  # SPEC-0026 INV-02: back up a previous audit report before regenerating.
+  backup_before_write "$report"
   echo "# SAGE Adoption Audit" > "$report"
   echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$report"
   echo "" >> "$report"
@@ -10020,26 +10793,56 @@ setup_gitignore() {
   # numeric counters) is ignored. See TASK-0100 / Codex review P1 #1.
   if [ "${DRY_RUN:-false}" = "true" ]; then
     if [ ! -f .gitignore ]; then
-      echo "  WOULD-CREATE: .gitignore (with .sage/metrics/)"
+      echo "  WOULD-CREATE: .gitignore (with .sage/metrics/ and .sage/backup/)"
     else
       grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/metrics/"
+      grep -qxF '.sage/backup/' .gitignore 2>/dev/null || echo "  WOULD-APPEND: .gitignore += .sage/backup/"
     fi
     return
   fi
   if [ ! -f .gitignore ]; then
-    touch .gitignore
+    printf '%s\n' '.sage/metrics/' '.sage/backup/' > .gitignore
+  else
+    if ! grep -qxF '.sage/metrics/' .gitignore 2>/dev/null; then
+      # SPEC-0026 INV-02: appending changes an existing file — back it up first.
+      backup_before_write .gitignore
+      echo '.sage/metrics/' >> .gitignore
+    fi
+    # SPEC-0026 FR-09: keep backup snapshots out of the destination repo's history.
+    if ! grep -qxF '.sage/backup/' .gitignore 2>/dev/null; then
+      backup_before_write .gitignore
+      echo '.sage/backup/' >> .gitignore
+    fi
   fi
-  grep -qxF '.sage/metrics/' .gitignore 2>/dev/null || echo '.sage/metrics/' >> .gitignore
   echo "  OK"
 }
 
 # --- Parse arguments ---
 MODE="install"
 DRY_RUN=false
+# SPEC-0026 FR-03: --diff shows unified diffs of UPDATE targets, writes nothing.
+DIFF_MODE=false
 # SPEC-0018: --remote modifier for --verify-checksum (pre-scan to allow flag in any order)
 REMOTE_VERIFY=false
 for arg in "$@"; do
   if [ "$arg" = "--remote" ]; then REMOTE_VERIFY=true; fi
+done
+# SPEC-0028: --stack <name> takes a value, so it is pre-scanned (the main case
+# loop below iterates single args). The value is only ever compared against the
+# allowlist — it is never used as a path or command (SEC-01/INV-03).
+STACK_FLAG=false
+STACK_OPT=""
+_stack_expect=false
+for arg in "$@"; do
+  if [ "$_stack_expect" = "true" ]; then
+    STACK_OPT="$arg"
+    _stack_expect=false
+    continue
+  fi
+  if [ "$arg" = "--stack" ]; then
+    STACK_FLAG=true
+    _stack_expect=true
+  fi
 done
 for arg in "$@"; do
   case "$arg" in
@@ -10054,7 +10857,9 @@ for arg in "$@"; do
       fi
       ;;
     --remote) ;;  # SPEC-0018: pre-scanned above, no-op here
+    --stack) ;;   # SPEC-0028: pre-scanned above (value validated after this loop)
     --dry-run) DRY_RUN=true ;;
+    --diff) DIFF_MODE=true ;;
     --help)
       cat <<HELP_EOF
 Usage: bash install.sh [OPTIONS]
@@ -10063,6 +10868,11 @@ Usage: bash install.sh [OPTIONS]
   --update               Force update mode
   --version              Show SAGE version
   --dry-run              Preview without writing any files (SPEC-0010)
+  --stack <name>         Apply a project_checks stack preset on NEW install only
+                         (go | ts-pnpm | node-npm | python). Existing
+                         .sage/config.yaml is never modified (SPEC-0028)
+  --diff                 Show unified diffs of files that would be updated,
+                         without writing any files (SPEC-0026)
   --verify-checksum      Verify installed files against .sage/install-state.yaml
   --verify-checksum --remote
                          Verify the local installer against the GitHub Release
@@ -10079,8 +10889,36 @@ HELP_EOF
   esac
 done
 
+# SPEC-0028 FR-03/SEC-01: --stack accepts allowlist values only, by exact
+# string comparison. Unknown values fail before any file is written (AC-07).
+if [ "$STACK_FLAG" = "true" ]; then
+  case "$STACK_OPT" in
+    go|ts-pnpm|node-npm|python) ;;
+    *)
+      {
+        echo "ERROR: unknown --stack value: '${STACK_OPT}'"
+        echo ""
+        echo "Usage: bash $0 [--stack go|ts-pnpm|node-npm|python] [--dry-run] [OPTIONS]"
+        echo "  Allowed stacks: go, ts-pnpm, node-npm, python (SPEC-0028)"
+        echo "  See 'bash $0 --help' for all options."
+      } >&2
+      exit 1
+      ;;
+  esac
+fi
+
+# SPEC-0026 PRE-02: --diff piggybacks on the dry-run write suppression so
+# no code path can create, modify, or delete files (POST-02). Backups are
+# not taken either (nothing is written).
+if [ "$DIFF_MODE" = "true" ]; then
+  DRY_RUN=true
+  echo "========================================="
+  echo "  SAGE v${SAGE_VERSION} — DIFF PREVIEW (no writes will occur)"
+  echo "========================================="
+  echo ""
+  chmod() { return 0; }
 # Announce dry-run mode prominently
-if [ "$DRY_RUN" = "true" ]; then
+elif [ "$DRY_RUN" = "true" ]; then
   echo "========================================="
   echo "  SAGE v${SAGE_VERSION} — DRY RUN (no writes will occur)"
   echo "========================================="
@@ -10105,9 +10943,59 @@ if [ -n "$INSTALLED_VERSION" ] && [ "$MODE" = "install" ]; then
   MODE="update"
 fi
 
-if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ]; then
+# SPEC-0026 FR-03: --diff always evaluates the diff, even at the same
+# version — local drift against the templates is exactly what it must show.
+if [ "$MODE" = "update" ] && [ "$INSTALLED_VERSION" = "$SAGE_VERSION" ] && [ "$DIFF_MODE" != "true" ]; then
   echo "Already at v${SAGE_VERSION}. No update needed."
   exit 0
+fi
+
+# --- SPEC-0028: stack preset resolution ---
+# A preset is selected only while .sage/config.yaml does not exist (FR-02/FR-06
+# preserve-if-exists). Auto-detection checks marker file existence only — file
+# contents are never read or copied into config.yaml (PRE-02/SEC-02). The
+# selected body is one of the embedded static preset strings (INV-04).
+STACK_NAME=""
+STACK_PRESET_BODY=""
+if [ -f ".sage/config.yaml" ]; then
+  if [ "$STACK_FLAG" = "true" ]; then
+    echo "INFO: existing .sage/config.yaml found — --stack ${STACK_OPT} is not applied (preserve-if-exists, SPEC-0028)"
+  fi
+else
+  if [ "$STACK_FLAG" = "true" ]; then
+    STACK_NAME="$STACK_OPT"
+    echo "INFO: stack preset '${STACK_NAME}' selected via --stack (SPEC-0028)"
+  else
+    detected_markers=""
+    [ -f "go.mod" ] && detected_markers="${detected_markers} go.mod"
+    [ -f "pnpm-workspace.yaml" ] && detected_markers="${detected_markers} pnpm-workspace.yaml"
+    [ -f "pnpm-lock.yaml" ] && detected_markers="${detected_markers} pnpm-lock.yaml"
+    [ -f "package.json" ] && detected_markers="${detected_markers} package.json"
+    [ -f "pyproject.toml" ] && detected_markers="${detected_markers} pyproject.toml"
+    if [ -n "$detected_markers" ]; then
+      # Priority: go > ts-pnpm > node-npm > python (FR-04). pnpm markers are
+      # more specific than package.json, so ts-pnpm wins over node-npm.
+      if [ -f "go.mod" ]; then
+        STACK_NAME="go"
+      elif [ -f "pnpm-workspace.yaml" ] || [ -f "pnpm-lock.yaml" ]; then
+        STACK_NAME="ts-pnpm"
+      elif [ -f "package.json" ]; then
+        STACK_NAME="node-npm"
+      else
+        STACK_NAME="python"
+      fi
+      echo "INFO: detected stack markers:${detected_markers} (SPEC-0028)"
+      echo "INFO: applying stack preset '${STACK_NAME}' to project_checks (priority: go > ts-pnpm > node-npm > python; override with --stack <name>)"
+    fi
+    # No marker detected: keep the unset template — output and generated
+    # files stay byte-identical to the pre-SPEC-0028 installer (FR-05/INV-02).
+  fi
+  case "$STACK_NAME" in
+    go) STACK_PRESET_BODY="$TMPL_STACK_GO" ;;
+    ts-pnpm) STACK_PRESET_BODY="$TMPL_STACK_TS_PNPM" ;;
+    node-npm) STACK_PRESET_BODY="$TMPL_STACK_NODE_NPM" ;;
+    python) STACK_PRESET_BODY="$TMPL_STACK_PYTHON" ;;
+  esac
 fi
 
 echo "========================================="
@@ -10122,9 +11010,9 @@ echo ""
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
 if [ "${DRY_RUN:-false}" = "true" ]; then
-  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
+  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .codex/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
 else
-  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
+  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .codex/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
 fi
 echo "  OK"
 
@@ -10142,7 +11030,16 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "sage/quality-gates.md" "$TMPL_QUALITY_GATES"
   write_file_if_new "sage/adoption-phases.md" "$TMPL_ADOPTION"
   write_file_if_new "sage/traceability.md" "$TMPL_TRACEABILITY"
+  # SPEC-0028 PRE-01/POST-01: apply the selected stack preset immediately
+  # before the write, and only while .sage/config.yaml is still absent.
+  # write_file_if_new keeps its preserve-if-exists behavior either way (INV-01).
+  if [ -n "$STACK_PRESET_BODY" ] && [ ! -f ".sage/config.yaml" ]; then
+    TMPL_CONFIG=$(replace_project_checks_section "$TMPL_CONFIG" "$STACK_PRESET_BODY")
+  fi
   write_file_if_new ".sage/config.yaml" "$TMPL_CONFIG"
+  # SPEC-0027: id-patterns.json is preserve-if-exists (AC-12) — never overwritten
+  write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
+  write_file_if_new "scripts/sage-id-pattern.sh" "$TMPL_ID_PATTERN_LOADER"
   write_file_if_new "scripts/sage-validate.sh" "$TMPL_VALIDATE" && chmod +x "scripts/sage-validate.sh"
   write_file_if_new "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   write_file_if_new "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
@@ -10151,6 +11048,8 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   write_file_if_new "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   write_file_if_new "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
+  # SPEC-0029 FR-07: codex-rules doc ships via the same path as the packet
+  write_file_if_new "docs/codex-rules.md" "$TMPL_CODEX_RULES_DOC"
 else
   # Update mode: テンプレートとガバナンスはSAGE管理なので上書き
   update_file "specs/_template.md" "$TMPL_SPEC"
@@ -10162,6 +11061,10 @@ else
   update_file "sage/quality-gates.md" "$TMPL_QUALITY_GATES"
   update_file "sage/adoption-phases.md" "$TMPL_ADOPTION"
   update_file "sage/traceability.md" "$TMPL_TRACEABILITY"
+  # SPEC-0027: loader is SAGE-managed (updated); id-patterns.json is
+  # project-customizable — installed only when missing (preserve-if-exists)
+  update_file "scripts/sage-id-pattern.sh" "$TMPL_ID_PATTERN_LOADER"
+  write_file_if_new ".sage/id-patterns.json" "$TMPL_ID_PATTERNS"
   update_file "scripts/sage-validate.sh" "$TMPL_VALIDATE" && chmod +x "scripts/sage-validate.sh"
   update_file "scripts/sage-id-gen.sh" "$TMPL_ID_GEN" && chmod +x "scripts/sage-id-gen.sh"
   update_file "scripts/sage-trace-check.sh" "$TMPL_TRACE_CHECK" && chmod +x "scripts/sage-trace-check.sh"
@@ -10170,6 +11073,8 @@ else
   update_file "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   update_file "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   update_file "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
+  # SPEC-0029 FR-07: codex-rules doc ships via the same path as the packet
+  update_file "docs/codex-rules.md" "$TMPL_CODEX_RULES_DOC"
   # failures.md, config.yaml はプロジェクト固有データが入るので更新しない
   echo "  KEEP: sage/failures.md (project data)"
   echo "  KEEP: .sage/config.yaml (project settings)"
@@ -10185,6 +11090,17 @@ write_rules_file ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
 write_rules_file ".claude/rules/tasks-rules.md" "$TMPL_RULES_TASKS"
 write_rules_file ".claude/rules/src-rules.md" "$TMPL_RULES_SRC"
 write_rules_file ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
+
+# SPEC-0029: .codex/rules/ managed distribution — same overlay-safe writer
+# (write_rules_file goes through is_unmanaged_path, so .codex/rules/local/**
+# is unreachable — FR-03 / SEC-03).
+echo ""
+echo "[3b/9] .codex/rules/ (SPEC-0029)..."
+write_rules_file ".codex/rules/specs-rules.md" "$TMPL_CODEX_RULES_SPECS"
+write_rules_file ".codex/rules/plans-rules.md" "$TMPL_CODEX_RULES_PLANS"
+write_rules_file ".codex/rules/tasks-rules.md" "$TMPL_CODEX_RULES_TASKS"
+write_rules_file ".codex/rules/src-rules.md" "$TMPL_CODEX_RULES_SRC"
+write_rules_file ".codex/rules/sage-governance-rules.md" "$TMPL_CODEX_RULES_GOVERNANCE"
 
 # --- [4/9] .claude/skills/ ---
 echo ""
@@ -10303,6 +11219,8 @@ if [ "${DRY_RUN:-false}" = "true" ]; then
   fi
 elif [ ! -f ".claude/settings.json" ] || ! grep -qF "block-dangerous-commands" ".claude/settings.json" 2>/dev/null; then
   mkdir -p .claude
+  # SPEC-0026 INV-02: an existing settings.json without hooks gets replaced — back it up.
+  backup_before_write ".claude/settings.json" "$TMPL_SETTINGS_JSON"
   echo "$TMPL_SETTINGS_JSON" > ".claude/settings.json"
   echo "  CREATE: .claude/settings.json (with hooks)"
 else
@@ -10323,6 +11241,8 @@ setup_gitignore
 if [ "${DRY_RUN:-false}" = "true" ]; then
   echo "  WOULD-WRITE: .sage/version (${SAGE_VERSION})"
 else
+  # SPEC-0026 INV-02 (no-op when the version is unchanged).
+  backup_before_write ".sage/version" "$SAGE_VERSION"
   echo "$SAGE_VERSION" > .sage/version
 fi
 
@@ -10348,6 +11268,8 @@ generate_install_state() {
     return
   fi
 
+  # SPEC-0026 INV-02: back up the previous install-state before regenerating.
+  backup_before_write "$state_file"
   cat > "$state_file" <<STATEHEADER
 version: "${SAGE_VERSION}"
 installed_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -10368,6 +11290,7 @@ STATEHEADER
     "sage/adoption-phases.md"
     "sage/traceability.md"
     # Scripts
+    "scripts/sage-id-pattern.sh"
     "scripts/sage-validate.sh"
     "scripts/sage-id-gen.sh"
     "scripts/sage-trace-check.sh"
@@ -10377,12 +11300,19 @@ STATEHEADER
     # Docs
     "docs/codex-delegation-packet.md"
     "docs/claude-collaboration-brief.md"
+    "docs/codex-rules.md"
     # Claude Code rules and skills
     ".claude/rules/specs-rules.md"
     ".claude/rules/plans-rules.md"
     ".claude/rules/tasks-rules.md"
     ".claude/rules/src-rules.md"
     ".claude/rules/sage-governance-rules.md"
+    # Codex rules (SPEC-0029)
+    ".codex/rules/specs-rules.md"
+    ".codex/rules/plans-rules.md"
+    ".codex/rules/tasks-rules.md"
+    ".codex/rules/src-rules.md"
+    ".codex/rules/sage-governance-rules.md"
     ".claude/skills/sage-spec/SKILL.md"
     ".claude/skills/sage-plan/SKILL.md"
     ".claude/skills/sage-review/SKILL.md"
@@ -10404,6 +11334,7 @@ STATEHEADER
     "CLAUDE.md"
     "AGENTS.md"
     ".sage/config.yaml"
+    ".sage/id-patterns.json"
     "sage/failures.md"
     ".claude/settings.json"
   )
