@@ -453,6 +453,8 @@ echo "# My project rules" > .claude/rules/local/my-rules.md
 bash install.sh   # 何度更新しても local/ は不変
 ```
 
+Codex 向けの managed ルール層 `.codex/rules/`（SPEC-0029）も同じ方式で配布されます。優先順位（`.codex/rules/` > ルート `AGENTS.md`）・読み込み手順・`.claude/rules/` との対応表は [docs/codex-rules.md](docs/codex-rules.md) を参照してください。
+
 **レビュー責任について（セキュリティ境界）**: overlay は `.sage/install-state.yaml` の checksum 管理外です。つまりテンプレート供給元から改変されない領域である一方、`install.sh --verify-checksum` の検証対象にもなりません。`local/` 配下の内容は**導入プロジェクト自身のレビュー責任**です。
 
 **テンプレート更新時の checksum 変化について**: テンプレート更新（例: managed rules への注記追加）で managed ファイルの checksum が変わると、更新前の install-state に対して `--verify-checksum` が一時的に FAIL に見えることがあります。これは通常のテンプレート更新と同じ扱いで、`bash install.sh` 実行による install-state 再生成で解消されます。
