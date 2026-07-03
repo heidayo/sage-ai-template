@@ -14,7 +14,7 @@ TYPE="${1:-}"
 
 if [ -z "$TYPE" ]; then
   echo "Usage: bash scripts/sage-id-gen.sh <type>"
-  echo "  type: spec | plan | task | run | fail"
+  echo "  type: spec | plan | task | run | fail | gate-fp"
   exit 1
 fi
 
@@ -39,19 +39,37 @@ case "$TYPE" in
     DIR="sage"
     PREFIX="FAIL"
     ;;
+  gate-fp)
+    DIR="sage"
+    PREFIX="GATE-FP"
+    ;;
   *)
     echo "Unknown type: $TYPE"
-    echo "  Valid types: spec | plan | task | run | fail"
+    echo "  Valid types: spec | plan | task | run | fail | gate-fp"
     exit 1
     ;;
 esac
 
 # Default-format ERE for the sequential scan (PREFIX + 4-digit number)
-DEFAULT_RE="$(sage_id_default_regex "$TYPE")"
+if [ "$TYPE" = "gate-fp" ]; then
+  # SPEC-0031 design decision 2: GATE-FP is a record-only ID (numbered in
+  # sage/failures.md) and is NOT accepted by the SPEC-0027 loader, the
+  # commit-msg hook, or the trace check. Use a local constant ERE instead of
+  # sage_id_default_regex so custom accept patterns can never affect it.
+  DEFAULT_RE='GATE-FP-[0-9]{4}'
+else
+  DEFAULT_RE="$(sage_id_default_regex "$TYPE")"
+fi
 
 # Find the highest existing ID
 LAST_NUM=0
-if [ "$TYPE" = "fail" ]; then
+if [ "$TYPE" = "gate-fp" ]; then
+  # Same failures.md scan as "fail", but GATE-FP-0001 splits into 3 fields on
+  # '-', so the numeric sort key is field 3 (not field 2 as for FAIL-XXXX)
+  if [ -f "sage/failures.md" ]; then
+    LAST_NUM=$(grep -oE "$DEFAULT_RE" sage/failures.md 2>/dev/null | sort -t'-' -k3 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
+  fi
+elif [ "$TYPE" = "fail" ]; then
   # Search in failures.md
   if [ -f "sage/failures.md" ]; then
     LAST_NUM=$(grep -oE "$DEFAULT_RE" sage/failures.md 2>/dev/null | sort -t'-' -k2 -n | tail -1 | grep -oE '[0-9]{4}' || echo 0)
