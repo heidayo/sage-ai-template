@@ -2412,6 +2412,245 @@ write_rules_file() {
   fi
 }
 
+read -r -d '' TMPL_CODEX_RULES_SPECS <<'__EOF_TMPL_CODEX_RULES_SPECS__' || true
+---
+description: "SAGE rules for creating and editing specifications (Codex guidance)"
+globs: ["specs/**"]
+---
+# Spec Rules
+
+Guidance for Codex sessions — follow as written; SAGE does not enforce these at runtime in Codex.
+
+When creating or editing files in specs/:
+
+## Required fields (all mandatory)
+- SPEC-ID: assigned via `bash scripts/sage-id-gen.sh spec`
+- Background/purpose: at least one sentence explaining why
+- Scope (included): bullet list of what changes
+- Scope (excluded): explicit exclusions. "None" is never acceptable
+- Acceptance criteria: minimum 3, each verifiable by command or test
+- Error cases: minimum 1 defined
+- Security requirements: stated, or reason why N/A
+
+## Exit criteria checklist
+- [ ] SPEC-ID assigned
+- [ ] Background described
+- [ ] Scope listed as bullets
+- [ ] Out-of-scope explicitly stated
+- [ ] 3+ acceptance criteria, each command-verifiable
+- [ ] 1+ error case
+- [ ] Security requirements stated
+
+## Prohibited
+- Approving a spec with "TBD" or "TODO" in required fields
+- Skipping the out-of-scope section
+- Acceptance criteria that cannot be verified by command or test
+
+## Template
+Use `specs/_template.md` as the base for all new specs.
+
+__EOF_TMPL_CODEX_RULES_SPECS__
+
+read -r -d '' TMPL_CODEX_RULES_PLANS <<'__EOF_TMPL_CODEX_RULES_PLANS__' || true
+---
+description: "SAGE rules for creating implementation plans (Codex guidance)"
+globs: ["plans/**"]
+---
+# Plan Rules
+
+Guidance for Codex sessions — follow as written; SAGE does not enforce these at runtime in Codex.
+
+When creating or editing files in plans/:
+
+## Required fields
+- PLAN-ID: linked to a SPEC-ID
+- Affected layers: list all (controller/usecase/domain/infrastructure etc.)
+- Impact scope: identified by feature/module
+- Risks: at least 1 raised
+- Verification: specify required methods (unit/integration/e2e/security)
+
+## Exit criteria checklist
+- [ ] PLAN-ID linked to SPEC-ID
+- [ ] Affected layers listed
+- [ ] Impact scope identified
+- [ ] 1+ risk raised
+- [ ] Verification methods specified
+
+## Prohibited
+- Creating a plan without an approved SPEC
+- Starting implementation without an approved plan
+
+## Template
+Use `plans/_template.md` as the base.
+
+__EOF_TMPL_CODEX_RULES_PLANS__
+
+read -r -d '' TMPL_CODEX_RULES_TASKS <<'__EOF_TMPL_CODEX_RULES_TASKS__' || true
+---
+description: "SAGE rules for task definitions (Codex guidance)"
+globs: ["tasks/**"]
+---
+# Task Rules
+
+Guidance for Codex sessions — follow as written; SAGE does not enforce these at runtime in Codex.
+
+When creating or editing files in tasks/:
+
+## Required fields
+- TASK-ID: assigned via `bash scripts/sage-id-gen.sh task`
+- Single responsibility: one task does one thing (no spanning layers or purposes)
+- File Scope: explicit list of files allowed to modify
+- Dependencies: list dependent TASK-IDs or state "none"
+- Completion criteria: defined by test pass/fail
+
+## Exit criteria checklist
+- [ ] TASK-ID assigned
+- [ ] Single responsibility maintained
+- [ ] File Scope explicitly listed
+- [ ] Dependencies stated
+- [ ] Parallel feasibility evaluated
+- [ ] Completion criteria defined
+
+## Prohibited
+- Combining multiple responsibilities in one task
+- Omitting File Scope (every task must state which files it may touch)
+
+## Template
+Use `tasks/_template.md` as the base.
+
+__EOF_TMPL_CODEX_RULES_TASKS__
+
+read -r -d '' TMPL_CODEX_RULES_SRC <<'__EOF_TMPL_CODEX_RULES_SRC__' || true
+---
+description: "SAGE rules for source code implementation (Codex guidance)"
+globs: ["src/**", "app/**", "lib/**", "components/**", "packages/**"]
+---
+# Implementation Rules
+
+These rules are guidance for Codex sessions, not runtime enforcement: SAGE has no hook mechanism in Codex, so runtime blocking (if any) is configured in Codex itself (SPEC-0022 SEC-03). Follow them as written. For well-scoped delegated work, also follow `docs/codex-delegation-packet.md`.
+
+When writing or modifying source code:
+
+## Before coding
+- Confirm a SPEC and TASK exist for this change
+- Check the TASK's File Scope — only modify listed files
+- Include TASK-ID in every commit message (e.g., `TASK-0001: add endpoint`)
+
+## Forbidden shortcuts
+- TODO/FIXME in committed code
+- Type assertions (`as unknown as T`) without explicit approval
+- Bypassing quality gates (including force push)
+- Changes outside assigned File Scope
+- Silent scope expansion (adding unspecified changes)
+
+## Before starting
+実装開始前に `sage/failures.md` を確認し、過去に同様のパターンで失敗していないか確認すること。
+
+## AI Output Verification
+
+AI生成コードは非決定的であり、幻覚（存在しないパッケージ・APIの生成）を含む可能性がある。コミット前に以下を確認すること:
+
+### 必須（全てのAI生成コード）
+- 全ての import/require が実際に解決できること（プロジェクトをビルド・実行して確認）
+- 「正しそうに見える」を信用しない — テストを実行して確認する
+
+### 条件付き必須
+- 外部SDK/HTTPクライアントを新規追加・変更した場合: 外部APIコールがライブラリの実ドキュメントと一致すること
+- 再現可能なgenerator/promptテンプレートが存在する場合: 同一要件から再生成し、diffを取って不安定な箇所を特定する
+
+## Code readability and maintainability
+
+コードは正しく動くだけでなく、他の開発者（人間・AI問わず）が読んで理解・保守できることを重視する。コミット前に以下を確認すること:
+
+### Intentional changes only
+- 変更ブロックごとにTASK目的との対応を説明できるか。説明できない追加・変更は削除する
+- 変更対象外の行に差分が出ていないか（trailing whitespace、行末改行の変更等）
+
+### Consistency with existing code
+- 同ファイル・同モジュール内に同等の処理パターンがある場合、既存のパターン・命名・記法に合わせる
+- 既存パターンと異なる書き方をする場合は、改善の理由を説明できること（既存が悪い場合は改善してよい）
+
+### Readable intent
+- 非自明な制御フロー（early return、条件分岐、例外処理）の意図がコードだけで伝わらない場合、コメントで補足する
+- 関数のインターフェース設計に一貫性を持たせる（条件分岐に使う値の一部だけを引数にして残りを外部依存にしない）
+
+### No speculative code
+- 「念のため」や「将来使うかもしれない」コードを追加しない
+- 追加するコードは全て、現在のTASKの完了に必要な理由を説明できること
+
+## Error resolution protocol
+When an error occurs:
+1. Record the error with TASK-ID in the run log
+2. Check `sage/anti-patterns.md` for known patterns
+3. If new pattern, add to `sage/failures.md` before fixing
+4. If same error occurs 3 times, escalate to `sage/anti-patterns.md`
+
+Error context (always include these 6 elements):
+1. Error log: complete stack trace
+2. Failing file: path and line number
+3. Related spec: SPEC-ID and relevant acceptance criteria
+4. Recent changes: git diff output
+5. Fix scope: files allowed to modify
+6. Completion criteria: test pass/fail
+
+## Error resolution prohibitions
+| Prohibited | Required |
+|-----------|----------|
+| Suppress types with `any` | Fix the type mismatch properly |
+| Modify tests to make them pass | Fix implementation to pass existing tests |
+| Adjust code to absorb spec drift | Update spec first, then fix implementation |
+| Swallow errors with try/catch | Log the error, then re-throw |
+
+__EOF_TMPL_CODEX_RULES_SRC__
+
+read -r -d '' TMPL_CODEX_RULES_GOVERNANCE <<'__EOF_TMPL_CODEX_RULES_GOVERNANCE__' || true
+---
+description: "SAGE governance protection rules (Codex guidance)"
+globs: ["sage/**", "CLAUDE.md", "AGENTS.md"]
+---
+# Governance Rules
+
+Guidance for Codex sessions — follow as written; SAGE does not enforce these at runtime in Codex.
+
+## Protected files
+- `sage/` directory: human approval required for any modification
+- `AGENTS.md`: human-only (AI must not modify without explicit instruction)
+- `CLAUDE.md`: same as AGENTS.md
+
+## Agent separation
+- The same agent MUST NOT hold both implementation and final approval
+- The same agent MUST NOT hold both implementation and security approval
+- Implementation and review must be in separate sessions
+
+## Traceability
+Every change must be traceable: SPEC-ID → PLAN-ID → TASK-ID → commit
+- All PRs must include SPEC-ID, PLAN-ID, TASK-ID in the body
+- All commit messages must include TASK-ID
+- PRs without SPEC-ID should be rejected
+
+## Language rules
+| Context | Language |
+|---------|----------|
+| User-facing documentation | Japanese |
+| Code, comments, variable names | English |
+| Commit messages | English |
+| PR descriptions | Japanese |
+| Test case names | Japanese |
+
+__EOF_TMPL_CODEX_RULES_GOVERNANCE__
+
+# SPEC-0029: local overlay reference notice appended to all managed Codex rules (FR-02).
+CODEX_RULES_LOCAL_NOTICE='
+---
+
+<!-- SAGE managed rules file (SPEC-0029): replaced entirely on install.sh update. Put project-specific rules under .codex/rules/local/ instead. -->
+注記: このファイルは install.sh 更新で全置換されます。プロジェクト固有ルールは `.codex/rules/local/` に置いてください。'
+TMPL_CODEX_RULES_SPECS="${TMPL_CODEX_RULES_SPECS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_PLANS="${TMPL_CODEX_RULES_PLANS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_TASKS="${TMPL_CODEX_RULES_TASKS}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_SRC="${TMPL_CODEX_RULES_SRC}${CODEX_RULES_LOCAL_NOTICE}"
+TMPL_CODEX_RULES_GOVERNANCE="${TMPL_CODEX_RULES_GOVERNANCE}${CODEX_RULES_LOCAL_NOTICE}"
+
 read -r -d '' TMPL_SKILL_SPEC <<'__EOF_TMPL_SKILL_SPEC__' || true
 ---
 name: sage-spec
@@ -5590,6 +5829,77 @@ Claude 作業中に Codex 側変更が必要になった場合、Claude は直�
 - SPEC-0023 (本 brief の起票根拠): [specs/SPEC-0023-claude-collaboration-pairing.md](../specs/SPEC-0023-claude-collaboration-pairing.md)
 
 __EOF_TMPL_CLAUDE_COLLABORATION_BRIEF__
+
+read -r -d '' TMPL_CODEX_RULES_DOC <<'__EOF_TMPL_CODEX_RULES_DOC__' || true
+# Codex Rules Layer（`.codex/rules/`）— 優先順位・読み込み手順・対応表
+
+> [!NOTE]
+> 本文書は **SPEC-0029 で新設**された SAGE 管理文書です。新設のみ本 SPEC（Claude 側 task）で行い、**以後の本文修正は Codex 側 task** とします（SPEC-0023 boundary — Codex-specific ファイル群に帰属）。
+
+SAGE installer は `.claude/rules/`（Claude Code 向け）と対称の Codex 向けルール層として、`.codex/rules/` に 5 つの managed ルールファイルを配布します（実体: `templates/codex-rules/`）。本文書はその優先順位規約・読み込み手順・`.claude/rules/` との対応・local overlay の使い方を定めます。
+
+これらのルールは **runtime enforcement ではなく guidance** です。Claude Code の hooks に相当する強制機構は Codex 側には配布されません。runtime での強制が必要な場合は Codex 本体の設定で行ってください（SPEC-0022 SEC-03 と同方針）。
+
+## 1. 優先順位規約
+
+```
+.codex/rules/（層別・具体則） > ルート AGENTS.md（一般則）
+```
+
+- 具体則が一般則に優先します。`.codex/rules/` の記述とルート `AGENTS.md` の記述が矛盾する場合、Codex セッションは **`.codex/rules/` 側に従って**ください。
+- ただし矛盾は放置せず、**矛盾自体を paired-update で解消**します（SPEC-0023 §10 doctrine）。矛盾を発見したら follow-up task として起票してください。
+- `.codex/rules/local/`（プロジェクト固有 overlay）は managed ルールをさらに具体化する層であり、プロジェクト内ではこれが最優先です。
+
+## 2. 読み込み手順（Codex config / AGENTS.md 参照機構前提）
+
+Codex は `.codex/rules/` を**自動ロードしません**。Codex の AGENTS.md 参照機構を前提に、ルート `AGENTS.md`（または `.codex/AGENTS.md`）から明示的に参照させます:
+
+1. ルート `AGENTS.md`（または `.codex/AGENTS.md`）に「セッション開始時に `.codex/rules/` 配下の各ルールを読み、該当ディレクトリの作業時に従う」旨の参照を記載する
+2. Codex セッションは、編集対象に応じて該当ルール（例: `specs/` を編集するなら `.codex/rules/specs-rules.md`）を参照する
+3. プロジェクト固有ルールがある場合は `.codex/rules/local/` も併せて参照する
+
+> [!IMPORTANT]
+> `AGENTS.md` への参照追記の実施自体は **Codex follow-up task** です（SPEC-0029 FR-09 — 本 SPEC では AGENTS.md を編集せず、PR 本文に追記案のみ提示）。追記が行われるまで、Codex が `.codex/rules/` を読む保証はありません（SPEC-0029 ASM-02）。
+
+## 3. `.claude/rules/` との対応表
+
+配布対象 5 ファイルは 1:1 対応です（`harness-rules.md` は Claude Code 専用機構のため Codex ミラー対象外）。
+
+| `.claude/rules/`（Claude Code） | `.codex/rules/`（Codex） | 区分 |
+|---|---|---|
+| `specs-rules.md` | `specs-rules.md` | SHARED（意味的同一） |
+| `plans-rules.md` | `plans-rules.md` | SHARED（意味的同一） |
+| `tasks-rules.md` | `tasks-rules.md` | SHARED（意味的同一） |
+| `src-rules.md` | `src-rules.md` | SHARED（Codex 版は guidance であることを明記） |
+| `sage-governance-rules.md` | `sage-governance-rules.md` | SHARED（意味的同一） |
+| `harness-rules.md`（配布対象外） | —（ミラーなし） | CLI-specific（Claude Code 専用） |
+
+両側の実体はそれぞれ `templates/rules/` / `templates/codex-rules/` にあり、semantic alignment は SPEC-0023 §10 の paired-update doctrine とテスト（ファイル集合の 1:1 対応検証）で維持します。バイト同一は要求されません（CLI-specific 文言調整を許容 — SPEC-0029 NFR-03）。
+
+## 4. `.codex/rules/local/` overlay の使い方
+
+`.codex/rules/` の managed 5 ファイルは `install.sh` 更新時に**全置換**されます。プロジェクト固有ルールは managed ファイルに直接書かず、installer 絶対不可侵の overlay に置いてください（SPEC-0025）:
+
+```bash
+mkdir -p .codex/rules/local
+echo "# My project Codex rules" > .codex/rules/local/my-rules.md
+bash install.sh   # 何度更新しても local/ は不変
+```
+
+| プロジェクト固有ルールの置き方 | `bash install.sh` 更新時 |
+|:---|:---|
+| managed ファイル（`.codex/rules/specs-rules.md` 等）に直接追記 | ❌ 全置換され**消える** |
+| `.codex/rules/local/` にファイルを配置 | ✅ **保持される** |
+
+**既存導入先向けの移行案内**: SPEC-0029 以前に `.codex/rules/` 直下へ自作ルールを置いていた場合、SAGE 管理名 5 件（`specs/plans/tasks/src/sage-governance-rules.md`）と同名のファイルは初回 `--update` で SAGE テンプレートに上書きされます。適用前に自作ルールを `.codex/rules/local/` へ退避してください。別名ファイルは installer が触りません（書き込み対象は固定 5 パスのみ）。
+
+## 関連
+
+- SPEC-0029（本レイヤの新設）/ SPEC-0025（local overlay 不可侵）/ SPEC-0023（AGENTS/CLAUDE pairing doctrine）/ SPEC-0022（Codex delegation packet / boundary）
+- `docs/codex-security.md` — Codex 利用時のセキュリティ設定
+- `docs/codex-delegation-packet.md` — Codex への委任 packet
+
+__EOF_TMPL_CODEX_RULES_DOC__
 
 read -r -d '' TMPL_HOOK_BLOCK_DANGEROUS <<'__EOF_TMPL_HOOK_BLOCK_DANGEROUS__' || true
 #!/usr/bin/env bash
@@ -10645,9 +10955,9 @@ echo ""
 # --- [1/9] Directories ---
 echo "[1/9] ディレクトリ..."
 if [ "${DRY_RUN:-false}" = "true" ]; then
-  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
+  echo "  WOULD-MKDIR: specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .codex/rules .claude/skills/{sage-spec,sage-plan,sage-review,sage-review/references,sage-evaluate/references,sage-harness,sage-promote}"
 else
-  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
+  mkdir -p specs plans tasks sage .sage/runs .sage/metrics docs scripts .claude/rules .codex/rules .claude/skills/sage-spec .claude/skills/sage-plan .claude/skills/sage-review .claude/skills/sage-review/references .claude/skills/sage-evaluate/references .claude/skills/sage-harness .claude/skills/sage-promote
 fi
 echo "  OK"
 
@@ -10683,6 +10993,8 @@ if [ "$MODE" = "install" ]; then
   write_file_if_new "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   write_file_if_new "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   write_file_if_new "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
+  # SPEC-0029 FR-07: codex-rules doc ships via the same path as the packet
+  write_file_if_new "docs/codex-rules.md" "$TMPL_CODEX_RULES_DOC"
 else
   # Update mode: テンプレートとガバナンスはSAGE管理なので上書き
   update_file "specs/_template.md" "$TMPL_SPEC"
@@ -10706,6 +11018,8 @@ else
   update_file "scripts/sage-retro-spec.sh" "$TMPL_RETRO_SPEC" && chmod +x "scripts/sage-retro-spec.sh"
   update_file "docs/codex-delegation-packet.md" "$TMPL_CODEX_DELEGATION_PACKET"
   update_file "docs/claude-collaboration-brief.md" "$TMPL_CLAUDE_COLLABORATION_BRIEF"
+  # SPEC-0029 FR-07: codex-rules doc ships via the same path as the packet
+  update_file "docs/codex-rules.md" "$TMPL_CODEX_RULES_DOC"
   # failures.md, config.yaml はプロジェクト固有データが入るので更新しない
   echo "  KEEP: sage/failures.md (project data)"
   echo "  KEEP: .sage/config.yaml (project settings)"
@@ -10721,6 +11035,17 @@ write_rules_file ".claude/rules/plans-rules.md" "$TMPL_RULES_PLANS"
 write_rules_file ".claude/rules/tasks-rules.md" "$TMPL_RULES_TASKS"
 write_rules_file ".claude/rules/src-rules.md" "$TMPL_RULES_SRC"
 write_rules_file ".claude/rules/sage-governance-rules.md" "$TMPL_RULES_GOVERNANCE"
+
+# SPEC-0029: .codex/rules/ managed distribution — same overlay-safe writer
+# (write_rules_file goes through is_unmanaged_path, so .codex/rules/local/**
+# is unreachable — FR-03 / SEC-03).
+echo ""
+echo "[3b/9] .codex/rules/ (SPEC-0029)..."
+write_rules_file ".codex/rules/specs-rules.md" "$TMPL_CODEX_RULES_SPECS"
+write_rules_file ".codex/rules/plans-rules.md" "$TMPL_CODEX_RULES_PLANS"
+write_rules_file ".codex/rules/tasks-rules.md" "$TMPL_CODEX_RULES_TASKS"
+write_rules_file ".codex/rules/src-rules.md" "$TMPL_CODEX_RULES_SRC"
+write_rules_file ".codex/rules/sage-governance-rules.md" "$TMPL_CODEX_RULES_GOVERNANCE"
 
 # --- [4/9] .claude/skills/ ---
 echo ""
@@ -10920,12 +11245,19 @@ STATEHEADER
     # Docs
     "docs/codex-delegation-packet.md"
     "docs/claude-collaboration-brief.md"
+    "docs/codex-rules.md"
     # Claude Code rules and skills
     ".claude/rules/specs-rules.md"
     ".claude/rules/plans-rules.md"
     ".claude/rules/tasks-rules.md"
     ".claude/rules/src-rules.md"
     ".claude/rules/sage-governance-rules.md"
+    # Codex rules (SPEC-0029)
+    ".codex/rules/specs-rules.md"
+    ".codex/rules/plans-rules.md"
+    ".codex/rules/tasks-rules.md"
+    ".codex/rules/src-rules.md"
+    ".codex/rules/sage-governance-rules.md"
     ".claude/skills/sage-spec/SKILL.md"
     ".claude/skills/sage-plan/SKILL.md"
     ".claude/skills/sage-review/SKILL.md"
