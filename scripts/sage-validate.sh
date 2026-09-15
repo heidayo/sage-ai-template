@@ -173,7 +173,7 @@ if [[ "$CURRENT_BRANCH" == promote/* ]]; then
     echo "  OK: Retro-SPEC found: $RETRO_SPEC_FILE"
 
     # Check for TBD/TODO — these must be resolved before merge
-    TBD_COUNT=$(grep -cE "^[^>]*TBD" "$RETRO_SPEC_FILE" 2>/dev/null || echo "0")
+    TBD_COUNT=$(grep -cE "^[^>]*TBD" "$RETRO_SPEC_FILE" 2>/dev/null || true)
     if [ "$TBD_COUNT" -gt 0 ]; then
       echo "  ERROR: Retro-SPEC に TBD が $TBD_COUNT 件残っています。全て埋めてください"
       ERRORS=$((ERRORS + 1))
@@ -198,7 +198,7 @@ if [[ "$CURRENT_BRANCH" == promote/* ]]; then
     if [ -z "$PROMOTION_COMMITS" ]; then
       echo "  OK: 昇格後コミットなし（TASK-ID チェック対象なし）"
     else
-      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "$TASK_ACCEPT_RE" || echo "0")
+      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "$TASK_ACCEPT_RE" || true)
       if [ "$COMMITS_WITHOUT_TASKID" -gt 0 ]; then
         echo "  ERROR: promote/* ブランチの昇格後コミットに TASK-ID なしが ${COMMITS_WITHOUT_TASKID} 件あります"
         ERRORS=$((ERRORS + 1))

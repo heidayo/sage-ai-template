@@ -56,7 +56,7 @@ echo "  Found $COMMIT_COUNT commits"
 
 echo "[2/5] Gathering changed files..."
 CHANGED_FILES=$(git diff --name-only "$BASE_BRANCH"..."$BRANCH" 2>/dev/null || git diff --name-only HEAD~5)
-FILE_COUNT=$(echo "$CHANGED_FILES" | grep -c . || echo "0")
+FILE_COUNT=$(echo "$CHANGED_FILES" | grep -c . || true)
 echo "  Found $FILE_COUNT changed files"
 
 echo "[3/5] Analyzing diff stats..."

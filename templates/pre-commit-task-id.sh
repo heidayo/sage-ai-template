@@ -38,7 +38,7 @@ if echo "$BRANCH" | grep -qE "^(fix|chore|docs)/"; then
   fi
 
   # Enforce no contract changes (API/DB/event schema)
-  CONTRACT_CHANGES=$(git diff --cached --name-only | grep -cE "(openapi|swagger|schema|migration|\.proto|\.graphql|\.avsc)" || echo "0")
+  CONTRACT_CHANGES=$(git diff --cached --name-only | grep -cE "(openapi|swagger|schema|migration|\.proto|\.graphql|\.avsc)" || true)
   if [ "$CONTRACT_CHANGES" -gt 0 ]; then
     echo ""
     echo "  SAGE: lite lane prohibits contract changes (API/DB/event schema)"
