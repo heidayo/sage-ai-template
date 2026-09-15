@@ -37,7 +37,7 @@ if command -v jq &>/dev/null; then
   # Use jq for proper JSON construction
   if [ -n "$CHANGED_FILES" ]; then
     FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null || echo "[]")
-    FILES_COUNT=$(echo "$CHANGED_FILES" | grep -c '.' 2>/dev/null || echo "0")
+    FILES_COUNT=$(echo "$CHANGED_FILES" | grep -c '.' 2>/dev/null || true)
   else
     FILES_JSON="[]"
     FILES_COUNT=0

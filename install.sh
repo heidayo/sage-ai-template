@@ -1913,7 +1913,7 @@ if echo "$BRANCH" | grep -qE "^(fix|chore|docs)/"; then
   fi
 
   # Enforce no contract changes (API/DB/event schema)
-  CONTRACT_CHANGES=$(git diff --cached --name-only | grep -cE "(openapi|swagger|schema|migration|\.proto|\.graphql|\.avsc)" || echo "0")
+  CONTRACT_CHANGES=$(git diff --cached --name-only | grep -cE "(openapi|swagger|schema|migration|\.proto|\.graphql|\.avsc)" || true)
   if [ "$CONTRACT_CHANGES" -gt 0 ]; then
     echo ""
     echo "  SAGE: lite lane prohibits contract changes (API/DB/event schema)"
@@ -4733,7 +4733,7 @@ if [[ "$CURRENT_BRANCH" == promote/* ]]; then
     echo "  OK: Retro-SPEC found: $RETRO_SPEC_FILE"
 
     # Check for TBD/TODO — these must be resolved before merge
-    TBD_COUNT=$(grep -cE "^[^>]*TBD" "$RETRO_SPEC_FILE" 2>/dev/null || echo "0")
+    TBD_COUNT=$(grep -cE "^[^>]*TBD" "$RETRO_SPEC_FILE" 2>/dev/null || true)
     if [ "$TBD_COUNT" -gt 0 ]; then
       echo "  ERROR: Retro-SPEC に TBD が $TBD_COUNT 件残っています。全て埋めてください"
       ERRORS=$((ERRORS + 1))
@@ -4758,7 +4758,7 @@ if [[ "$CURRENT_BRANCH" == promote/* ]]; then
     if [ -z "$PROMOTION_COMMITS" ]; then
       echo "  OK: 昇格後コミットなし（TASK-ID チェック対象なし）"
     else
-      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "$TASK_ACCEPT_RE" || echo "0")
+      COMMITS_WITHOUT_TASKID=$(printf '%s\n' "$PROMOTION_COMMITS" | grep -cvE "$TASK_ACCEPT_RE" || true)
       if [ "$COMMITS_WITHOUT_TASKID" -gt 0 ]; then
         echo "  ERROR: promote/* ブランチの昇格後コミットに TASK-ID なしが ${COMMITS_WITHOUT_TASKID} 件あります"
         ERRORS=$((ERRORS + 1))
@@ -5354,7 +5354,7 @@ echo "  Found $COMMIT_COUNT commits"
 
 echo "[2/5] Gathering changed files..."
 CHANGED_FILES=$(git diff --name-only "$BASE_BRANCH"..."$BRANCH" 2>/dev/null || git diff --name-only HEAD~5)
-FILE_COUNT=$(echo "$CHANGED_FILES" | grep -c . || echo "0")
+FILE_COUNT=$(echo "$CHANGED_FILES" | grep -c . || true)
 echo "  Found $FILE_COUNT changed files"
 
 echo "[3/5] Analyzing diff stats..."
@@ -6761,7 +6761,7 @@ if command -v jq &>/dev/null; then
   # Use jq for proper JSON construction
   if [ -n "$CHANGED_FILES" ]; then
     FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null || echo "[]")
-    FILES_COUNT=$(echo "$CHANGED_FILES" | grep -c '.' 2>/dev/null || echo "0")
+    FILES_COUNT=$(echo "$CHANGED_FILES" | grep -c '.' 2>/dev/null || true)
   else
     FILES_JSON="[]"
     FILES_COUNT=0

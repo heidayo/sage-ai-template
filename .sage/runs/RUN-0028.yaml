@@ -1,0 +1,50 @@
+run_id: RUN-0028
+task_id: TASK-0225
+agent_id: implementation
+started_at: "2026-09-15T09:45:00Z"
+completed_at: "2026-09-15T10:05:00Z"
+status: pass
+files_changed:
+  - .sage/runs/RUN-0028.yaml
+  - SHA256SUMS
+  - install.sh
+  - scripts/sage-report.sh
+  - scripts/sage-retro-spec.sh
+  - scripts/sage-validate.sh
+  - tasks/TASK-0225-grep-count-fallback.md
+  - tasks/TASK-0226-regen-install-sha256sums.md
+  - templates/hooks/session-stop.sh
+  - templates/hooks/tests/test-count-fallback.sh
+  - templates/pre-commit-task-id.sh
+gate_results:
+  structural: pass
+  functional: pass
+  security: pass
+  architecture: skipped
+  release: skipped
+error_log: ""
+related_tasks: [TASK-0226]
+runtime: claude-code
+approval_policy: unknown
+network_mode: unknown
+commands:
+  - bash templates/hooks/tests/test-count-fallback.sh
+  - bash templates/hooks/tests/run-tests.sh
+  - shellcheck -S warning templates/pre-commit-task-id.sh templates/hooks/session-stop.sh scripts/sage-validate.sh scripts/sage-retro-spec.sh scripts/sage-report.sh templates/hooks/tests/test-count-fallback.sh
+  - bash scripts/generate-installer.sh
+  - shasum -a 256 install.sh
+  - shasum -a 256 -c SHA256SUMS
+  - shellcheck -S error install.sh
+  - bash scripts/sage-installer-reproduce.sh
+  - bash scripts/sage-validate.sh
+  - bash scripts/sage-doc-drift.sh
+  - bash scripts/sage-runlog-validate.sh
+notes:
+  - 'Lite lane (fix/*). Architecture and release gates are not part of the lite lane and were not run.'
+  - 'Reported from makeculture-hp-v2, where every fix/* commit printed "commit-msg: line 42: [: 0\n0: integer expression expected". grep -c prints 0 and exits 1 on no match, so "|| echo 0" appended a second 0.'
+  - 'The new test was run before the fix and failed 3 of 10 assertions, reproducing the commit-msg hook (line 42), sage-validate.sh (lines 177 and 202) and sage-retro-spec.sh ("Found 0\n0 changed files"). After the fix it passes 10 of 10.'
+  - 'The session-stop.sh and sage-report.sh occurrences are guarded by a non-empty check, so the no-match path is practically unreachable there; they were changed for consistency and have no dedicated regression case.'
+  - 'Before regeneration, run-tests.sh failed only test-installer-modularize (byte-identical, 20 diff lines = the 5 changed lines). After regenerating install.sh and SHA256SUMS all 406 assertions pass.'
+  - '"bash install.sh --verify-checksum" exits 2 in the template repo because .sage/install-state.yaml does not exist there; SHA256SUMS was verified with "shasum -a 256 -c SHA256SUMS" instead.'
+  - 'Work was done in a separate worktree from origin/main because the main checkout has an in-progress Codex branch (codex/spec-0032-review-remediation) with uncommitted changes. IDs start after that branch''s TASK-0224 / RUN-0027 to avoid collisions.'
+  - 'Out of scope, found while building the validate sandbox on macOS bash 3.2 - sage-validate.sh [7/9] aborts with "SECURITY_SCAN_FILES[@]: unbound variable" when the array is empty. CI runs bash 5, where this does not occur.'
