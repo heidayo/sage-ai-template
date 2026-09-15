@@ -171,7 +171,7 @@ set -o pipefail
 
 CYCLE_COUNT=0
 if [ -n "$CYCLE_SAMPLES" ]; then
-  CYCLE_COUNT=$(printf '%s' "$CYCLE_SAMPLES" | tr ' ' '\n' | grep -c . 2>/dev/null || echo 0)
+  CYCLE_COUNT=$(printf '%s' "$CYCLE_SAMPLES" | tr ' ' '\n' | grep -c . 2>/dev/null || true)
 fi
 if [ "${CYCLE_COUNT:-0}" -gt 0 ]; then
   P50=$(printf '%s\n' $CYCLE_SAMPLES | sort -n | awk -v n="$CYCLE_COUNT" 'NR == int((n+1)/2) {print; exit}')
